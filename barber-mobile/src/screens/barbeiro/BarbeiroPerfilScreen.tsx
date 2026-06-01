@@ -1,6 +1,10 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, TextInput, TouchableOpacity, Alert, ActivityIndicator, ScrollView } from 'react-native';
+import {
+  View, Text, StyleSheet, TextInput, TouchableOpacity,
+  Alert, ActivityIndicator, ScrollView, Image,
+} from 'react-native';
 import { Feather } from '@expo/vector-icons';
+import * as ImagePicker from 'expo-image-picker';
 import { useAuth } from '../../contexts/AuthContext';
 import { supabase } from '../../lib/supabase';
 import { useTheme } from '../../contexts/ThemeContext';
@@ -13,8 +17,10 @@ export default function BarbeiroPerfilScreen() {
   const { user, signOut } = useAuth();
   const [nome, setNome]                   = useState('');
   const [especialidade, setEspecialidade] = useState('');
+  const [fotoUrl, setFotoUrl]             = useState<string | null>(null);
   const [loading, setLoading]             = useState(true);
   const [saving, setSaving]               = useState(false);
+  const [uploadingFoto, setUploadingFoto] = useState(false);
 
   useEffect(() => { fetchPerfil(); }, []);
 
@@ -23,7 +29,58 @@ export default function BarbeiroPerfilScreen() {
     const { data } = await supabase.from('barbeiros').select('*').eq('user_id', user.id).single();
     setNome(data?.nome ?? '');
     setEspecialidade(data?.especialidade ?? '');
+    setFotoUrl((data as any)?.foto_url ?? null);
     setLoading(false);
+  }
+
+  async function escolherFoto() {
+    const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (!perm.granted) {
+      Alert.alert('Permissão necessária', 'Permita o acesso à galeria nas configurações.');
+      return;
+    }
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ['images'],
+      allowsEditing: true,
+      aspect: [1, 1],
+      quality: 0.6,
+      base64: true,
+    });
+    if (!result.canceled && result.assets[0].base64) {
+      await uploadFoto(result.assets[0].base64);
+    }
+  }
+
+  async function uploadFoto(base64: string) {
+    if (!user) return;
+    setUploadingFoto(true);
+    try {
+      const byteChars = atob(base64);
+      const bytes = new Uint8Array(byteChars.length);
+      for (let i = 0; i < byteChars.length; i++) {
+        bytes[i] = byteChars.charCodeAt(i);
+      }
+
+      const path = `${user.id}/foto.jpg`;
+
+      const { error: uploadError } = await (supabase.storage as any)
+        .from('barbeiro-fotos')
+        .upload(path, bytes, { contentType: 'image/jpeg', upsert: true });
+
+      if (uploadError) throw uploadError;
+
+      const { data: urlData } = (supabase.storage as any)
+        .from('barbeiro-fotos')
+        .getPublicUrl(path);
+
+      const publicUrl = urlData.publicUrl;
+      await supabase.from('barbeiros').update({ foto_url: publicUrl } as any).eq('user_id', user.id);
+      setFotoUrl(`${publicUrl}?t=${Date.now()}`);
+      Alert.alert('Foto atualizada!', 'Sua foto de perfil foi salva.');
+    } catch (e: any) {
+      Alert.alert('Erro', e.message ?? 'Não foi possível fazer o upload.');
+    }
+    setUploadingFoto(false);
   }
 
   async function salvar() {
@@ -42,6 +99,26 @@ export default function BarbeiroPerfilScreen() {
       <View style={s.pageHeader}>
         <Text style={s.pageLabel}>CONTA</Text>
         <Text style={s.pageTitle}>Meu Perfil</Text>
+      </View>
+
+      {/* Foto de perfil */}
+      <View style={s.fotoSection}>
+        <TouchableOpacity style={s.fotoContainer} onPress={escolherFoto} disabled={uploadingFoto}>
+          {fotoUrl ? (
+            <Image source={{ uri: fotoUrl }} style={s.foto} />
+          ) : (
+            <View style={s.fotoPlaceholder}>
+              <Text style={s.fotoLetra}>{nome ? nome[0].toUpperCase() : '?'}</Text>
+            </View>
+          )}
+          <View style={s.fotoCameraBtn}>
+            {uploadingFoto
+              ? <ActivityIndicator size="small" color={C.primaryFg} />
+              : <Feather name="camera" size={14} color={C.primaryFg} />
+            }
+          </View>
+        </TouchableOpacity>
+        <Text style={s.fotoLabel}>TOQUE PARA ALTERAR</Text>
       </View>
 
       <View style={s.section}>
@@ -91,6 +168,13 @@ function makeStyles(C: Theme) {
     pageHeader:       { paddingHorizontal: 24, paddingTop: 56, paddingBottom: 20, borderBottomWidth: 1, borderBottomColor: C.border },
     pageLabel:        { fontFamily: F.mono, fontSize: 10, color: C.mutedFg, letterSpacing: 1.5, marginBottom: 4 },
     pageTitle:        { fontFamily: F.sansLight, fontSize: 26, color: C.primary, letterSpacing: -0.5 },
+    fotoSection:      { alignItems: 'center', paddingVertical: 28 },
+    fotoContainer:    { position: 'relative' },
+    foto:             { width: 96, height: 96, borderRadius: 0 },
+    fotoPlaceholder:  { width: 96, height: 96, backgroundColor: C.card, borderWidth: 1, borderColor: C.border, justifyContent: 'center', alignItems: 'center' },
+    fotoLetra:        { fontFamily: F.mono, fontSize: 36, color: C.primary },
+    fotoCameraBtn:    { position: 'absolute', bottom: 0, right: 0, width: 28, height: 28, backgroundColor: C.primary, justifyContent: 'center', alignItems: 'center' },
+    fotoLabel:        { fontFamily: F.mono, fontSize: 9, color: C.mutedFg, letterSpacing: 1.5, marginTop: 10 },
     section:          { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 24, paddingVertical: 20 },
     sectionLabel:     { fontFamily: F.mono, fontSize: 10, color: C.mutedFg, letterSpacing: 1.5, marginRight: 12 },
     sectionLine:      { flex: 1, height: 1, backgroundColor: C.border },

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, FlatList, ScrollView, ActivityIndicator, Alert } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, FlatList, ScrollView, ActivityIndicator, Alert, Image } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
 import { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
@@ -54,6 +54,7 @@ export default function BookingScreen() {
     try {
       const { data, error } = await supabase.from('barbeiros').select('*').eq('ativo', true);
       if (error) throw error;
+      console.log('[barbeiros] foto_url:', (data ?? []).map((b: any) => ({ nome: b.nome, foto: b.foto_url })));
       setBarbeiros(data ?? []);
       setErroBarbeiros(null);
     } catch (e: any) {
@@ -179,7 +180,12 @@ export default function BookingScreen() {
               <TouchableOpacity key={b.id} style={[s.option, i < barbeiros.length - 1 && s.optionBorder]}
                 onPress={() => { setSelectedBarbeiro(b); setStep(1); }}>
                 <View style={s.optionLeft}>
-                  <View style={s.avatar}><Text style={s.avatarText}>{b.nome[0]}</Text></View>
+                  <View style={s.avatar}>
+                    {(b as any).foto_url
+                      ? <Image source={{ uri: (b as any).foto_url }} style={{ width: 40, height: 40 }} />
+                      : <Text style={s.avatarText}>{b.nome[0]}</Text>
+                    }
+                  </View>
                   <View>
                     <Text style={s.optionName}>{b.nome}</Text>
                     <Text style={s.optionSub}>{b.especialidade ?? 'Especialista'}</Text>
