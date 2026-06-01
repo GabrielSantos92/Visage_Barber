@@ -54,8 +54,7 @@ export default function BookingScreen() {
     try {
       const { data, error } = await supabase.from('barbeiros').select('*').eq('ativo', true);
       if (error) throw error;
-      console.log('[barbeiros] foto_url:', (data ?? []).map((b: any) => ({ nome: b.nome, foto: b.foto_url })));
-      setBarbeiros(data ?? []);
+setBarbeiros(data ?? []);
       setErroBarbeiros(null);
     } catch (e: any) {
       setErroBarbeiros(e.message ?? 'Erro ao carregar barbeiros.');

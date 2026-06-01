@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import {
   View, Text, StyleSheet, FlatList, ActivityIndicator,
-  TouchableOpacity, Alert, TextInput, Modal, ScrollView,
+  TouchableOpacity, Alert, TextInput, Modal, ScrollView, Image,
 } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { supabase } from '../../lib/supabase';
@@ -76,7 +76,7 @@ export default function BarbeariasScreen() {
     try {
       const { data, error } = await supabase.from('barbeiros').select('*').order('nome');
       if (error) throw error;
-      setBarbeiros(data ?? []);
+setBarbeiros(data ?? []);
       setErro(null);
     } catch (e: any) {
       setErro(e.message ?? 'Erro ao carregar barbeiros.');
@@ -134,8 +134,32 @@ export default function BarbeariasScreen() {
   }
 
   async function alternarAtivo(b: Barbeiro) {
-    await supabase.from('barbeiros').update({ ativo: !b.ativo }).eq('id', b.id);
-    fetchBarbeiros();
+    if (b.ativo) {
+      const { data: abertos } = await supabase
+        .from('agendamentos')
+        .select('id')
+        .eq('barbeiro_id', b.id)
+        .in('status', ['pendente', 'confirmado']);
+
+      if (abertos && abertos.length > 0) {
+        Alert.alert(
+          'Não é possível inativar',
+          `${b.nome} tem ${abertos.length} agendamento(s) em aberto. Cancele-os antes de inativar.`,
+        );
+        return;
+      }
+
+      Alert.alert('Inativar barbeiro', `Deseja inativar ${b.nome}?`, [
+        { text: 'Cancelar', style: 'cancel' },
+        { text: 'Inativar', style: 'destructive', onPress: async () => {
+          await supabase.from('barbeiros').update({ ativo: false }).eq('id', b.id);
+          fetchBarbeiros();
+        }},
+      ]);
+    } else {
+      await supabase.from('barbeiros').update({ ativo: true }).eq('id', b.id);
+      fetchBarbeiros();
+    }
   }
 
   async function abrirServicos(b: Barbeiro) {
@@ -275,7 +299,10 @@ export default function BarbeariasScreen() {
         renderItem={({ item, index }) => (
           <View style={[s.item, index < barbeiros.length - 1 && { borderBottomWidth: 1, borderBottomColor: C.border }]}>
             <View style={s.avatar}>
-              <Text style={s.avatarText}>{item.nome[0].toUpperCase()}</Text>
+              {(item as any).foto_url
+                ? <Image source={{ uri: (item as any).foto_url }} style={{ width: 36, height: 36 }} />
+                : <Text style={s.avatarText}>{item.nome[0].toUpperCase()}</Text>
+              }
             </View>
             <View style={s.itemInfo}>
               <Text style={s.itemNome}>{item.nome}</Text>
