@@ -12,6 +12,7 @@ import PerfilScreen from '../screens/cliente/PerfilScreen';
 import VisagismoFotoScreen from '../screens/cliente/VisagismoFotoScreen';
 import VisagismoResultadoScreen from '../screens/cliente/VisagismoResultadoScreen';
 import ChatScreen from '../screens/chat/ChatScreen';
+import { usePushToken } from '../hooks/usePushToken';
 import { useTheme } from '../contexts/ThemeContext';
 import { F } from '../lib/theme';
 
@@ -89,6 +90,7 @@ function ClienteTabs() {
 
 export default function ClienteNavigator() {
   const { C } = useTheme();
+  usePushToken('cliente');
   return (
     <Stack.Navigator screenOptions={{ headerShown: false }}>
       <Stack.Screen name="ClienteTabs" component={ClienteTabs} />

@@ -7,6 +7,7 @@ import AgendaScreen from '../screens/barbeiro/AgendaScreen';
 import ServicosScreen from '../screens/barbeiro/ServicosScreen';
 import BarbeiroPerfilScreen from '../screens/barbeiro/BarbeiroPerfilScreen';
 import ChatScreen from '../screens/chat/ChatScreen';
+import { usePushToken } from '../hooks/usePushToken';
 import { useTheme } from '../contexts/ThemeContext';
 import { F } from '../lib/theme';
 
@@ -76,6 +77,7 @@ function BarbeiroTabs() {
 
 export default function BarbeiroNavigator() {
   const { C } = useTheme();
+  usePushToken('barbeiro');
   return (
     <Stack.Navigator screenOptions={{ headerShown: false }}>
       <Stack.Screen name="BarbeiroTabs" component={BarbeiroTabs} />

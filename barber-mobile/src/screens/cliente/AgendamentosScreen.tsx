@@ -42,8 +42,24 @@ export default function AgendamentosScreen() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
+  const [unreadMap, setUnreadMap] = useState<Record<string, number>>({});
 
   useFocusEffect(useCallback(() => { fetchAgendamentos(); }, []));
+
+  async function fetchUnread() {
+    if (!user) return;
+    const db = supabase as any;
+    const { data: conversas } = await db.from('conversas').select('id, barbeiro_id').eq('cliente_id', user.id);
+    if (!conversas?.length) return;
+    const ids = conversas.map((c: any) => c.id);
+    const { data: msgs } = await db.from('mensagens').select('conversa_id').in('conversa_id', ids).eq('lida', false).neq('remetente_id', user.id);
+    const map: Record<string, number> = {};
+    (msgs ?? []).forEach((m: any) => {
+      const c = conversas.find((c: any) => c.id === m.conversa_id);
+      if (c) map[c.barbeiro_id] = (map[c.barbeiro_id] ?? 0) + 1;
+    });
+    setUnreadMap(map);
+  }
 
   async function fetchAgendamentos() {
     if (!user) return;
@@ -69,6 +85,7 @@ export default function AgendamentosScreen() {
     }
     setLoading(false);
     setRefreshing(false);
+    fetchUnread();
   }
 
   async function cancelar(id: string) {
@@ -151,6 +168,11 @@ export default function AgendamentosScreen() {
                     })}>
                     <Feather name="message-circle" size={12} color={C.primary} />
                     <Text style={[s.actionText, { color: C.primary }]}>CHAT</Text>
+                    {(unreadMap[item.barbeiro_id] ?? 0) > 0 && (
+                      <View style={s.unreadBadge}>
+                        <Text style={s.unreadBadgeText}>{unreadMap[item.barbeiro_id]}</Text>
+                      </View>
+                    )}
                   </TouchableOpacity>
                 )}
               </View>
@@ -185,8 +207,10 @@ function makeStyles(C: Theme) {
     cardDivider: { height: 1, backgroundColor: C.border, marginBottom: 12 },
     barbeiro:    { fontFamily: F.sansMedium, fontSize: 16, color: C.primary, marginBottom: 2 },
     servico:     { fontFamily: F.sans, fontSize: 13, color: C.mutedFg },
-    actions:     { flexDirection: 'row', marginTop: 14, gap: 12 },
-    actionBtn:   { flexDirection: 'row', alignItems: 'center', gap: 6 },
-    actionText:  { fontFamily: F.mono, fontSize: 10, letterSpacing: 1.5 },
+    actions:         { flexDirection: 'row', marginTop: 14, gap: 12 },
+    actionBtn:       { flexDirection: 'row', alignItems: 'center', gap: 6 },
+    actionText:      { fontFamily: F.mono, fontSize: 10, letterSpacing: 1.5 },
+    unreadBadge:     { backgroundColor: C.destructive, borderRadius: 8, minWidth: 16, height: 16, justifyContent: 'center', alignItems: 'center', paddingHorizontal: 4 },
+    unreadBadgeText: { fontFamily: F.mono, fontSize: 9, color: '#fff' },
   });
 }

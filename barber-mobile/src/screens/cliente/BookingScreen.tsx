@@ -10,6 +10,7 @@ import { useTheme } from '../../contexts/ThemeContext';
 import { F, Theme } from '../../lib/theme';
 import ErroFetch from '../../components/ErroFetch';
 import { ClienteTabParamList } from '../../navigation/ClienteNavigator';
+import { sendPushNotification } from '../../lib/notifications';
 
 type Barbeiro = Tables<'barbeiros'>;
 type Servico  = Tables<'servicos'>;
@@ -122,8 +123,18 @@ setBarbeiros(data ?? []);
       servico_id: selectedServico.id, data_hora: dataHora.toISOString(),
     });
     setSubmitting(false);
-    if (error) Alert.alert('Erro', error.message);
-    else Alert.alert('Agendado!', 'Seu horário foi reservado.', [{ text: 'OK', onPress: reset }]);
+    if (error) { Alert.alert('Erro', error.message); return; }
+
+    const { data: barb } = await supabase
+      .from('barbeiros').select('push_token').eq('id', selectedBarbeiro.id).single();
+    const data_fmt = selectedData.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' });
+    sendPushNotification(
+      (barb as any)?.push_token,
+      'Novo agendamento!',
+      `${selectedServico.nome} — ${data_fmt} às ${selectedHorario}`,
+    );
+
+    Alert.alert('Agendado!', 'Seu horário foi reservado.', [{ text: 'OK', onPress: reset }]);
   }
 
   function reset() {

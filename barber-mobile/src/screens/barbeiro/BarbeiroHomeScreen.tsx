@@ -42,6 +42,7 @@ export default function BarbeiroHomeScreen() {
   const [barbeiroId, setBarbeiroId]   = useState<string | null>(null);
   const [filtro, setFiltro]           = useState<Filtro>('ativo');
   const [erro, setErro]               = useState<string | null>(null);
+  const [unreadMap, setUnreadMap]     = useState<Record<string, number>>({});
 
   useFocusEffect(useCallback(() => { fetchDados(); }, []));
 
@@ -77,6 +78,24 @@ export default function BarbeiroHomeScreen() {
       const merged = (agData ?? []).map((a: any) => ({ ...a, profiles: profileMap[a.cliente_id] ?? null }));
       setTodos(merged as Agendamento[]);
       setErro(null);
+
+      // Buscar não lidas por cliente
+      if (b?.id) {
+        const db = supabase as any;
+        const { data: convs } = await db.from('conversas').select('id, cliente_id').eq('barbeiro_id', b.id);
+        if (convs?.length) {
+          const { data: msgs } = await db.from('mensagens').select('conversa_id')
+            .in('conversa_id', convs.map((c: any) => c.id))
+            .eq('lida', false)
+            .neq('remetente_id', user!.id);
+          const map: Record<string, number> = {};
+          (msgs ?? []).forEach((m: any) => {
+            const c = convs.find((c: any) => c.id === m.conversa_id);
+            if (c) map[c.cliente_id] = (map[c.cliente_id] ?? 0) + 1;
+          });
+          setUnreadMap(map);
+        }
+      }
     } catch (e: any) {
       setErro(e.message ?? 'Erro ao carregar agendamentos.');
     }
@@ -181,6 +200,11 @@ export default function BarbeiroHomeScreen() {
                 })}>
                 <Feather name="message-circle" size={12} color={C.accent} />
                 <Text style={[s.acaoText, { color: C.accent }]}>CHAT</Text>
+                {(unreadMap[item.cliente_id] ?? 0) > 0 && (
+                  <View style={s.unreadBadge}>
+                    <Text style={s.unreadBadgeText}>{unreadMap[item.cliente_id]}</Text>
+                  </View>
+                )}
               </TouchableOpacity>
             </View>
           );
@@ -217,9 +241,11 @@ function makeStyles(C: Theme) {
     acoes:         { flexDirection: 'row', gap: 16, marginTop: 14 },
     acaoConfirm:   { flexDirection: 'row', alignItems: 'center', gap: 6 },
     acaoCancel:    { flexDirection: 'row', alignItems: 'center', gap: 6 },
-    acaoConcluir:  { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 14 },
-    acaoChat:      { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 14 },
-    acaoText:      { fontFamily: F.mono, fontSize: 10, letterSpacing: 1.5 },
+    acaoConcluir:    { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 14 },
+    acaoChat:        { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 14 },
+    acaoText:        { fontFamily: F.mono, fontSize: 10, letterSpacing: 1.5 },
+    unreadBadge:     { backgroundColor: C.destructive, borderRadius: 8, minWidth: 16, height: 16, justifyContent: 'center', alignItems: 'center', paddingHorizontal: 4 },
+    unreadBadgeText: { fontFamily: F.mono, fontSize: 9, color: '#fff' },
     btnPrimary:    { backgroundColor: C.primary, paddingVertical: 16, alignItems: 'center', marginTop: 20 },
     btnPrimaryText:{ fontFamily: F.mono, fontSize: 11, color: C.primaryFg, letterSpacing: 2.5 },
   });

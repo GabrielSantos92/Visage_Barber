@@ -7,6 +7,7 @@ import { Feather } from '@expo/vector-icons';
 import { useRoute, RouteProp } from '@react-navigation/native';
 import { useAuth } from '../../contexts/AuthContext';
 import { supabase as _supabase } from '../../lib/supabase';
+import { sendPushNotification } from '../../lib/notifications';
 import { useTheme } from '../../contexts/ThemeContext';
 import { F, Theme } from '../../lib/theme';
 
@@ -91,6 +92,11 @@ export default function ChatScreen() {
       .eq('conversa_id', cid)
       .order('created_at', { ascending: true });
     if (data) setMensagens(data);
+    // Marcar mensagens do outro como lidas
+    await db.from('mensagens')
+      .update({ lida: true })
+      .eq('conversa_id', cid)
+      .neq('remetente_id', user?.id);
   }
 
   async function enviar() {
@@ -101,6 +107,17 @@ export default function ChatScreen() {
     setEnviando(true);
     await db.from('mensagens').insert({ conversa_id: cid, remetente_id: user.id, conteudo });
     await buscarMensagens(cid);
+
+    // Notificar o destinatário
+    const ehCliente = user.id === clienteId;
+    if (ehCliente) {
+      const { data: barb } = await db.from('barbeiros').select('push_token').eq('id', barbeiroId).single();
+      sendPushNotification(barb?.push_token, outroNome, conteudo);
+    } else {
+      const { data: prof } = await db.from('profiles').select('push_token').eq('id', clienteId).single();
+      sendPushNotification(prof?.push_token, outroNome, conteudo);
+    }
+
     setEnviando(false);
   }
 
