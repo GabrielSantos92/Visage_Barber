@@ -29,7 +29,7 @@ export type ClienteStackParamList = {
   Avaliacao: { agendamentoId: string; barbeiroId: string };
   Recomendacao: { formato: string };
   VisagismoFoto: undefined;
-  VisagismoResultado: { resultado: any };
+  VisagismoResultado: { resultado: any; fotoUri?: string; fotoBase64?: string };
   Chat: { outroNome: string; barbeiroId: string; clienteId: string };
 };
 

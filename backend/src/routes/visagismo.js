@@ -1,8 +1,10 @@
 const express = require('express');
 const router = express.Router();
 
-const PROMPT_VISAGISMO = `Você é um especialista em visagismo e consultoria de imagem masculina.
-Analise esta foto do rosto e retorne SOMENTE um JSON válido, sem markdown, sem explicações extras.
+const PROMPT_VISAGISMO = `Você é um consultor profissional de visagismo em uma barbearia.
+Analise a GEOMETRIA e ESTRUTURA FACIAL desta imagem para recomendar cortes de cabelo masculinos.
+Foque apenas nos traços geométricos (formato, proporções, ângulos faciais) sem identificar a pessoa.
+Retorne SOMENTE um JSON válido, sem markdown, sem explicações extras.
 
 Estrutura obrigatória:
 {
@@ -71,7 +73,10 @@ router.post('/analisar', async (req, res) => {
     const openaiData = await openaiRes.json();
     const choice = openaiData.choices?.[0];
     console.log('[visagismo] finish_reason:', choice?.finish_reason);
-    console.log('[visagismo] refusal:', choice?.message?.refusal);
+    if (choice?.message?.refusal) {
+      console.error('[visagismo] recusado pelo modelo:', choice.message.refusal);
+      return res.status(502).json({ error: 'A IA recusou analisar a imagem. Tente com outra foto.' });
+    }
     const texto = choice?.message?.content ?? '';
     console.log('[visagismo] resposta bruta:', texto.substring(0, 500));
 
@@ -87,6 +92,75 @@ router.post('/analisar', async (req, res) => {
   } catch (err) {
     console.error('[visagismo]', err);
     return res.status(500).json({ error: err.message ?? 'Erro interno.' });
+  }
+});
+
+// POST /api/visagismo/imagem-referencia
+router.post('/imagem-referencia', async (req, res) => {
+  try {
+    const { formato_rosto, corte, barba, imagem_base64 } = req.body;
+
+    const prompt = `professional barbershop portrait of a young man with ${corte} haircut and ${barba} beard, sharp clean lines, freshly styled, studio lighting, white background, high-end grooming magazine photo, photorealistic, 8k`;
+
+    console.log('[visagismo] gerando imagem via Replicate FLUX para:', corte);
+
+    const createRes = await fetch('https://api.replicate.com/v1/models/black-forest-labs/flux-dev/predictions', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${process.env.REPLICATE_API_KEY}`,
+        'Content-Type': 'application/json',
+        'Prefer': 'wait=60',
+      },
+      body: JSON.stringify({
+        input: {
+          prompt,
+          num_inference_steps: 30,
+          guidance: 3.5,
+          aspect_ratio: '3:4',
+          output_format: 'jpg',
+          output_quality: 95,
+        },
+      }),
+    });
+
+    if (!createRes.ok) {
+      const err = await createRes.json().catch(() => ({}));
+      throw new Error(`Replicate erro ${createRes.status}: ${err.detail ?? JSON.stringify(err)}`);
+    }
+
+    let prediction = await createRes.json();
+    console.log('[visagismo] prediction id:', prediction.id, 'status:', prediction.status);
+
+    let tentativas = 0;
+    while (prediction.status !== 'succeeded' && prediction.status !== 'failed' && tentativas < 100) {
+      await new Promise(r => setTimeout(r, 3000));
+      const pollRes = await fetch(`https://api.replicate.com/v1/predictions/${prediction.id}`, {
+        headers: { 'Authorization': `Bearer ${process.env.REPLICATE_API_KEY}` },
+      });
+      prediction = await pollRes.json();
+      console.log('[visagismo] status:', prediction.status);
+      tentativas++;
+    }
+
+    if (prediction.status === 'failed') throw new Error('Replicate falhou: ' + (prediction.error ?? 'erro desconhecido'));
+    if (prediction.status !== 'succeeded') throw new Error('Timeout na geração');
+
+    const outputUrl = Array.isArray(prediction.output) ? prediction.output[0] : prediction.output;
+    if (!outputUrl) throw new Error('Sem imagem de saída');
+
+    console.log('[visagismo] baixando imagem gerada...');
+    const imgRes = await fetch(outputUrl);
+    if (!imgRes.ok) throw new Error(`Erro ao baixar imagem: ${imgRes.status}`);
+
+    const buffer = await imgRes.arrayBuffer();
+    const base64 = Buffer.from(buffer).toString('base64');
+    const contentType = imgRes.headers.get('content-type') ?? 'image/png';
+
+    console.log('[visagismo] imagem pronta, tamanho base64:', base64.length);
+    return res.json({ base64, contentType });
+  } catch (err) {
+    console.error('[visagismo] erro imagem-referencia:', err.message);
+    return res.status(502).json({ error: err.message ?? 'Erro ao gerar imagem.' });
   }
 });
 

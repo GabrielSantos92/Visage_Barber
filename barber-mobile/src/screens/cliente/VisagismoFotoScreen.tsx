@@ -1,9 +1,10 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import {
   View, Text, StyleSheet, TouchableOpacity, Image,
   ActivityIndicator, Alert, ScrollView,
 } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
+import { CameraView, useCameraPermissions } from 'expo-camera';
 import { Feather } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 import { StackNavigationProp } from '@react-navigation/stack';
@@ -19,8 +20,12 @@ export default function VisagismoFotoScreen() {
   const s = React.useMemo(() => makeStyles(C), [C]);
   const navigation = useNavigation<Nav>();
 
-  const [foto, setFoto]       = useState<string | null>(null);
-  const [loading, setLoading] = useState(false);
+  const [foto, setFoto]           = useState<string | null>(null);
+  const [fotoUri, setFotoUri]     = useState<string | null>(null);
+  const [loading, setLoading]     = useState(false);
+  const [cameraAtiva, setCameraAtiva] = useState(false);
+  const [cameraPermission, requestCameraPermission] = useCameraPermissions();
+  const cameraRef = useRef<CameraView>(null);
 
   async function escolherGaleria() {
     const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
@@ -34,20 +39,32 @@ export default function VisagismoFotoScreen() {
     });
     if (!result.canceled && result.assets[0].base64) {
       setFoto(result.assets[0].base64);
+      setFotoUri(result.assets[0].uri);
     }
   }
 
-  async function tirarFoto() {
-    const perm = await ImagePicker.requestCameraPermissionsAsync();
-    if (!perm.granted) { Alert.alert('Permissão necessária', 'Permita o acesso à câmera nas configurações.'); return; }
-    const result = await ImagePicker.launchCameraAsync({
-      quality: 0.7,
-      base64: true,
-      allowsEditing: true,
-      aspect: [3, 4],
-    });
-    if (!result.canceled && result.assets[0].base64) {
-      setFoto(result.assets[0].base64);
+  async function abrirCamera() {
+    if (!cameraPermission?.granted) {
+      const { granted } = await requestCameraPermission();
+      if (!granted) {
+        Alert.alert('Permissão necessária', 'Permita o acesso à câmera nas configurações.');
+        return;
+      }
+    }
+    setCameraAtiva(true);
+  }
+
+  async function capturarFoto() {
+    if (!cameraRef.current) return;
+    try {
+      const photo = await cameraRef.current.takePictureAsync({ base64: true, quality: 0.7 });
+      if (photo?.base64) {
+        setFoto(photo.base64);
+        setFotoUri(photo.uri);
+        setCameraAtiva(false);
+      }
+    } catch {
+      Alert.alert('Erro', 'Não foi possível capturar a foto.');
     }
   }
 
@@ -56,11 +73,35 @@ export default function VisagismoFotoScreen() {
     setLoading(true);
     try {
       const resultado = await api.post<any>('/api/visagismo/analisar', { imagem_base64: foto });
-      navigation.navigate('VisagismoResultado', { resultado });
+      navigation.navigate('VisagismoResultado', { resultado, fotoUri: fotoUri ?? undefined, fotoBase64: foto ?? undefined });
     } catch (e: any) {
       Alert.alert('Erro', e.message ?? 'Não foi possível analisar a foto.');
     }
     setLoading(false);
+  }
+
+  // Câmera inline
+  if (cameraAtiva) {
+    return (
+      <View style={{ flex: 1, backgroundColor: '#000' }}>
+        <CameraView ref={cameraRef} style={{ flex: 1 }} facing="front" />
+
+        {/* Botão fechar */}
+        <TouchableOpacity
+          style={s.cameraBtnFechar}
+          onPress={() => setCameraAtiva(false)}
+        >
+          <Feather name="x" size={24} color="#fff" />
+        </TouchableOpacity>
+
+        {/* Botão capturar */}
+        <View style={s.cameraControls}>
+          <TouchableOpacity style={s.cameraBtnCapturar} onPress={capturarFoto}>
+            <View style={s.cameraBtnInner} />
+          </TouchableOpacity>
+        </View>
+      </View>
+    );
   }
 
   return (
@@ -89,13 +130,13 @@ export default function VisagismoFotoScreen() {
           <Text style={s.uploadSub}>Para melhor resultado, use boa iluminação e olhe diretamente para a câmera</Text>
 
           <View style={s.botoesUpload}>
-            <TouchableOpacity style={s.btnUpload} onPress={tirarFoto}>
-              <Feather name="camera" size={16} color={C.primary} />
-              <Text style={s.btnUploadText}>TIRAR FOTO</Text>
+            <TouchableOpacity style={s.btnUpload} onPress={escolherGaleria}>
+              <Feather name="image" size={16} color={C.primary} />
+              <Text style={s.btnUploadText}>DA GALERIA</Text>
             </TouchableOpacity>
-            <TouchableOpacity style={[s.btnUpload, { borderColor: C.border }]} onPress={escolherGaleria}>
-              <Feather name="image" size={16} color={C.mutedFg} />
-              <Text style={[s.btnUploadText, { color: C.mutedFg }]}>DA GALERIA</Text>
+            <TouchableOpacity style={s.btnUpload} onPress={abrirCamera}>
+              <Feather name="camera" size={16} color={C.primary} />
+              <Text style={s.btnUploadText}>CÂMERA</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -139,27 +180,32 @@ export default function VisagismoFotoScreen() {
 
 function makeStyles(C: Theme) {
   return StyleSheet.create({
-    screen:           { flex: 1, backgroundColor: C.bg },
-    pageHeader:       { paddingHorizontal: 24, paddingTop: 56, paddingBottom: 24, borderBottomWidth: 1, borderBottomColor: C.border },
-    pageLabel:        { fontFamily: F.mono, fontSize: 10, color: C.accent, letterSpacing: 1.5, marginBottom: 4 },
-    pageTitle:        { fontFamily: F.sansLight, fontSize: 26, color: C.primary, letterSpacing: -0.5, marginBottom: 8 },
-    pageSub:          { fontFamily: F.sans, fontSize: 13, color: C.mutedFg, lineHeight: 20 },
-    uploadArea:       { margin: 24, borderWidth: 1, borderColor: C.border, borderStyle: 'dashed', padding: 32, alignItems: 'center' },
-    uploadIcon:       { width: 80, height: 80, borderWidth: 1, borderColor: C.border, justifyContent: 'center', alignItems: 'center', marginBottom: 16 },
-    uploadTitle:      { fontFamily: F.sansMedium, fontSize: 15, color: C.primary, marginBottom: 8, textAlign: 'center' },
-    uploadSub:        { fontFamily: F.sans, fontSize: 12, color: C.mutedFg, textAlign: 'center', lineHeight: 18, marginBottom: 24 },
-    botoesUpload:     { flexDirection: 'row', gap: 12, width: '100%' },
-    btnUpload:        { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, borderWidth: 1, borderColor: C.primary, paddingVertical: 14 },
-    btnUploadText:    { fontFamily: F.mono, fontSize: 10, color: C.primary, letterSpacing: 1.5 },
-    previewContainer: { margin: 24, alignItems: 'center' },
-    preview:          { width: '100%', height: 320, resizeMode: 'cover' },
-    trocarFoto:       { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 12 },
-    trocarFotoText:   { fontFamily: F.mono, fontSize: 10, color: C.mutedFg, letterSpacing: 1.5 },
-    dicas:            { paddingHorizontal: 24, paddingTop: 8 },
-    dicasLabel:       { fontFamily: F.mono, fontSize: 10, color: C.mutedFg, letterSpacing: 1.5, marginBottom: 14 },
-    dicaItem:         { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 10 },
-    dicaText:         { fontFamily: F.sans, fontSize: 13, color: C.fg },
-    btnAnalisar:      { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10, backgroundColor: C.primary, marginHorizontal: 24, marginTop: 24, paddingVertical: 18 },
-    btnAnalisarText:  { fontFamily: F.mono, fontSize: 11, color: C.primaryFg, letterSpacing: 2.5 },
+    screen:             { flex: 1, backgroundColor: C.bg },
+    pageHeader:         { paddingHorizontal: 24, paddingTop: 56, paddingBottom: 24, borderBottomWidth: 1, borderBottomColor: C.border },
+    pageLabel:          { fontFamily: F.mono, fontSize: 10, color: C.accent, letterSpacing: 1.5, marginBottom: 4 },
+    pageTitle:          { fontFamily: F.sansLight, fontSize: 26, color: C.primary, letterSpacing: -0.5, marginBottom: 8 },
+    pageSub:            { fontFamily: F.sans, fontSize: 13, color: C.mutedFg, lineHeight: 20 },
+    uploadArea:         { margin: 24, borderWidth: 1, borderColor: C.border, borderStyle: 'dashed', padding: 32, alignItems: 'center' },
+    uploadIcon:         { width: 80, height: 80, borderWidth: 1, borderColor: C.border, justifyContent: 'center', alignItems: 'center', marginBottom: 16 },
+    uploadTitle:        { fontFamily: F.sansMedium, fontSize: 15, color: C.primary, marginBottom: 8, textAlign: 'center' },
+    uploadSub:          { fontFamily: F.sans, fontSize: 12, color: C.mutedFg, textAlign: 'center', lineHeight: 18, marginBottom: 24 },
+    botoesUpload:       { flexDirection: 'row', gap: 12, width: '100%' },
+    btnUpload:          { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, borderWidth: 1, borderColor: C.primary, paddingVertical: 14 },
+    btnUploadText:      { fontFamily: F.mono, fontSize: 10, color: C.primary, letterSpacing: 1.5 },
+    previewContainer:   { margin: 24, alignItems: 'center' },
+    preview:            { width: '100%', height: 320, resizeMode: 'cover' },
+    trocarFoto:         { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 12 },
+    trocarFotoText:     { fontFamily: F.mono, fontSize: 10, color: C.mutedFg, letterSpacing: 1.5 },
+    dicas:              { paddingHorizontal: 24, paddingTop: 8 },
+    dicasLabel:         { fontFamily: F.mono, fontSize: 10, color: C.mutedFg, letterSpacing: 1.5, marginBottom: 14 },
+    dicaItem:           { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 10 },
+    dicaText:           { fontFamily: F.sans, fontSize: 13, color: C.fg },
+    btnAnalisar:        { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10, backgroundColor: C.primary, marginHorizontal: 24, marginTop: 24, paddingVertical: 18 },
+    btnAnalisarText:    { fontFamily: F.mono, fontSize: 11, color: C.primaryFg, letterSpacing: 2.5 },
+    // Camera
+    cameraBtnFechar:    { position: 'absolute', top: 56, left: 24, width: 44, height: 44, borderRadius: 22, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center' },
+    cameraControls:     { position: 'absolute', bottom: 48, left: 0, right: 0, alignItems: 'center' },
+    cameraBtnCapturar:  { width: 80, height: 80, borderRadius: 40, borderWidth: 4, borderColor: '#fff', justifyContent: 'center', alignItems: 'center' },
+    cameraBtnInner:     { width: 64, height: 64, borderRadius: 32, backgroundColor: '#fff' },
   });
 }
