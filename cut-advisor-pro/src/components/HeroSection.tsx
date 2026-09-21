@@ -1,8 +1,11 @@
 import { motion } from "framer-motion";
 import { Link } from "react-router-dom";
 import heroImage from "@/assets/hero-barbershop.jpg";
+import { useAuth } from "@/contexts/AuthContext";
 
 const HeroSection = () => {
+  const { role } = useAuth();
+  const isStaff = role === "barbeiro" || role === "admin";
   return (
     <section className="grid grid-cols-1 lg:grid-cols-12 gap-0 items-start">
       <div className="lg:col-span-7 px-6 py-16 lg:px-20 lg:py-24 flex flex-col justify-center">
@@ -27,7 +30,7 @@ const HeroSection = () => {
           </p>
         </motion.div>
 
-        <motion.div
+        {!isStaff && <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.6, delay: 0.3 }}
@@ -61,7 +64,7 @@ const HeroSection = () => {
               INICIAR PROTOCOLO
             </Link>
           </div>
-        </motion.div>
+        </motion.div>}
       </div>
 
       <div className="lg:col-span-5 relative hidden lg:block">

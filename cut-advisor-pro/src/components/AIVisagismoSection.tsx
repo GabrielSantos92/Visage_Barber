@@ -1,4 +1,5 @@
 import { motion } from "framer-motion";
+import { useNavigate } from "react-router-dom";
 
 const steps = [
   {
@@ -22,6 +23,7 @@ const steps = [
 ];
 
 const AIVisagismoSection = () => {
+  const navigate = useNavigate();
   return (
     <section id="ai" className="px-6 lg:px-20 py-24 border-t border-border">
       <div className="max-w-7xl mx-auto">
@@ -67,7 +69,7 @@ const AIVisagismoSection = () => {
           viewport={{ once: true }}
           className="mt-12 flex justify-center"
         >
-          <button className="group flex items-center gap-4 px-8 py-5 bg-secondary border border-border hover:border-accent transition-all">
+          <button onClick={() => navigate("/visagismo")} className="group flex items-center gap-4 px-8 py-5 bg-secondary border border-border hover:border-accent transition-all">
             <div className="size-10 border border-accent/30 flex items-center justify-center group-hover:bg-accent transition-colors">
               <span className="text-accent group-hover:text-accent-foreground font-bold">+</span>
             </div>

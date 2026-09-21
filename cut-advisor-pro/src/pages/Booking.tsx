@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import { Calendar, Clock, User, Scissors, ChevronLeft, ChevronRight, Check, ArrowLeft } from "lucide-react";
-import { format, addDays, startOfDay, isSameDay, isAfter, setHours, setMinutes } from "date-fns";
+import { format, addDays, startOfDay, endOfDay, isSameDay, isAfter, setHours, setMinutes } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
@@ -74,13 +74,12 @@ const Booking = () => {
       }
 
       // Get existing appointments for this barbeiro on this date
-      const dateStr = format(selectedDate, "yyyy-MM-dd");
       const { data: existing } = await supabase
         .from("agendamentos")
         .select("data_hora, servico_id")
         .eq("barbeiro_id", selectedBarbeiro.id)
-        .gte("data_hora", `${dateStr}T00:00:00`)
-        .lte("data_hora", `${dateStr}T23:59:59`)
+        .gte("data_hora", startOfDay(selectedDate).toISOString())
+        .lte("data_hora", endOfDay(selectedDate).toISOString())
         .in("status", ["pendente", "confirmado"]);
 
       const bookedTimes = new Set(

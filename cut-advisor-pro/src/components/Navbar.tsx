@@ -1,12 +1,12 @@
 import { useState } from "react";
-import { Menu, X, LogOut, User, Calendar, Settings, Scissors } from "lucide-react";
+import { Menu, X, LogOut, User, Calendar, Settings, Scissors, LayoutDashboard } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Link } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
 
 const publicNavItems = [
-  { label: "01. Serviços", href: "#services" },
-  { label: "02. Visagismo IA", href: "#ai" },
+  { label: "01. Serviços", href: "/#services", isRoute: false },
+  { label: "02. Visagismo IA", href: "/visagismo", isRoute: true },
   { label: "03. Agendar", href: "/agendar", isRoute: true },
 ];
 
@@ -21,14 +21,14 @@ const Navbar = () => {
           <div className="size-8 bg-primary flex items-center justify-center">
             <div className="size-4 bg-background" />
           </div>
-          <span className="font-mono text-sm tracking-widest text-primary font-bold">
-            METRIC // GROOMING
+          <span className="font-mono text-[10px] tracking-widest text-primary font-bold">
+            VISAGE BARBER
           </span>
         </Link>
 
         {/* Desktop */}
         <div className="hidden md:flex items-center gap-8 font-mono text-[10px] tracking-widest uppercase">
-          {publicNavItems.map((item, i) =>
+          {publicNavItems.filter(item => !(item.href === "/agendar" && (role === "barbeiro" || role === "admin"))).map((item, i) =>
             item.isRoute ? (
               <Link key={i} to={item.href} className="text-foreground hover:text-primary transition-colors">
                 {item.label}
@@ -42,6 +42,11 @@ const Navbar = () => {
           <div className="h-4 w-px bg-border" />
           {user ? (
             <div className="flex items-center gap-4">
+              {(role === "admin" || role === "barbeiro") && (
+                <Link to="/dashboard" className="text-foreground hover:text-primary transition-colors flex items-center gap-1">
+                  <LayoutDashboard className="size-3" /> DASHBOARD
+                </Link>
+              )}
               {role === "admin" && (
                 <Link to="/admin/barbeiros" className="text-foreground hover:text-primary transition-colors flex items-center gap-1">
                   <Settings className="size-3" /> ADMIN
@@ -93,7 +98,7 @@ const Navbar = () => {
             className="md:hidden border-t border-border overflow-hidden bg-background"
           >
             <div className="px-6 py-6 space-y-4">
-              {publicNavItems.map((item, i) =>
+              {publicNavItems.filter(item => !(item.href === "/agendar" && (role === "barbeiro" || role === "admin"))).map((item, i) =>
                 item.isRoute ? (
                   <Link key={i} to={item.href} className="block font-mono text-xs tracking-widest uppercase text-foreground hover:text-primary transition-colors" onClick={() => setOpen(false)}>
                     {item.label}
@@ -107,6 +112,11 @@ const Navbar = () => {
               <div className="h-px bg-border my-2" />
               {user ? (
                 <>
+                  {(role === "admin" || role === "barbeiro") && (
+                    <Link to="/dashboard" className="block font-mono text-xs tracking-widest uppercase text-foreground hover:text-primary transition-colors" onClick={() => setOpen(false)}>
+                      DASHBOARD
+                    </Link>
+                  )}
                   {role === "admin" && (
                     <Link to="/admin/barbeiros" className="block font-mono text-xs tracking-widest uppercase text-foreground hover:text-primary transition-colors" onClick={() => setOpen(false)}>
                       PAINEL ADMIN

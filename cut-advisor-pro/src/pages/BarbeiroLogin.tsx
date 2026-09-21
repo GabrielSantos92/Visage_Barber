@@ -50,7 +50,7 @@ const BarbeiroLogin = () => {
             <div className="size-3.5 bg-background" />
           </div>
           <span className="font-mono text-[10px] tracking-widest text-primary font-bold">
-            METRIC // GROOMING
+            VISAGE BARBER
           </span>
         </Link>
         <Link

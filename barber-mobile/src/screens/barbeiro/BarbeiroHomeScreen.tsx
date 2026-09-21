@@ -67,12 +67,13 @@ export default function BarbeiroHomeScreen() {
         .order('data_hora', { ascending: false });
       if (error) throw error;
 
-      // cliente_id aponta para auth.users, não profiles — buscar separado
+      // cliente_id aponta para auth.users, não profiles — buscar separado.
+      // Em profiles a coluna equivalente é user_id (profiles.id é uma PK própria).
       const ids = [...new Set((agData ?? []).map((a: any) => a.cliente_id).filter(Boolean))];
       const profileMap: Record<string, { nome: string }> = {};
       if (ids.length > 0) {
-        const { data: profs } = await supabase.from('profiles').select('id, nome').in('id', ids);
-        (profs ?? []).forEach((p: any) => { profileMap[p.id] = { nome: p.nome }; });
+        const { data: profs } = await supabase.from('profiles').select('user_id, nome').in('user_id', ids);
+        (profs ?? []).forEach((p: any) => { profileMap[p.user_id] = { nome: p.nome }; });
       }
 
       const merged = (agData ?? []).map((a: any) => ({ ...a, profiles: profileMap[a.cliente_id] ?? null }));

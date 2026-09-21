@@ -1,12 +1,13 @@
 import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
-import { format, startOfDay } from "date-fns";
+import { format, startOfDay, endOfDay } from "date-fns";
 import { ptBR } from "date-fns/locale";
-import { Calendar, Clock, User, ChevronLeft, ChevronRight } from "lucide-react";
+import { Calendar, Clock, User, ChevronLeft, ChevronRight, MessageCircle } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "@/components/ui/sonner";
 import Navbar from "@/components/Navbar";
+import ChatDialog from "@/components/ChatDialog";
 import type { Enums } from "@/integrations/supabase/types";
 
 type Status = Enums<"agendamento_status">;
@@ -16,6 +17,7 @@ type Agendamento = {
   data_hora: string;
   status: Status;
   observacoes: string | null;
+  cliente_id: string;
   profiles: { nome: string; telefone: string | null } | null;
   servicos: { nome: string; duracao_min: number; preco: number } | null;
 };
@@ -33,6 +35,8 @@ const BarbeiroAgenda = () => {
   const [agendamentos, setAgendamentos] = useState<Agendamento[]>([]);
   const [barbeiroId, setBarbeiroId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [naoLidas, setNaoLidas] = useState<Record<string, number>>({});
+  const [chat, setChat] = useState<{ clienteId: string; nome: string } | null>(null);
 
   // Find barbeiro record linked to this user
   useEffect(() => {
@@ -51,23 +55,78 @@ const BarbeiroAgenda = () => {
   useEffect(() => {
     if (!barbeiroId) return;
     setLoading(true);
-    const dateStr = format(date, "yyyy-MM-dd");
-    supabase
-      .from("agendamentos")
-      .select(`
-        id, data_hora, status, observacoes,
-        profiles!agendamentos_cliente_id_fkey(nome, telefone),
-        servicos(nome, duracao_min, preco)
-      `)
-      .eq("barbeiro_id", barbeiroId)
-      .gte("data_hora", `${dateStr}T00:00:00`)
-      .lte("data_hora", `${dateStr}T23:59:59`)
-      .order("data_hora")
-      .then(({ data }) => {
-        if (data) setAgendamentos(data as any);
+
+    const load = async () => {
+      const { data, error } = await supabase
+        .from("agendamentos")
+        .select("id, data_hora, status, observacoes, cliente_id, servicos(nome, duracao_min, preco)")
+        .eq("barbeiro_id", barbeiroId)
+        .gte("data_hora", startOfDay(date).toISOString())
+        .lte("data_hora", endOfDay(date).toISOString())
+        .order("data_hora");
+
+      if (error) {
+        toast.error("Erro ao carregar a agenda");
+        setAgendamentos([]);
         setLoading(false);
-      });
+        return;
+      }
+
+      // cliente_id referencia auth.users; em profiles a coluna equivalente e user_id
+      // (profiles.id e uma PK propria), por isso os perfis vem em consulta separada.
+      const ids = [...new Set((data ?? []).map((a: any) => a.cliente_id).filter(Boolean))];
+      const perfis: Record<string, { nome: string; telefone: string | null }> = {};
+      if (ids.length > 0) {
+        const { data: profs } = await supabase
+          .from("profiles")
+          .select("user_id, nome, telefone")
+          .in("user_id", ids);
+        (profs ?? []).forEach((pr: any) => { perfis[pr.user_id] = { nome: pr.nome, telefone: pr.telefone }; });
+      }
+
+      setAgendamentos(
+        (data ?? []).map((a: any) => ({ ...a, profiles: perfis[a.cliente_id] ?? null })) as Agendamento[]
+      );
+      setLoading(false);
+    };
+
+    load();
   }, [barbeiroId, date]);
+
+  // Mensagens nao lidas por cliente (conversas/mensagens nao estao nos types gerados)
+  const carregarNaoLidas = async () => {
+    if (!barbeiroId || !user) return;
+    const db = supabase as any;
+    const { data: conversas } = await db
+      .from("conversas")
+      .select("id, cliente_id")
+      .eq("barbeiro_id", barbeiroId);
+    if (!conversas?.length) {
+      setNaoLidas({});
+      return;
+    }
+    const { data: msgs } = await db
+      .from("mensagens")
+      .select("conversa_id")
+      .in("conversa_id", conversas.map((c: any) => c.id))
+      .eq("lida", false)
+      .neq("remetente_id", user.id);
+    const mapa: Record<string, number> = {};
+    (msgs ?? []).forEach((m: any) => {
+      const c = conversas.find((c: any) => c.id === m.conversa_id);
+      if (c) mapa[c.cliente_id] = (mapa[c.cliente_id] ?? 0) + 1;
+    });
+    setNaoLidas(mapa);
+  };
+
+  useEffect(() => { carregarNaoLidas(); }, [barbeiroId, date]);
+
+  const fecharChat = (aberto: boolean) => {
+    if (!aberto) {
+      setChat(null);
+      carregarNaoLidas();
+    }
+  };
 
   const moveDate = (days: number) => {
     setDate(d => startOfDay(new Date(d.getTime() + days * 86400000)));
@@ -218,12 +277,35 @@ const BarbeiroAgenda = () => {
                       )}
                     </div>
                   )}
+
+                  <button
+                    onClick={() => setChat({ clienteId: a.cliente_id, nome: a.profiles?.nome ?? "Cliente" })}
+                    className="mt-3 inline-flex items-center gap-2 font-mono text-[10px] uppercase tracking-widest text-accent hover:underline"
+                  >
+                    <MessageCircle className="size-3" />
+                    CHAT
+                    {(naoLidas[a.cliente_id] ?? 0) > 0 && (
+                      <span className="min-w-4 px-1 bg-accent text-accent-foreground text-[9px] font-bold leading-4 text-center">
+                        {naoLidas[a.cliente_id]}
+                      </span>
+                    )}
+                  </button>
                 </motion.div>
               );
             })}
           </div>
         )}
       </main>
+
+      {chat && barbeiroId && (
+        <ChatDialog
+          open
+          onOpenChange={fecharChat}
+          barbeiroId={barbeiroId}
+          clienteId={chat.clienteId}
+          outroNome={chat.nome}
+        />
+      )}
     </div>
   );
 };

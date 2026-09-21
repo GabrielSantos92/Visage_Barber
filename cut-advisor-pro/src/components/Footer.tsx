@@ -38,7 +38,7 @@ const Footer = () => {
       </div>
       <div className="max-w-7xl mx-auto px-6 mt-12 pt-12 border-t border-border/50 flex flex-col md:flex-row justify-between items-center gap-4">
         <span className="font-mono text-[10px] text-muted-foreground">
-          © 2026 METRIC_SYSTEMS. TODOS OS DIREITOS RESERVADOS.
+          © 2026 VISAGE BARBER. TODOS OS DIREITOS RESERVADOS.
         </span>
         <div className="flex gap-8 font-mono text-[10px] text-muted-foreground uppercase">
           <span>Ver: 1.0.0-MVP</span>

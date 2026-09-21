@@ -114,7 +114,7 @@ export default function ChatScreen() {
       const { data: barb } = await db.from('barbeiros').select('push_token').eq('id', barbeiroId).single();
       sendPushNotification(barb?.push_token, outroNome, conteudo);
     } else {
-      const { data: prof } = await db.from('profiles').select('push_token').eq('id', clienteId).single();
+      const { data: prof } = await db.from('profiles').select('push_token').eq('user_id', clienteId).single();
       sendPushNotification(prof?.push_token, outroNome, conteudo);
     }
 

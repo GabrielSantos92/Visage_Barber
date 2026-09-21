@@ -16,6 +16,9 @@ import Catalogo from "./pages/Catalogo";
 import BarbeiroAgenda from "./pages/BarbeiroAgenda";
 import BarbeiroLogin from "./pages/BarbeiroLogin";
 import AdminBarbeiros from "./pages/admin/AdminBarbeiros";
+import Visagismo from "./pages/Visagismo";
+import VisagismoResultado from "./pages/VisagismoResultado";
+import Dashboard from "./pages/Dashboard";
 import NotFound from "./pages/NotFound";
 import ProtectedRoute from "./components/ProtectedRoute";
 
@@ -41,6 +44,9 @@ const App = () => (
             <Route path="/barbeiro/agenda" element={<ProtectedRoute roles={["barbeiro", "admin"]}><BarbeiroAgenda /></ProtectedRoute>} />
             <Route path="/barbeiro/login" element={<BarbeiroLogin />} />
             <Route path="/admin/barbeiros" element={<AdminBarbeiros />} />
+            <Route path="/visagismo" element={<Visagismo />} />
+            <Route path="/visagismo/resultado" element={<VisagismoResultado />} />
+            <Route path="/dashboard" element={<ProtectedRoute roles={["admin", "barbeiro"]}><Dashboard /></ProtectedRoute>} />
             {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
             <Route path="*" element={<NotFound />} />
           </Routes>

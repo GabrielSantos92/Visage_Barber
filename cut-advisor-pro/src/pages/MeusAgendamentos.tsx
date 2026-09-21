@@ -1,18 +1,20 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
-import { Calendar, Clock, User, X, ArrowLeft } from "lucide-react";
+import { Calendar, Clock, User, X, ArrowLeft, MessageCircle } from "lucide-react";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "@/components/ui/sonner";
 import Navbar from "@/components/Navbar";
+import ChatDialog from "@/components/ChatDialog";
 
 type Agendamento = {
   id: string;
   data_hora: string;
   status: string;
+  barbeiro_id: string;
   barbeiros: { nome: string } | null;
   servicos: { nome: string; preco: number } | null;
 };
@@ -29,13 +31,15 @@ const MeusAgendamentos = () => {
   const { user } = useAuth();
   const [agendamentos, setAgendamentos] = useState<Agendamento[]>([]);
   const [loading, setLoading] = useState(true);
+  const [naoLidas, setNaoLidas] = useState<Record<string, number>>({});
+  const [chat, setChat] = useState<{ barbeiroId: string; nome: string } | null>(null);
 
   useEffect(() => {
     if (!user) return;
     const fetch = async () => {
       const { data } = await supabase
         .from("agendamentos")
-        .select("id, data_hora, status, barbeiros(nome), servicos(nome, preco)")
+        .select("id, data_hora, status, barbeiro_id, barbeiros(nome), servicos(nome, preco)")
         .eq("cliente_id", user.id)
         .order("data_hora", { ascending: false });
       if (data) setAgendamentos(data as any);
@@ -43,6 +47,41 @@ const MeusAgendamentos = () => {
     };
     fetch();
   }, [user]);
+
+  // Mensagens nao lidas por barbeiro (conversas/mensagens nao estao nos types gerados)
+  const carregarNaoLidas = async () => {
+    if (!user) return;
+    const db = supabase as any;
+    const { data: conversas } = await db
+      .from("conversas")
+      .select("id, barbeiro_id")
+      .eq("cliente_id", user.id);
+    if (!conversas?.length) {
+      setNaoLidas({});
+      return;
+    }
+    const { data: msgs } = await db
+      .from("mensagens")
+      .select("conversa_id")
+      .in("conversa_id", conversas.map((c: any) => c.id))
+      .eq("lida", false)
+      .neq("remetente_id", user.id);
+    const mapa: Record<string, number> = {};
+    (msgs ?? []).forEach((m: any) => {
+      const c = conversas.find((c: any) => c.id === m.conversa_id);
+      if (c) mapa[c.barbeiro_id] = (mapa[c.barbeiro_id] ?? 0) + 1;
+    });
+    setNaoLidas(mapa);
+  };
+
+  useEffect(() => { carregarNaoLidas(); }, [user]);
+
+  const fecharChat = (aberto: boolean) => {
+    if (!aberto) {
+      setChat(null);
+      carregarNaoLidas();
+    }
+  };
 
   const handleCancel = async (id: string) => {
     const { error } = await supabase
@@ -126,14 +165,29 @@ const MeusAgendamentos = () => {
                         {format(new Date(a.data_hora), "HH:mm")}
                       </span>
                     </div>
-                    {!isPast && (a.status === "pendente" || a.status === "confirmado") && (
-                      <button
-                        onClick={() => handleCancel(a.id)}
-                        className="font-mono text-[10px] uppercase tracking-widest text-destructive hover:underline flex items-center gap-1"
-                      >
-                        <X className="size-3" /> Cancelar
-                      </button>
-                    )}
+                    <div className="flex items-center gap-4">
+                      {a.status !== "cancelado" && (
+                        <button
+                          onClick={() => setChat({ barbeiroId: a.barbeiro_id, nome: a.barbeiros?.nome ?? "Barbeiro" })}
+                          className="font-mono text-[10px] uppercase tracking-widest text-primary hover:underline flex items-center gap-1"
+                        >
+                          <MessageCircle className="size-3" /> Chat
+                          {(naoLidas[a.barbeiro_id] ?? 0) > 0 && (
+                            <span className="min-w-4 px-1 bg-accent text-accent-foreground text-[9px] font-bold leading-4 text-center">
+                              {naoLidas[a.barbeiro_id]}
+                            </span>
+                          )}
+                        </button>
+                      )}
+                      {!isPast && (a.status === "pendente" || a.status === "confirmado") && (
+                        <button
+                          onClick={() => handleCancel(a.id)}
+                          className="font-mono text-[10px] uppercase tracking-widest text-destructive hover:underline flex items-center gap-1"
+                        >
+                          <X className="size-3" /> Cancelar
+                        </button>
+                      )}
+                    </div>
                   </div>
                 </motion.div>
               );
@@ -141,6 +195,16 @@ const MeusAgendamentos = () => {
           </div>
         )}
       </main>
+
+      {chat && user && (
+        <ChatDialog
+          open
+          onOpenChange={fecharChat}
+          barbeiroId={chat.barbeiroId}
+          clienteId={user.id}
+          outroNome={chat.nome}
+        />
+      )}
     </div>
   );
 };
