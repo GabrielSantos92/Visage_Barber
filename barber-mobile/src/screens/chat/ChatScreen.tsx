@@ -92,11 +92,9 @@ export default function ChatScreen() {
       .eq('conversa_id', cid)
       .order('created_at', { ascending: true });
     if (data) setMensagens(data);
-    // Marcar mensagens do outro como lidas
-    await db.from('mensagens')
-      .update({ lida: true })
-      .eq('conversa_id', cid)
-      .neq('remetente_id', user?.id);
+    // Marcar mensagens do outro como lidas (RPC: o UPDATE direto e barrado pelo RLS)
+    const { error } = await db.rpc('marcar_mensagens_lidas', { p_conversa_id: cid });
+    if (error) console.warn('Erro ao marcar mensagens como lidas:', error.message);
   }
 
   async function enviar() {

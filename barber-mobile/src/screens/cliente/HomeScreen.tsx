@@ -30,12 +30,13 @@ interface Proximo {
   servicos: { nome: string; preco: number; duracao_min: number } | null;
 }
 
-interface SemAvaliacao {
+interface UltimoCorte {
   id: string;
   data_hora: string;
   barbeiro_id: string;
   barbeiros: { nome: string } | null;
   servicos: { nome: string } | null;
+  nota: number | null; // null = ainda nao avaliado
 }
 
 const HERO = require('../../../assets/home/hero-barbershop.jpg');
@@ -81,7 +82,7 @@ export default function HomeScreen() {
   const [nome, setNome]               = useState('');
   const [formato, setFormato]         = useState<string | null>(null);
   const [proximo, setProximo]         = useState<Proximo | null>(null);
-  const [semAvaliacao, setSemAvaliacao] = useState<SemAvaliacao | null>(null);
+  const [ultimoCorte, setUltimoCorte] = useState<UltimoCorte | null>(null);
   const [barbeiros, setBarbeiros]     = useState<Barbeiro[]>([]);
   const [servicos, setServicos]       = useState<Servico[]>([]);
   const [naoLidas, setNaoLidas]       = useState(0);
@@ -97,7 +98,7 @@ export default function HomeScreen() {
       // Conclui automaticamente os agendamentos cujo horario ja terminou
       await supabase.rpc('concluir_agendamentos_passados');
 
-      const [perfil, prox, concluidos, barbs, servs] = await Promise.all([
+      const [perfil, prox, ultimo, barbs, servs] = await Promise.all([
         supabase.from('profiles').select('nome, formato_rosto').eq('user_id', user.id).single(),
         supabase.from('agendamentos')
           .select('id, data_hora, barbeiro_id, barbeiros(nome), servicos(nome, preco, duracao_min)')
@@ -107,7 +108,7 @@ export default function HomeScreen() {
         supabase.from('agendamentos')
           .select('id, data_hora, barbeiro_id, barbeiros(nome), servicos(nome)')
           .eq('cliente_id', user.id).eq('status', 'concluido')
-          .order('data_hora', { ascending: false }).limit(5),
+          .order('data_hora', { ascending: false }).limit(1),
         supabase.from('barbeiros').select('*').eq('ativo', true).order('nome'),
         supabase.from('servicos').select('*').eq('ativo', true).order('preco').limit(4),
       ]);
@@ -121,14 +122,16 @@ export default function HomeScreen() {
       setBarbeiros(barbs.data ?? []);
       setServicos(servs.data ?? []);
 
-      const ids = (concluidos.data ?? []).map((a) => a.id);
-      let pendente: SemAvaliacao | null = null;
-      if (ids.length > 0) {
-        const { data: avals } = await supabase.from('avaliacoes').select('agendamento_id').in('agendamento_id', ids);
-        const avaliados = new Set((avals ?? []).map((a) => a.agendamento_id));
-        pendente = ((concluidos.data ?? []).find((a) => !avaliados.has(a.id)) as unknown as SemAvaliacao) ?? null;
+      // Considera apenas o corte concluido mais recente: se ja foi avaliado,
+      // mostra a nota e oferece repetir o agendamento em vez de pedir avaliacao
+      const corte = (ultimo.data ?? [])[0];
+      if (corte) {
+        const { data: aval } = await supabase.from('avaliacoes').select('nota')
+          .eq('agendamento_id', corte.id).maybeSingle();
+        setUltimoCorte({ ...(corte as unknown as UltimoCorte), nota: aval?.nota ?? null });
+      } else {
+        setUltimoCorte(null);
       }
-      setSemAvaliacao(pendente);
       setErro(null);
     } catch (e: any) {
       setErro(e.message ?? 'Erro ao carregar a tela inicial.');
@@ -140,8 +143,16 @@ export default function HomeScreen() {
 
   async function carregarNaoLidas() {
     if (!user) return;
+    // So conta conversas que o cliente consegue abrir: as dos barbeiros com
+    // agendamento nao cancelado (onde "Meus Agendamentos" mostra o botao CHAT)
+    const { data: ags } = await supabase.from('agendamentos').select('barbeiro_id')
+      .eq('cliente_id', user.id).neq('status', 'cancelado');
+    const barbeiroIds = [...new Set((ags ?? []).map((a) => a.barbeiro_id))];
+    if (!barbeiroIds.length) { setNaoLidas(0); return; }
+
     const db = supabase as any;
-    const { data: conversas } = await db.from('conversas').select('id').eq('cliente_id', user.id);
+    const { data: conversas } = await db.from('conversas').select('id')
+      .eq('cliente_id', user.id).in('barbeiro_id', barbeiroIds);
     if (!conversas?.length) { setNaoLidas(0); return; }
     const { count } = await db.from('mensagens').select('id', { count: 'exact', head: true })
       .in('conversa_id', conversas.map((c: any) => c.id)).eq('lida', false).neq('remetente_id', user.id);
@@ -253,22 +264,43 @@ export default function HomeScreen() {
           </TouchableOpacity>
         )}
 
-        {/* Avaliação pendente */}
-        {semAvaliacao && (
+        {/* Último corte: pede avaliação ou, se já avaliado, oferece repetir */}
+        {ultimoCorte && (ultimoCorte.nota == null ? (
           <TouchableOpacity
             style={[s.card, s.rateCard]}
             activeOpacity={0.85}
-            onPress={() => navigation.navigate('Avaliacao', { agendamentoId: semAvaliacao.id, barbeiroId: semAvaliacao.barbeiro_id })}>
+            onPress={() => navigation.navigate('Avaliacao', { agendamentoId: ultimoCorte.id, barbeiroId: ultimoCorte.barbeiro_id })}>
             <View style={s.rateIcon}><Feather name="star" size={16} color={C.accent} /></View>
             <View style={{ flex: 1 }}>
               <Text style={s.rateTitle}>Como foi seu último corte?</Text>
               <Text style={s.rateText} numberOfLines={1}>
-                {semAvaliacao.servicos?.nome ?? 'Serviço'} com {semAvaliacao.barbeiros?.nome ?? '—'}
+                {ultimoCorte.servicos?.nome ?? 'Serviço'} com {ultimoCorte.barbeiros?.nome ?? '—'}
               </Text>
             </View>
             <Text style={s.rateCta}>AVALIAR</Text>
           </TouchableOpacity>
-        )}
+        ) : (
+          <TouchableOpacity
+            style={[s.card, s.rateCard]}
+            activeOpacity={0.85}
+            onPress={() => navigation.navigate('Agendar', { initialBarbeiroId: ultimoCorte.barbeiro_id })}>
+            <View style={s.rateIcon}><Feather name="repeat" size={16} color={C.primary} /></View>
+            <View style={{ flex: 1 }}>
+              <Text style={s.rateLabel}>
+                ÚLTIMO CORTE · {pad(new Date(ultimoCorte.data_hora).getDate())} {MESES[new Date(ultimoCorte.data_hora).getMonth()]}
+              </Text>
+              <Text style={s.rateText} numberOfLines={1}>
+                {ultimoCorte.servicos?.nome ?? 'Serviço'} com {ultimoCorte.barbeiros?.nome ?? '—'}
+              </Text>
+              <View style={s.stars}>
+                {[1, 2, 3, 4, 5].map((n) => (
+                  <Feather key={n} name="star" size={11} color={n <= ultimoCorte.nota! ? C.accent : C.border} />
+                ))}
+              </View>
+            </View>
+            <Text style={[s.rateCta, { color: C.primary }]}>REPETIR</Text>
+          </TouchableOpacity>
+        ))}
 
         {/* Atalhos */}
         <SectionTitle C={C} label="ACESSO RÁPIDO" />
@@ -452,6 +484,8 @@ function makeStyles(C: Theme) {
     rateIcon:      { width: 36, height: 36, borderWidth: 1, borderColor: C.border, justifyContent: 'center', alignItems: 'center' },
     rateTitle:     { fontFamily: F.sansMedium, fontSize: 14, color: C.primary },
     rateText:      { fontFamily: F.sans, fontSize: 12, color: C.mutedFg, marginTop: 1 },
+    rateLabel:     { fontFamily: F.mono, fontSize: 9, color: C.mutedFg, letterSpacing: 1.5, marginBottom: 2 },
+    stars:         { flexDirection: 'row', gap: 3, marginTop: 5 },
     rateCta:       { fontFamily: F.mono, fontSize: 10, color: C.accent, letterSpacing: 1.5 },
 
     quickRow:      { flexDirection: 'row', gap: 8, paddingHorizontal: 24 },
