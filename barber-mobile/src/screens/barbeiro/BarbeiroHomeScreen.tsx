@@ -22,7 +22,6 @@ type Filtro = 'ativo' | 'historico';
 
 function getStatus(C: Theme): Record<string, { label: string; color: string }> {
   return {
-    pendente:   { label: 'PENDENTE',   color: C.warning },
     confirmado: { label: 'CONFIRMADO', color: C.success },
     cancelado:  { label: 'CANCELADO',  color: C.destructive },
     concluido:  { label: 'CONCLUÍDO',  color: C.primary },
@@ -48,13 +47,15 @@ export default function BarbeiroHomeScreen() {
 
   const agendamentos = todos.filter((a) =>
     filtro === 'ativo'
-      ? a.status === 'pendente' || a.status === 'confirmado'
+      ? a.status === 'confirmado'
       : a.status === 'concluido' || a.status === 'cancelado',
   );
 
   async function fetchDados() {
     if (!user) return;
     try {
+      // Conclui automaticamente os agendamentos cujo horario ja terminou
+      await supabase.rpc('concluir_agendamentos_passados');
       const { data: b, error: errB } = await supabase.from('barbeiros').select('id').eq('user_id', user.id).single();
       if (errB) throw errB;
       if (!b) { setLoading(false); return; }
@@ -174,23 +175,24 @@ export default function BarbeiroHomeScreen() {
               <View style={s.divider} />
               <Text style={s.clienteNome}>{item.profiles?.nome ?? 'Cliente'}</Text>
               <Text style={s.servicoNome}>{item.servicos?.nome}  ·  R$ {item.servicos?.preco?.toFixed(2)}</Text>
-              {filtro === 'ativo' && item.status === 'pendente' && (
+              {item.status === 'confirmado' && (
                 <View style={s.acoes}>
-                  <TouchableOpacity style={s.acaoConfirm} onPress={() => atualizar(item.id, 'confirmado')}>
-                    <Feather name="check" size={12} color={C.success} />
-                    <Text style={[s.acaoText, { color: C.success }]}>CONFIRMAR</Text>
-                  </TouchableOpacity>
                   <TouchableOpacity style={s.acaoCancel} onPress={() => atualizar(item.id, 'cancelado')}>
                     <Feather name="x" size={12} color={C.destructive} />
-                    <Text style={[s.acaoText, { color: C.destructive }]}>CANCELAR</Text>
+                    <Text style={[s.acaoText, { color: C.destructive }]}>
+                      {new Date(item.data_hora) <= new Date() ? 'CLIENTE FALTOU' : 'CANCELAR'}
+                    </Text>
                   </TouchableOpacity>
                 </View>
               )}
-              {filtro === 'ativo' && item.status === 'confirmado' && (
-                <TouchableOpacity style={s.acaoConcluir} onPress={() => atualizar(item.id, 'concluido')}>
-                  <Feather name="check-circle" size={12} color={C.primary} />
-                  <Text style={[s.acaoText, { color: C.primary }]}>MARCAR CONCLUÍDO</Text>
-                </TouchableOpacity>
+              {item.status === 'concluido' && (
+                // Concluido automaticamente — o barbeiro corrige se o cliente nao veio
+                <View style={s.acoes}>
+                  <TouchableOpacity style={s.acaoCancel} onPress={() => atualizar(item.id, 'cancelado')}>
+                    <Feather name="user-x" size={12} color={C.destructive} />
+                    <Text style={[s.acaoText, { color: C.destructive }]}>CLIENTE FALTOU</Text>
+                  </TouchableOpacity>
+                </View>
               )}
               <TouchableOpacity
                 style={s.acaoChat}
@@ -213,7 +215,7 @@ export default function BarbeiroHomeScreen() {
         ItemSeparatorComponent={() => <View style={{ height: 1, backgroundColor: C.border }} />}
         ListEmptyComponent={
           <Text style={{ fontFamily: F.sans, color: C.mutedFg, textAlign: 'center', marginTop: 60, paddingHorizontal: 24 }}>
-            {filtro === 'ativo' ? 'Nenhum agendamento pendente no momento.' : 'Nenhum atendimento concluído ou cancelado.'}
+            {filtro === 'ativo' ? 'Nenhum agendamento marcado no momento.' : 'Nenhum atendimento concluído ou cancelado.'}
           </Text>
         }
       />
@@ -240,9 +242,7 @@ function makeStyles(C: Theme) {
     clienteNome:   { fontFamily: F.sansMedium, fontSize: 16, color: C.primary, marginBottom: 2 },
     servicoNome:   { fontFamily: F.sans, fontSize: 13, color: C.mutedFg },
     acoes:         { flexDirection: 'row', gap: 16, marginTop: 14 },
-    acaoConfirm:   { flexDirection: 'row', alignItems: 'center', gap: 6 },
     acaoCancel:    { flexDirection: 'row', alignItems: 'center', gap: 6 },
-    acaoConcluir:    { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 14 },
     acaoChat:        { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 14 },
     acaoText:        { fontFamily: F.mono, fontSize: 10, letterSpacing: 1.5 },
     unreadBadge:     { backgroundColor: C.destructive, borderRadius: 8, minWidth: 16, height: 16, justifyContent: 'center', alignItems: 'center', paddingHorizontal: 4 },

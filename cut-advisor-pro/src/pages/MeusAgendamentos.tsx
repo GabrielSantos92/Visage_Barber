@@ -20,7 +20,6 @@ type Agendamento = {
 };
 
 const statusLabels: Record<string, { label: string; color: string }> = {
-  pendente: { label: "PENDENTE", color: "text-yellow-500 border-yellow-500/30" },
   confirmado: { label: "CONFIRMADO", color: "text-green-500 border-green-500/30" },
   cancelado: { label: "CANCELADO", color: "text-destructive border-destructive/30" },
   concluido: { label: "CONCLUÍDO", color: "text-primary border-primary/30" },
@@ -37,6 +36,8 @@ const MeusAgendamentos = () => {
   useEffect(() => {
     if (!user) return;
     const fetch = async () => {
+      // Conclui automaticamente os agendamentos cujo horario ja terminou
+      await supabase.rpc("concluir_agendamentos_passados");
       const { data } = await supabase
         .from("agendamentos")
         .select("id, data_hora, status, barbeiro_id, barbeiros(nome), servicos(nome, preco)")
@@ -134,7 +135,7 @@ const MeusAgendamentos = () => {
         ) : (
           <div className="space-y-3">
             {agendamentos.map((a) => {
-              const st = statusLabels[a.status] || statusLabels.pendente;
+              const st = statusLabels[a.status] || statusLabels.confirmado;
               const isPast = new Date(a.data_hora) < new Date();
               return (
                 <motion.div
@@ -179,7 +180,7 @@ const MeusAgendamentos = () => {
                           )}
                         </button>
                       )}
-                      {!isPast && (a.status === "pendente" || a.status === "confirmado") && (
+                      {!isPast && a.status === "confirmado" && (
                         <button
                           onClick={() => handleCancel(a.id)}
                           className="font-mono text-[10px] uppercase tracking-widest text-destructive hover:underline flex items-center gap-1"

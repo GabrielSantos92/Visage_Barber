@@ -42,9 +42,8 @@ export default function VisagismoResultado() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          formato_rosto: state.resultado.formato_rosto,
-          corte: state.resultado.corte_principal?.nome ?? "",
-          barba: state.resultado.barba?.estilo ?? "",
+          // A analise inteira: o backend extrai dela so os atributos de estilo.
+          analise: state.resultado,
           imagem_base64: state.fotoBase64 ?? "",
         }),
       });
@@ -94,7 +93,7 @@ export default function VisagismoResultado() {
             </div>
           )}
           <div className={fotoUrl ? "" : "col-span-2"}>
-            <p className="font-mono text-[9px] text-foreground tracking-[0.2em] mb-2">CORTE IDEAL</p>
+            <p className="font-mono text-[9px] text-foreground tracking-[0.2em] mb-2">COM O CORTE IDEAL</p>
             <div className="w-full h-56 border border-border bg-card flex items-center justify-center overflow-hidden relative">
               {imagemCarregada && imagemUrl ? (
                 <img src={imagemUrl} alt="Corte ideal" className="absolute inset-0 w-full h-full object-contain" />
@@ -234,7 +233,7 @@ export default function VisagismoResultado() {
           <p className="text-sm text-foreground mb-6">Agende com um dos nossos barbeiros e chegue com seu resultado em mãos.</p>
           <button
             onClick={() => navigate("/agendar")}
-            className="px-8 py-4 bg-primary text-black font-mono text-[10px] tracking-[0.3em] uppercase hover:bg-accent transition-colors"
+            className="px-8 py-4 bg-primary text-primary-foreground font-mono text-[10px] tracking-[0.3em] uppercase hover:bg-accent transition-colors"
           >
             AGENDAR AGORA
           </button>

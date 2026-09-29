@@ -5,7 +5,62 @@
 @tailwind utilities;
 
 @layer base {
+  /* Modo claro — mesma paleta do mobile (lightTheme em barber-mobile/src/lib/theme.ts) */
   :root {
+    --background: 0 0% 98%;
+    --foreground: 0 0% 25.1%;
+
+    --card: 0 0% 100%;
+    --card-foreground: 0 0% 25.1%;
+
+    --popover: 0 0% 100%;
+    --popover-foreground: 0 0% 25.1%;
+
+    --primary: 0 0% 7.8%;
+    --primary-foreground: 0 0% 100%;
+
+    --secondary: 0 0% 94.1%;
+    --secondary-foreground: 0 0% 7.8%;
+
+    --muted: 0 0% 94.1%;
+    --muted-foreground: 0 0% 45.1%;
+
+    --accent: 76 100% 42%;
+    --accent-foreground: 0 0% 7.8%;
+
+    --destructive: 0 66% 46.7%;
+    --destructive-foreground: 0 0% 100%;
+
+    --border: 0 0% 87.8%;
+    --input: 0 0% 87.8%;
+    --ring: 0 0% 7.8%;
+
+    --radius: 0px;
+
+    --carbon-950: 0 0% 98%;
+    --carbon-900: 0 0% 100%;
+    --steel-800: 0 0% 87.8%;
+    --steel-600: 0 0% 64%;
+    --steel-400: 0 0% 25.1%;
+    --neon: 76 100% 42%;
+
+    --font-sans: 'Space Grotesk', system-ui, sans-serif;
+    --font-mono: 'JetBrains Mono', monospace;
+
+    --sidebar-background: 0 0% 100%;
+    --sidebar-foreground: 0 0% 25.1%;
+    --sidebar-primary: 0 0% 7.8%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 0 0% 94.1%;
+    --sidebar-accent-foreground: 0 0% 7.8%;
+    --sidebar-border: 0 0% 87.8%;
+    --sidebar-ring: 0 0% 7.8%;
+
+    color-scheme: light;
+  }
+
+  /* Modo escuro — mesma paleta do mobile (darkTheme) */
+  .dark {
     --background: 0 0% 3.1%;
     --foreground: 0 0% 64%;
 
@@ -34,7 +89,6 @@
     --input: 0 0% 14.9%;
     --ring: 0 0% 100%;
 
-    --radius: 0px;
 
     --carbon-950: 0 0% 3.1%;
     --carbon-900: 0 0% 7.1%;
@@ -43,8 +97,6 @@
     --steel-400: 0 0% 64%;
     --neon: 75 100% 50%;
 
-    --font-sans: 'Space Grotesk', system-ui, sans-serif;
-    --font-mono: 'JetBrains Mono', monospace;
 
     --sidebar-background: 0 0% 7.1%;
     --sidebar-foreground: 0 0% 64%;
@@ -54,6 +106,8 @@
     --sidebar-accent-foreground: 0 0% 100%;
     --sidebar-border: 0 0% 14.9%;
     --sidebar-ring: 0 0% 100%;
+
+    color-scheme: dark;
   }
 }
 

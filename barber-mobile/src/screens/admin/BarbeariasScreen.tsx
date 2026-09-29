@@ -139,7 +139,8 @@ setBarbeiros(data ?? []);
         .from('agendamentos')
         .select('id')
         .eq('barbeiro_id', b.id)
-        .in('status', ['pendente', 'confirmado']);
+        .eq('status', 'confirmado')
+        .gte('data_hora', new Date().toISOString());
 
       if (abertos && abertos.length > 0) {
         Alert.alert(

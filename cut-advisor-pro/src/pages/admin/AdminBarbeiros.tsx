@@ -5,6 +5,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { toast } from "@/components/ui/sonner";
 import { useAuth } from "@/contexts/AuthContext";
 import { Navigate } from "react-router-dom";
+import LogoMark from "@/components/LogoMark";
 
 const API_URL = import.meta.env.VITE_API_URL ?? "http://localhost:3001";
 
@@ -93,9 +94,7 @@ const AdminBarbeiros = () => {
       <div className="border-b border-border px-6 py-4 flex items-center justify-between">
         <div className="flex items-center gap-4">
           <Link to="/" className="flex items-center gap-3">
-            <div className="size-7 bg-primary flex items-center justify-center">
-              <div className="size-3.5 bg-background" />
-            </div>
+            <LogoMark className="h-8" />
             <span className="font-mono text-[10px] tracking-widest text-primary font-bold">
               VISAGE BARBER
             </span>

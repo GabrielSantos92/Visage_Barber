@@ -9,6 +9,7 @@ import { supabase } from '../../lib/supabase';
 import { AuthStackParamList } from '../../navigation/AuthNavigator';
 import { useTheme } from '../../contexts/ThemeContext';
 import { F, Theme } from '../../lib/theme';
+import LogoMark from '../../components/LogoMark';
 
 type Props = { navigation: StackNavigationProp<AuthStackParamList, 'Login'> };
 
@@ -36,7 +37,7 @@ export default function LoginScreen({ navigation }: Props) {
       <ScrollView contentContainerStyle={s.scroll} keyboardShouldPersistTaps="handled">
 
         <View style={s.logoRow}>
-          <View style={s.logoSquare}><View style={s.logoInner} /></View>
+          <View style={s.logoMark}><LogoMark size={32} color={C.primary} bg={C.bg} line={C.border} /></View>
           <Text style={s.logoText}>VISAGE BARBER</Text>
         </View>
 
@@ -118,8 +119,7 @@ function makeStyles(C: Theme) {
     screen:           { flex: 1, backgroundColor: C.bg },
     scroll:           { flexGrow: 1, justifyContent: 'center', padding: 24 },
     logoRow:          { flexDirection: 'row', alignItems: 'center', marginBottom: 32 },
-    logoSquare:       { width: 28, height: 28, backgroundColor: C.primary, justifyContent: 'center', alignItems: 'center', marginRight: 10 },
-    logoInner:        { width: 14, height: 14, backgroundColor: C.bg },
+    logoMark:       { marginRight: 10 },
     logoText:         { fontFamily: F.mono, fontSize: 11, color: C.primary, letterSpacing: 1.5 },
     card:             { borderWidth: 1, borderColor: C.border, backgroundColor: C.card },
     cardHeader:       { padding: 16, borderBottomWidth: 1, borderBottomColor: C.border },

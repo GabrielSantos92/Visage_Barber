@@ -35,7 +35,19 @@ export default function AvaliacaoScreen() {
     if (nota === 0) { Alert.alert('Atenção', 'Selecione uma nota.'); return; }
     if (!user) return;
     setLoading(true);
-    const { data: agendamento } = await supabase.from('agendamentos').select('barbeiro_id').eq('id', agendamentoId).single();
+    const { data: agendamento } = await supabase.from('agendamentos').select('barbeiro_id, status').eq('id', agendamentoId).single();
+    // So atendimento concluido pode ser avaliado (o banco tambem garante isso)
+    if (agendamento?.status !== 'concluido') {
+      setLoading(false);
+      Alert.alert(
+        'Avaliação indisponível',
+        agendamento?.status === 'cancelado'
+          ? 'Este atendimento foi cancelado ou marcado como falta, então não pode ser avaliado.'
+          : 'Você poderá avaliar depois que o atendimento for concluído.',
+        [{ text: 'OK', onPress: () => navigation.goBack() }],
+      );
+      return;
+    }
     const { error } = await supabase.from('avaliacoes').insert({
       agendamento_id: agendamentoId,
       cliente_id: user.id,

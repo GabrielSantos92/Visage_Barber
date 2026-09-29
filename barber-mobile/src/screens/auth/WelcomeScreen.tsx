@@ -4,6 +4,7 @@ import { StackNavigationProp } from '@react-navigation/stack';
 import { AuthStackParamList } from '../../navigation/AuthNavigator';
 import { useTheme } from '../../contexts/ThemeContext';
 import { F, Theme } from '../../lib/theme';
+import LogoMark from '../../components/LogoMark';
 
 type Props = { navigation: StackNavigationProp<AuthStackParamList, 'Welcome'> };
 
@@ -14,7 +15,7 @@ export default function WelcomeScreen({ navigation }: Props) {
   return (
     <View style={s.screen}>
       <View style={s.logoRow}>
-        <View style={s.logoSquare}><View style={s.logoInner} /></View>
+        <View style={s.logoMark}><LogoMark size={32} color={C.primary} bg={C.bg} line={C.border} /></View>
         <Text style={s.logoText}>VISAGE BARBER</Text>
       </View>
 
@@ -45,8 +46,7 @@ function makeStyles(C: Theme) {
   return StyleSheet.create({
     screen:        { flex: 1, backgroundColor: C.bg, paddingHorizontal: 24 },
     logoRow:       { flexDirection: 'row', alignItems: 'center', paddingTop: 64, marginBottom: 64 },
-    logoSquare:    { width: 28, height: 28, backgroundColor: C.primary, justifyContent: 'center', alignItems: 'center', marginRight: 10 },
-    logoInner:     { width: 14, height: 14, backgroundColor: C.bg },
+    logoMark:    { marginRight: 10 },
     logoText:      { fontFamily: F.mono, fontSize: 11, color: C.primary, letterSpacing: 1.5 },
     content:       { flex: 1, justifyContent: 'center' },
     label:         { fontFamily: F.mono, fontSize: 10, color: C.mutedFg, letterSpacing: 2, marginBottom: 12 },

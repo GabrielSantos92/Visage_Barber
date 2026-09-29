@@ -30,7 +30,6 @@ interface Agendamento {
 }
 
 const statusConfig: Record<Status, { label: string; color: string; icon: React.ElementType }> = {
-  pendente:   { label: "PENDENTE",   color: "text-yellow-400 border-yellow-400/20 bg-yellow-400/5",   icon: AlertCircle },
   confirmado: { label: "CONFIRMADO", color: "text-green-400 border-green-400/20 bg-green-400/5",     icon: CheckCircle2 },
   concluido:  { label: "CONCLUÍDO",  color: "text-primary border-primary/20 bg-primary/5",           icon: CheckCircle2 },
   cancelado:  { label: "CANCELADO",  color: "text-destructive border-destructive/20 bg-destructive/5", icon: XCircle },
@@ -60,7 +59,7 @@ export default function Dashboard() {
   const { user, role, loading: authLoading } = useAuth();
   const [kpis, setKpis] = useState<KPI[]>([]);
   const [recentes, setRecentes] = useState<Agendamento[]>([]);
-  const [statusCounts, setStatusCounts] = useState<Record<Status, number>>({ pendente: 0, confirmado: 0, concluido: 0, cancelado: 0 });
+  const [statusCounts, setStatusCounts] = useState<Record<Status, number>>({ confirmado: 0, concluido: 0, cancelado: 0 });
   const [loading, setLoading] = useState(true);
   const [barbeiroId, setBarbeiroId] = useState<string | null>(null);
 
@@ -83,6 +82,7 @@ export default function Dashboard() {
 
   async function loadAdminData() {
     setLoading(true);
+    await supabase.rpc("concluir_agendamentos_passados");
     const now = new Date();
     const todayStart = startOfDay(now).toISOString();
     const todayEnd = endOfDay(now).toISOString();
@@ -113,7 +113,7 @@ export default function Dashboard() {
       .filter(a => a.status === "concluido")
       .reduce((sum, a) => sum + ((a.servicos as any)?.preco ?? 0), 0);
 
-    const counts: Record<Status, number> = { pendente: 0, confirmado: 0, concluido: 0, cancelado: 0 };
+    const counts: Record<Status, number> = { confirmado: 0, concluido: 0, cancelado: 0 };
     (allStatus ?? []).forEach(a => { if (a.status in counts) counts[a.status as Status]++; });
 
     setKpis([
@@ -129,6 +129,7 @@ export default function Dashboard() {
 
   async function loadBarbeiroData() {
     setLoading(true);
+    await supabase.rpc("concluir_agendamentos_passados");
     const now = new Date();
     const todayStart = startOfDay(now).toISOString();
     const todayEnd = endOfDay(now).toISOString();
@@ -155,17 +156,17 @@ export default function Dashboard() {
       .filter(a => a.status === "concluido")
       .reduce((sum, a) => sum + ((a.servicos as any)?.preco ?? 0), 0);
 
-    const pendentes = (hoje ?? []).filter(a => a.status === "pendente").length;
+    const concluidos = (hoje ?? []).filter(a => a.status === "concluido").length;
     const confirmados = (hoje ?? []).filter(a => a.status === "confirmado").length;
 
-    const counts: Record<Status, number> = { pendente: 0, confirmado: 0, concluido: 0, cancelado: 0 };
+    const counts: Record<Status, number> = { confirmado: 0, concluido: 0, cancelado: 0 };
     (allStatus ?? []).forEach(a => { if (a.status in counts) counts[a.status as Status]++; });
 
     setKpis([
       { label: "ATENDIMENTOS HOJE", value: hoje?.length ?? 0, sub: format(now, "EEEE, dd/MM", { locale: ptBR }), icon: Calendar, accent: true },
       { label: "RECEITA DO MÊS", value: `R$ ${receitaMes.toFixed(2).replace(".", ",")}`, sub: "serviços concluídos", icon: DollarSign },
-      { label: "PENDENTES HOJE", value: pendentes, sub: "aguardando confirmação", icon: AlertCircle },
-      { label: "CONFIRMADOS HOJE", value: confirmados, sub: "prontos para atender", icon: CheckCircle2 },
+      { label: "A ATENDER HOJE", value: confirmados, sub: "horários marcados", icon: Clock },
+      { label: "CONCLUÍDOS HOJE", value: concluidos, sub: "atendimentos finalizados", icon: CheckCircle2 },
     ]);
     setRecentes(await withClientes(recentsData as any));
     setStatusCounts(counts);
@@ -302,7 +303,7 @@ export default function Dashboard() {
               {loading ? (
                 [0,1,2,3].map(i => <div key={i} className="h-10 bg-card rounded animate-pulse" />)
               ) : (
-                (["confirmado", "pendente", "concluido", "cancelado"] as Status[]).map((status) => {
+                (["confirmado", "concluido", "cancelado"] as Status[]).map((status) => {
                   const cfg = statusConfig[status];
                   const count = statusCounts[status];
                   const pct = totalGeral > 0 ? Math.round((count / totalGeral) * 100) : 0;
@@ -325,7 +326,6 @@ export default function Dashboard() {
                           transition={{ duration: 0.8, delay: 0.3 }}
                           className={`h-full ${
                             status === "confirmado" ? "bg-green-400" :
-                            status === "pendente"   ? "bg-yellow-400" :
                             status === "concluido"  ? "bg-primary" :
                             "bg-destructive"
                           }`}

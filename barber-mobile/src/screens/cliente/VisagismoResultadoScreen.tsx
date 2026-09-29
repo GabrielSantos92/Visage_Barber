@@ -34,9 +34,8 @@ export default function VisagismoResultadoScreen() {
     timeoutRef.current = setTimeout(() => setImagemErro(true), 360000);
     try {
       const data = await api.post<{ base64: string; contentType: string }>('/api/visagismo/imagem-referencia', {
-        formato_rosto: resultado.formato_rosto,
-        corte: resultado.corte_principal?.nome ?? '',
-        barba: resultado.barba?.estilo ?? '',
+        // A analise inteira: o backend extrai dela so os atributos de estilo.
+        analise: resultado,
         imagem_base64: fotoBase64 ?? '',
       });
       if (timeoutRef.current) clearTimeout(timeoutRef.current);
@@ -72,7 +71,7 @@ export default function VisagismoResultadoScreen() {
         ) : null}
 
         <View style={s.fotoContainer}>
-          <Text style={s.fotoLabel}>CORTE IDEAL</Text>
+          <Text style={s.fotoLabel}>COM O CORTE IDEAL</Text>
           <View style={s.fotoImg}>
             {imagemCarregada && imagemUrl ? (
               <Image source={{ uri: imagemUrl }} style={StyleSheet.absoluteFill} resizeMode="cover" />

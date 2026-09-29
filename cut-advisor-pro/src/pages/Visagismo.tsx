@@ -167,13 +167,13 @@ export default function Visagismo() {
             <div className="flex gap-3 w-full">
               <button
                 onClick={escolherGaleria}
-                className="flex-1 flex items-center justify-center gap-2 border border-primary py-4 font-mono text-[10px] tracking-widest text-primary hover:bg-primary hover:text-black transition-colors"
+                className="flex-1 flex items-center justify-center gap-2 border border-primary py-4 font-mono text-[10px] tracking-widest text-primary hover:bg-primary hover:text-primary-foreground transition-colors"
               >
                 <ImageIcon size={14} /> DA GALERIA
               </button>
               <button
                 onClick={abrirCamera}
-                className="flex-1 flex items-center justify-center gap-2 border border-primary py-4 font-mono text-[10px] tracking-widest text-primary hover:bg-primary hover:text-black transition-colors"
+                className="flex-1 flex items-center justify-center gap-2 border border-primary py-4 font-mono text-[10px] tracking-widest text-primary hover:bg-primary hover:text-primary-foreground transition-colors"
               >
                 <Camera size={14} /> CÂMERA
               </button>
@@ -211,11 +211,11 @@ export default function Visagismo() {
           <button
             onClick={analisar}
             disabled={loading}
-            className="w-full flex items-center justify-center gap-3 bg-primary text-black py-5 font-mono text-[11px] tracking-[0.3em] uppercase hover:bg-accent transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            className="w-full flex items-center justify-center gap-3 bg-primary text-primary-foreground py-5 font-mono text-[11px] tracking-[0.3em] uppercase hover:bg-accent transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {loading ? (
               <>
-                <div className="size-3 border-2 border-black border-t-transparent rounded-full animate-spin" />
+                <div className="size-3 border-2 border-primary-foreground border-t-transparent rounded-full animate-spin" />
                 ANALISANDO...
               </>
             ) : (

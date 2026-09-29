@@ -24,7 +24,6 @@ interface Agendamento {
 
 function getStatus(C: Theme): Record<string, { label: string; color: string }> {
   return {
-    pendente:   { label: 'PENDENTE',   color: C.warning },
     confirmado: { label: 'CONFIRMADO', color: C.success },
     cancelado:  { label: 'CANCELADO',  color: C.destructive },
     concluido:  { label: 'CONCLUÍDO',  color: C.primary },
@@ -64,6 +63,8 @@ export default function AgendamentosScreen() {
   async function fetchAgendamentos() {
     if (!user) return;
     try {
+      // Conclui automaticamente os agendamentos cujo horario ja terminou
+      await supabase.rpc('concluir_agendamentos_passados');
       const { data, error } = await supabase
         .from('agendamentos')
         .select('*, barbeiros(nome), servicos(nome, preco)')
@@ -139,7 +140,7 @@ export default function AgendamentosScreen() {
               <Text style={s.servico}>{item.servicos?.nome}  ·  R$ {item.servicos?.preco?.toFixed(2)}</Text>
 
               <View style={s.actions}>
-                {item.status === 'pendente' && (
+                {item.status === 'confirmado' && d > new Date() && (
                   <TouchableOpacity style={s.actionBtn} onPress={() => confirmarCancelamento(item.id)}>
                     <Feather name="x" size={12} color={C.destructive} />
                     <Text style={[s.actionText, { color: C.destructive }]}>CANCELAR</Text>

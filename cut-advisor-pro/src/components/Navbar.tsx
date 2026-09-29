@@ -3,6 +3,7 @@ import { Menu, X, LogOut, User, Calendar, Settings, Scissors, LayoutDashboard } 
 import { motion, AnimatePresence } from "framer-motion";
 import { Link } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
+import LogoMark from "./LogoMark";
 
 const publicNavItems = [
   { label: "01. Serviços", href: "/#services", isRoute: false },
@@ -18,9 +19,7 @@ const Navbar = () => {
     <nav className="sticky top-0 z-50 border-b border-border bg-background/80 backdrop-blur-md">
       <div className="max-w-7xl mx-auto px-6 h-16 flex items-center justify-between">
         <Link to="/" className="flex items-center gap-4">
-          <div className="size-8 bg-primary flex items-center justify-center">
-            <div className="size-4 bg-background" />
-          </div>
+          <LogoMark className="h-9" />
           <span className="font-mono text-[10px] tracking-widest text-primary font-bold">
             VISAGE BARBER
           </span>

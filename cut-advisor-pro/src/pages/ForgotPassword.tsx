@@ -4,6 +4,7 @@ import { motion } from "framer-motion";
 import { Mail, AlertCircle, ArrowLeft } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "@/components/ui/sonner";
+import LogoMark from "@/components/LogoMark";
 
 const ForgotPassword = () => {
   const [email, setEmail] = useState("");
@@ -35,9 +36,7 @@ const ForgotPassword = () => {
       {/* Header */}
       <div className="px-6 py-4 border-b border-border">
         <Link to="/" className="flex items-center gap-3">
-          <div className="size-7 bg-primary flex items-center justify-center">
-            <div className="size-3.5 bg-background" />
-          </div>
+          <LogoMark className="h-8" />
           <span className="font-mono text-[10px] tracking-widest text-primary font-bold">
             VISAGE BARBER
           </span>

@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "barber-mobile",
+    "name": "Visage Barber",
     "slug": "barber-mobile",
     "scheme": "visagebarber",
     "version": "1.0.0",
@@ -11,7 +11,7 @@
     "splash": {
       "image": "./assets/splash-icon.png",
       "resizeMode": "contain",
-      "backgroundColor": "#ffffff"
+      "backgroundColor": "#080808"
     },
     "ios": {
       "supportsTablet": true
@@ -19,7 +19,7 @@
     "android": {
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
-        "backgroundColor": "#ffffff"
+        "backgroundColor": "#080808"
       },
       "edgeToEdgeEnabled": true,
       "predictiveBackGestureEnabled": false

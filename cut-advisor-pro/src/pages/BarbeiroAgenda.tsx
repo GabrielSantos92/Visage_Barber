@@ -22,9 +22,8 @@ type Agendamento = {
   servicos: { nome: string; duracao_min: number; preco: number } | null;
 };
 
-const statusConfig: Record<Status, { label: string; color: string; next?: Status; nextLabel?: string }> = {
-  pendente:   { label: "PENDENTE",   color: "text-yellow-500 border-yellow-500/30", next: "confirmado", nextLabel: "CONFIRMAR" },
-  confirmado: { label: "CONFIRMADO", color: "text-green-500 border-green-500/30",   next: "concluido",  nextLabel: "CONCLUIR"  },
+const statusConfig: Record<Status, { label: string; color: string }> = {
+  confirmado: { label: "CONFIRMADO", color: "text-green-500 border-green-500/30" },
   concluido:  { label: "CONCLUÍDO",  color: "text-primary border-primary/30" },
   cancelado:  { label: "CANCELADO",  color: "text-destructive border-destructive/30" },
 };
@@ -57,6 +56,8 @@ const BarbeiroAgenda = () => {
     setLoading(true);
 
     const load = async () => {
+      // Conclui automaticamente os agendamentos cujo horario ja terminou
+      await supabase.rpc("concluir_agendamentos_passados");
       const { data, error } = await supabase
         .from("agendamentos")
         .select("id, data_hora, status, observacoes, cliente_id, servicos(nome, duracao_min, preco)")
@@ -207,7 +208,7 @@ const BarbeiroAgenda = () => {
           <div className="space-y-4">
             {/* Summary */}
             <div className="grid grid-cols-3 gap-3 mb-6">
-              {(["pendente", "confirmado", "concluido"] as Status[]).map((s) => {
+              {(["confirmado", "concluido", "cancelado"] as Status[]).map((s) => {
                 const count = agendamentos.filter(a => a.status === s).length;
                 const cfg = statusConfig[s];
                 return (
@@ -259,23 +260,14 @@ const BarbeiroAgenda = () => {
                     <span className="text-primary font-bold">R$ {Number(a.servicos?.preco).toFixed(2)}</span>
                   </div>
 
-                  {cfg.next && (
-                    <div className="flex gap-2">
-                      <button
-                        onClick={() => updateStatus(a.id, cfg.next!)}
-                        className="flex-1 bg-primary text-primary-foreground py-2 font-mono text-[10px] uppercase tracking-widest hover:bg-accent hover:text-accent-foreground transition-colors"
-                      >
-                        {cfg.nextLabel}
-                      </button>
-                      {a.status !== "cancelado" && (
-                        <button
-                          onClick={() => updateStatus(a.id, "cancelado")}
-                          className="px-4 py-2 border border-destructive/30 text-destructive font-mono text-[10px] uppercase tracking-widest hover:bg-destructive hover:text-destructive-foreground transition-colors"
-                        >
-                          CANCELAR
-                        </button>
-                      )}
-                    </div>
+                  {/* Concluido acontece sozinho; o barbeiro so cancela ou marca falta */}
+                  {a.status !== "cancelado" && (
+                    <button
+                      onClick={() => updateStatus(a.id, "cancelado")}
+                      className="px-4 py-2 border border-destructive/30 text-destructive font-mono text-[10px] uppercase tracking-widest hover:bg-destructive hover:text-destructive-foreground transition-colors"
+                    >
+                      {a.status === "concluido" || new Date(a.data_hora) <= new Date() ? "CLIENTE FALTOU" : "CANCELAR"}
+                    </button>
                   )}
 
                   <button

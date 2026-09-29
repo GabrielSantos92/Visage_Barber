@@ -10,6 +10,7 @@ import { useTheme } from '../../contexts/ThemeContext';
 import { F, Theme } from '../../lib/theme';
 import ErroFetch from '../../components/ErroFetch';
 import { ClienteTabParamList } from '../../navigation/ClienteNavigator';
+import LogoMark from '../../components/LogoMark';
 
 type Barbeiro = Tables<'barbeiros'>;
 
@@ -48,7 +49,7 @@ export default function HomeScreen() {
     <View style={s.screen}>
       <View style={s.header}>
         <View style={s.logoRow}>
-          <View style={s.logoSquare}><View style={s.logoInner} /></View>
+          <View style={s.logoMark}><LogoMark size={28} color={C.primary} bg={C.bg} line={C.border} /></View>
           <Text style={s.logoText}>VISAGE BARBER</Text>
         </View>
         <TouchableOpacity onPress={signOut}>
@@ -102,8 +103,7 @@ function makeStyles(C: Theme) {
     screen:       { flex: 1, backgroundColor: C.bg },
     header:       { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 24, paddingTop: 56, paddingBottom: 20, borderBottomWidth: 1, borderBottomColor: C.border },
     logoRow:      { flexDirection: 'row', alignItems: 'center' },
-    logoSquare:   { width: 24, height: 24, backgroundColor: C.primary, justifyContent: 'center', alignItems: 'center', marginRight: 8 },
-    logoInner:    { width: 12, height: 12, backgroundColor: C.bg },
+    logoMark:   { marginRight: 8 },
     logoText:     { fontFamily: F.mono, fontSize: 10, color: C.primary, letterSpacing: 1.5 },
     welcome:      { paddingHorizontal: 24, paddingVertical: 20 },
     welcomeLabel: { fontFamily: F.mono, fontSize: 10, color: C.mutedFg, letterSpacing: 1.5, marginBottom: 4 },

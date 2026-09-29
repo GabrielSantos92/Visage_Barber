@@ -86,7 +86,7 @@ setBarbeiros(data ?? []);
     const { data: agendados } = await supabase.from('agendamentos')
       .select('data_hora, servicos(duracao_min)')
       .eq('barbeiro_id', barbeiroId).gte('data_hora', ini.toISOString()).lte('data_hora', fim.toISOString())
-      .in('status', ['pendente', 'confirmado']);
+      .neq('status', 'cancelado');
 
     // Build real intervals so a 60-min booking at 09:00 blocks 09:30 too
     const reservas = (agendados ?? []).map((a: any) => {
@@ -121,8 +121,15 @@ setBarbeiros(data ?? []);
     const { error } = await supabase.from('agendamentos').insert({
       cliente_id: user.id, barbeiro_id: selectedBarbeiro.id,
       servico_id: selectedServico.id, data_hora: dataHora.toISOString(),
+      status: 'confirmado',
     });
     setSubmitting(false);
+    if (error?.code === '23505') {
+      Alert.alert('Horário indisponível', 'Alguém acabou de reservar este horário. Escolha outro.');
+      setSelectedHorario(null); setStep(3);
+      fetchHorarios(selectedBarbeiro.id, selectedServico.duracao_min, selectedData);
+      return;
+    }
     if (error) { Alert.alert('Erro', error.message); return; }
 
     const { data: barb } = await supabase

@@ -24,6 +24,7 @@ const Booking = () => {
   const [selectedServico, setSelectedServico] = useState<Servico | null>(null);
   const [selectedDate, setSelectedDate] = useState<Date | null>(null);
   const [selectedTime, setSelectedTime] = useState<string | null>(null);
+  const [slotsVersion, setSlotsVersion] = useState(0);
   const [availableSlots, setAvailableSlots] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -80,7 +81,7 @@ const Booking = () => {
         .eq("barbeiro_id", selectedBarbeiro.id)
         .gte("data_hora", startOfDay(selectedDate).toISOString())
         .lte("data_hora", endOfDay(selectedDate).toISOString())
-        .in("status", ["pendente", "confirmado"]);
+        .neq("status", "cancelado");
 
       const bookedTimes = new Set(
         (existing || []).map(a => format(new Date(a.data_hora), "HH:mm"))
@@ -113,7 +114,7 @@ const Booking = () => {
       setLoading(false);
     };
     fetchSlots();
-  }, [selectedBarbeiro, selectedDate, selectedServico]);
+  }, [selectedBarbeiro, selectedDate, selectedServico, slotsVersion]);
 
   const handleSubmit = async () => {
     if (!user || !selectedBarbeiro || !selectedServico || !selectedDate || !selectedTime) return;
@@ -127,9 +128,18 @@ const Booking = () => {
       barbeiro_id: selectedBarbeiro.id,
       servico_id: selectedServico.id,
       data_hora: dataHora.toISOString(),
+      status: "confirmado",
     });
 
     setSubmitting(false);
+
+    if (error?.code === "23505") {
+      toast.error("Alguém acabou de reservar este horário. Escolha outro.");
+      setSelectedTime(null);
+      setStep(3);
+      setSlotsVersion(v => v + 1);
+      return;
+    }
 
     if (error) {
       toast.error("Erro ao agendar. Tente novamente.");

@@ -243,6 +243,10 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      concluir_agendamentos_passados: {
+        Args: Record<PropertyKey, never>
+        Returns: number
+      }
       has_role: {
         Args: {
           _role: Database["public"]["Enums"]["app_role"]
@@ -252,7 +256,7 @@ export type Database = {
       }
     }
     Enums: {
-      agendamento_status: "pendente" | "confirmado" | "cancelado" | "concluido"
+      agendamento_status: "confirmado" | "cancelado" | "concluido"
       app_role: "cliente" | "barbeiro" | "admin"
     }
     CompositeTypes: {
@@ -381,7 +385,7 @@ export type CompositeTypes<
 export const Constants = {
   public: {
     Enums: {
-      agendamento_status: ["pendente", "confirmado", "cancelado", "concluido"],
+      agendamento_status: ["confirmado", "cancelado", "concluido"],
       app_role: ["cliente", "barbeiro", "admin"],
     },
   },
