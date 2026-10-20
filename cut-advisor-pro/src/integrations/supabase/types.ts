@@ -17,33 +17,48 @@ export type Database = {
       agendamentos: {
         Row: {
           barbeiro_id: string
+          ativo_final_min: number | null
+          ativo_inicial_min: number | null
           cliente_id: string
           created_at: string
           data_hora: string
+          duracao_min: number | null
           id: string
+          margem_min: number | null
           observacoes: string | null
+          pausa_min: number | null
           servico_id: string
           status: Database["public"]["Enums"]["agendamento_status"]
           updated_at: string
         }
         Insert: {
           barbeiro_id: string
+          ativo_final_min?: number | null
+          ativo_inicial_min?: number | null
           cliente_id: string
           created_at?: string
           data_hora: string
+          duracao_min?: number | null
           id?: string
+          margem_min?: number | null
           observacoes?: string | null
+          pausa_min?: number | null
           servico_id: string
           status?: Database["public"]["Enums"]["agendamento_status"]
           updated_at?: string
         }
         Update: {
           barbeiro_id?: string
+          ativo_final_min?: number | null
+          ativo_inicial_min?: number | null
           cliente_id?: string
           created_at?: string
           data_hora?: string
+          duracao_min?: number | null
           id?: string
+          margem_min?: number | null
           observacoes?: string | null
+          pausa_min?: number | null
           servico_id?: string
           status?: Database["public"]["Enums"]["agendamento_status"]
           updated_at?: string
@@ -193,29 +208,44 @@ export type Database = {
       servicos: {
         Row: {
           ativo: boolean
+          com_pausa: boolean
+          ativo_final_min: number | null
+          ativo_inicial_min: number | null
           created_at: string
           descricao: string | null
           duracao_min: number
           id: string
+          margem_min: number
           nome: string
+          pausa_min: number | null
           preco: number
         }
         Insert: {
           ativo?: boolean
+          com_pausa?: boolean
+          ativo_final_min?: number | null
+          ativo_inicial_min?: number | null
           created_at?: string
           descricao?: string | null
           duracao_min?: number
           id?: string
+          margem_min?: number
           nome: string
+          pausa_min?: number | null
           preco: number
         }
         Update: {
           ativo?: boolean
+          com_pausa?: boolean
+          ativo_final_min?: number | null
+          ativo_inicial_min?: number | null
           created_at?: string
           descricao?: string | null
           duracao_min?: number
           id?: string
+          margem_min?: number
           nome?: string
+          pausa_min?: number | null
           preco?: number
         }
         Relationships: []
@@ -247,12 +277,31 @@ export type Database = {
         Args: Record<PropertyKey, never>
         Returns: number
       }
+      configurar_etapas_servico: {
+        Args: {
+          p_ativo_final?: number | null
+          p_ativo_inicial?: number | null
+          p_com_pausa: boolean
+          p_margem?: number | null
+          p_pausa?: number | null
+          p_servico_id: string
+        }
+        Returns: number
+      }
       has_role: {
         Args: {
           _role: Database["public"]["Enums"]["app_role"]
           _user_id: string
         }
         Returns: boolean
+      }
+      horarios_livres: {
+        Args: { p_barbeiro_id: string; p_data: string; p_servico_id: string }
+        Returns: { horario: string }[]
+      }
+      notas_barbeiros: {
+        Args: Record<PropertyKey, never>
+        Returns: { barbeiro_id: string; media: number; total: number }[]
       }
     }
     Enums: {

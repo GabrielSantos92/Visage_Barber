@@ -9,6 +9,10 @@ const visagismoRoutes = require('./routes/visagismo');
 
 const app = express();
 
+// Atras de proxy/load balancer, informe quantos saltos confiar (ex.: TRUST_PROXY=1)
+// para que req.ip seja o IP real do cliente nos limites de requisicao
+if (process.env.TRUST_PROXY) app.set('trust proxy', Number(process.env.TRUST_PROXY));
+
 app.use(cors());
 app.use(express.json({ limit: '20mb' }));
 

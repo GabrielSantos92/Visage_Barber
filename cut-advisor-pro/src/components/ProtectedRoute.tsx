@@ -26,7 +26,8 @@ const ProtectedRoute = ({ children, roles }: Props) => {
     return <Navigate to="/login" replace />;
   }
 
-  if (roles && role && !roles.includes(role)) {
+  // Sem role carregada nao ha como confirmar a permissao: nega o acesso
+  if (roles && (!role || !roles.includes(role))) {
     return <Navigate to="/" replace />;
   }
 

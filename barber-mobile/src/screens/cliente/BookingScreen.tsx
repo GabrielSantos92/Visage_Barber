@@ -1,7 +1,7 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, FlatList, ScrollView, ActivityIndicator, Alert, Image } from 'react-native';
 import { Feather } from '@expo/vector-icons';
-import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
+import { useFocusEffect, useNavigation, useRoute, RouteProp } from '@react-navigation/native';
 import { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
 import { useAuth } from '../../contexts/AuthContext';
 import { supabase } from '../../lib/supabase';
@@ -11,6 +11,10 @@ import { F, Theme } from '../../lib/theme';
 import ErroFetch from '../../components/ErroFetch';
 import { ClienteTabParamList } from '../../navigation/ClienteNavigator';
 import { sendPushNotification } from '../../lib/notifications';
+import { buscarHorariosDisponiveis } from '../../lib/disponibilidade';
+import { interpretarErroAgendamento } from '../../lib/horarios';
+import { servicoAgendavel } from '../../lib/etapas';
+import { buscarNotasBarbeiros, formatarNota, NotaBarbeiro } from '../../lib/notasBarbeiros';
 
 type Barbeiro = Tables<'barbeiros'>;
 type Servico  = Tables<'servicos'>;
@@ -26,6 +30,7 @@ export default function BookingScreen() {
   const { user } = useAuth();
   const [step, setStep]                     = useState(0);
   const [barbeiros, setBarbeiros]           = useState<Barbeiro[]>([]);
+  const [notas, setNotas]                   = useState<Record<string, NotaBarbeiro>>({});
   const [servicos, setServicos]             = useState<Servico[]>([]);
   const [horarios, setHorarios]             = useState<string[]>([]);
   const [selectedBarbeiro, setSelectedBarbeiro] = useState<Barbeiro | null>(null);
@@ -38,6 +43,10 @@ export default function BookingScreen() {
   const [erroBarbeiros, setErroBarbeiros]   = useState<string | null>(null);
 
   useEffect(() => { fetchBarbeiros(); }, []);
+
+  // A aba continua montada ao trocar de tela: recarrega as notas a cada foco
+  // para refletir avaliacoes feitas depois da primeira carga
+  useFocusEffect(useCallback(() => { buscarNotasBarbeiros().then(setNotas); }, []));
 
   useEffect(() => {
     const id = route.params?.initialBarbeiroId;
@@ -55,7 +64,7 @@ export default function BookingScreen() {
     try {
       const { data, error } = await supabase.from('barbeiros').select('*').eq('ativo', true);
       if (error) throw error;
-setBarbeiros(data ?? []);
+      setBarbeiros(data ?? []);
       setErroBarbeiros(null);
     } catch (e: any) {
       setErroBarbeiros(e.message ?? 'Erro ao carregar barbeiros.');
@@ -67,49 +76,24 @@ setBarbeiros(data ?? []);
     if (!selectedBarbeiro) return;
     setSelectedServico(null); setSelectedData(null); setSelectedHorario(null);
     supabase.from('barbeiro_servicos').select('servico_id, servicos(*)').eq('barbeiro_id', selectedBarbeiro.id)
-      .then(({ data }) => setServicos((data ?? []).map((bs: any) => bs.servicos).filter(Boolean)));
+      // Servico com pausa ainda sem os tempos configurados nao e oferecido
+      .then(({ data }) => setServicos((data ?? []).map((bs: any) => bs.servicos).filter((sv: Servico | null) => sv && servicoAgendavel(sv))));
   }, [selectedBarbeiro]);
 
   useEffect(() => {
     if (!selectedBarbeiro || !selectedServico || !selectedData) return;
-    fetchHorarios(selectedBarbeiro.id, selectedServico.duracao_min, selectedData);
-  }, [selectedData]);
+    fetchHorarios(selectedBarbeiro.id, selectedServico, selectedData);
+  }, [selectedBarbeiro, selectedServico, selectedData]);
 
-  async function fetchHorarios(barbeiroId: string, duracao: number, data: Date) {
+  // Calculado pelo banco: considera so os periodos em que o barbeiro precisa estar
+  // presente (pausas de coloracao ficam livres) e os outros agendamentos do cliente
+  async function fetchHorarios(barbeiroId: string, servico: Servico, data: Date) {
     setLoading(true);
-    const { data: periodos } = await supabase.from('horarios_disponiveis').select('*')
-      .eq('barbeiro_id', barbeiroId).eq('dia_semana', data.getDay());
-    if (!periodos?.length) { setHorarios([]); setLoading(false); return; }
-
-    const ini = new Date(data); ini.setHours(0, 0, 0, 0);
-    const fim = new Date(data); fim.setHours(23, 59, 59, 999);
-    const { data: agendados } = await supabase.from('agendamentos')
-      .select('data_hora, servicos(duracao_min)')
-      .eq('barbeiro_id', barbeiroId).gte('data_hora', ini.toISOString()).lte('data_hora', fim.toISOString())
-      .neq('status', 'cancelado');
-
-    // Build real intervals so a 60-min booking at 09:00 blocks 09:30 too
-    const reservas = (agendados ?? []).map((a: any) => {
-      const inicio = new Date(a.data_hora).getTime();
-      return { inicio, fim: inicio + (a.servicos?.duracao_min ?? 30) * 60000 };
-    });
-
-    const agora = new Date();
-    const slots: string[] = [];
-    for (const p of periodos) {
-      const [hI, mI] = p.hora_inicio.split(':').map(Number);
-      const [hF, mF] = p.hora_fim.split(':').map(Number);
-      let atual = new Date(data); atual.setHours(hI, mI, 0, 0);
-      const fimP = new Date(data); fimP.setHours(hF, mF, 0, 0);
-      while (atual < fimP) {
-        const fimSrv = new Date(atual.getTime() + duracao * 60000);
-        const str = `${atual.getHours().toString().padStart(2, '0')}:${atual.getMinutes().toString().padStart(2, '0')}`;
-        const conflito = reservas.some(r => atual.getTime() < r.fim && fimSrv.getTime() > r.inicio);
-        if (atual > agora && fimSrv <= fimP && !conflito) slots.push(str);
-        atual = new Date(atual.getTime() + 30 * 60000);
-      }
+    try {
+      setHorarios(await buscarHorariosDisponiveis(barbeiroId, servico, data));
+    } catch {
+      setHorarios([]);
     }
-    setHorarios(slots);
     setLoading(false);
   }
 
@@ -124,13 +108,18 @@ setBarbeiros(data ?? []);
       status: 'confirmado',
     });
     setSubmitting(false);
-    if (error?.code === '23505') {
-      Alert.alert('Horário indisponível', 'Alguém acabou de reservar este horário. Escolha outro.');
-      setSelectedHorario(null); setStep(3);
-      fetchHorarios(selectedBarbeiro.id, selectedServico.duracao_min, selectedData);
+    // O banco recusa horarios sobrepostos (do barbeiro ou do proprio cliente)
+    if (error) {
+      const { mensagem, horarioIndisponivel } = interpretarErroAgendamento(error);
+      if (horarioIndisponivel) {
+        Alert.alert('Horário indisponível', mensagem);
+        setSelectedHorario(null); setStep(3);
+        fetchHorarios(selectedBarbeiro.id, selectedServico, selectedData);
+      } else {
+        Alert.alert('Erro', mensagem);
+      }
       return;
     }
-    if (error) { Alert.alert('Erro', error.message); return; }
 
     const { data: barb } = await supabase
       .from('barbeiros').select('push_token').eq('id', selectedBarbeiro.id).single();
@@ -206,6 +195,15 @@ setBarbeiros(data ?? []);
                   <View>
                     <Text style={s.optionName}>{b.nome}</Text>
                     <Text style={s.optionSub}>{b.especialidade ?? 'Especialista'}</Text>
+                    {notas[b.id] && (
+                      <View style={s.rating}>
+                        <Feather name="star" size={11} color={C.accent} />
+                        <Text style={s.ratingNota}>{formatarNota(notas[b.id].media)}</Text>
+                        <Text style={s.ratingTotal}>
+                          ({notas[b.id].total} {notas[b.id].total === 1 ? 'avaliação' : 'avaliações'})
+                        </Text>
+                      </View>
+                    )}
                   </View>
                 </View>
                 <Feather name="chevron-right" size={16} color={C.mutedFg} />
@@ -341,6 +339,9 @@ function makeStyles(C: Theme) {
     avatarText:     { fontFamily: F.mono, fontSize: 15, color: C.primary },
     optionName:     { fontFamily: F.sansMedium, fontSize: 15, color: C.primary, marginBottom: 2 },
     optionSub:      { fontFamily: F.sans, fontSize: 12, color: C.mutedFg },
+    rating:         { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 3 },
+    ratingNota:     { fontFamily: F.sansMedium, fontSize: 12, color: C.primary },
+    ratingTotal:    { fontFamily: F.sans, fontSize: 11, color: C.mutedFg },
     preco:          { fontFamily: F.sansMedium, fontSize: 15, color: C.primary, marginBottom: 2 },
     diasGrid:       { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
     diaBtn:         { borderWidth: 1, borderColor: C.border, padding: 10, alignItems: 'center', width: '22%' },

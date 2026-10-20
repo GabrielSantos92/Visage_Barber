@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import {
   View, Text, TextInput, TouchableOpacity, FlatList,
-  StyleSheet, KeyboardAvoidingView, Platform, ActivityIndicator,
+  StyleSheet, KeyboardAvoidingView, Platform, ActivityIndicator, Modal,
 } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { useRoute, RouteProp } from '@react-navigation/native';
@@ -10,6 +10,7 @@ import { supabase as _supabase } from '../../lib/supabase';
 import { sendPushNotification } from '../../lib/notifications';
 import { useTheme } from '../../contexts/ThemeContext';
 import { F, Theme } from '../../lib/theme';
+import ImagemVisagismo from '../../components/ImagemVisagismo';
 
 const db = _supabase as any;
 
@@ -24,6 +25,7 @@ interface Mensagem {
   conversa_id: string;
   remetente_id: string;
   conteudo: string;
+  imagem_path?: string | null;
   created_at: string;
 }
 
@@ -39,6 +41,7 @@ export default function ChatScreen() {
   const [texto, setTexto] = useState('');
   const [loading, setLoading] = useState(true);
   const [enviando, setEnviando] = useState(false);
+  const [imagemAberta, setImagemAberta] = useState<string | null>(null);
   const conversaIdRef = useRef<string | null>(null);
   const listRef = useRef<FlatList>(null);
 
@@ -137,6 +140,11 @@ export default function ChatScreen() {
           return (
             <View style={[s.bubbleWrap, minha && { alignItems: 'flex-end' }]}>
               <View style={[s.bubble, minha ? s.bubbleMinha : s.bubbleOutra]}>
+                {item.imagem_path ? (
+                  <TouchableOpacity style={s.bubbleImg} activeOpacity={0.8} onPress={() => setImagemAberta(item.imagem_path!)}>
+                    <ImagemVisagismo path={item.imagem_path} />
+                  </TouchableOpacity>
+                ) : null}
                 <Text style={[s.bubbleText, minha ? s.bubbleTextMinha : s.bubbleTextOutra]}>
                   {item.conteudo}
                 </Text>
@@ -177,6 +185,14 @@ export default function ChatScreen() {
           }
         </TouchableOpacity>
       </View>
+
+      {/* Imagem em tela cheia */}
+      <Modal visible={!!imagemAberta} transparent animationType="fade" onRequestClose={() => setImagemAberta(null)}>
+        <TouchableOpacity style={s.viewer} activeOpacity={1} onPress={() => setImagemAberta(null)}>
+          {imagemAberta ? <ImagemVisagismo path={imagemAberta} /> : null}
+          <Text style={s.viewerHint}>TOQUE PARA FECHAR</Text>
+        </TouchableOpacity>
+      </Modal>
     </KeyboardAvoidingView>
   );
 }
@@ -189,6 +205,9 @@ function makeStyles(C: Theme) {
     bubble:          { maxWidth: '78%', padding: 12, borderWidth: 1 },
     bubbleMinha:     { backgroundColor: C.primary, borderColor: C.primary },
     bubbleOutra:     { backgroundColor: C.card, borderColor: C.border },
+    bubbleImg:       { width: 230, marginBottom: 8 },
+    viewer:          { flex: 1, backgroundColor: 'rgba(0,0,0,0.92)', justifyContent: 'center' },
+    viewerHint:      { fontFamily: F.mono, fontSize: 9, color: '#a3a3a3', letterSpacing: 1.5, textAlign: 'center', marginTop: 16 },
     bubbleText:      { fontFamily: F.sans, fontSize: 14, lineHeight: 20 },
     bubbleTextMinha: { color: C.primaryFg },
     bubbleTextOutra: { color: C.fg },

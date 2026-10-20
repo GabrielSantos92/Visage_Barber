@@ -2,10 +2,11 @@ import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
 import { format, startOfMonth, endOfMonth, startOfDay, endOfDay, isToday } from "date-fns";
 import { ptBR } from "date-fns/locale";
-import { TrendingUp, Users, Scissors, Calendar, Clock, CheckCircle2, XCircle, AlertCircle, DollarSign } from "lucide-react";
+import { TrendingUp, Users, Scissors, Calendar, Clock, CheckCircle2, XCircle, AlertCircle, DollarSign, Award } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import Navbar from "@/components/Navbar";
+import { AdminNav } from "@/components/admin/AdminNav";
 import { Navigate } from "react-router-dom";
 import type { Enums } from "@/integrations/supabase/types";
 
@@ -62,6 +63,8 @@ export default function Dashboard() {
   const [statusCounts, setStatusCounts] = useState<Record<Status, number>>({ confirmado: 0, concluido: 0, cancelado: 0 });
   const [loading, setLoading] = useState(true);
   const [barbeiroId, setBarbeiroId] = useState<string | null>(null);
+  // Indicadores que o dashboard do admin mobile tambem mostra
+  const [destaque, setDestaque] = useState<{ criadosNoMes: number; maisRequisitado: string | null } | null>(null);
 
   const isAdmin = role === "admin";
   const isBarbeiro = role === "barbeiro";
@@ -93,7 +96,7 @@ export default function Dashboard() {
       { count: totalHoje },
       { data: agendsMes },
       { count: totalClientes },
-      { count: barbeirosAtivos },
+      { data: barbeirosAtivos },
       { data: recentsData },
       { data: allStatus },
     ] = await Promise.all([
@@ -102,11 +105,11 @@ export default function Dashboard() {
       supabase.from("agendamentos").select("servicos(preco), status")
         .gte("data_hora", monthStart).lte("data_hora", monthEnd),
       supabase.from("profiles").select("*", { count: "exact", head: true }),
-      supabase.from("barbeiros").select("*", { count: "exact", head: true }).eq("ativo", true),
+      supabase.from("barbeiros").select("id, nome").eq("ativo", true),
       supabase.from("agendamentos")
         .select("id, data_hora, status, cliente_id, servicos(nome, preco), barbeiros(nome)")
         .order("data_hora", { ascending: false }).limit(8),
-      supabase.from("agendamentos").select("status"),
+      supabase.from("agendamentos").select("status, created_at, barbeiro_id"),
     ]);
 
     const receitaMes = (agendsMes ?? [])
@@ -116,11 +119,19 @@ export default function Dashboard() {
     const counts: Record<Status, number> = { confirmado: 0, concluido: 0, cancelado: 0 };
     (allStatus ?? []).forEach(a => { if (a.status in counts) counts[a.status as Status]++; });
 
+    // Mesmo calculo do admin mobile: agendamentos criados no mes e barbeiro (ativo) com mais agendamentos
+    const criadosNoMes = (allStatus ?? []).filter(a => new Date(a.created_at) >= startOfMonth(now)).length;
+    const porBarbeiro: Record<string, number> = {};
+    (allStatus ?? []).forEach(a => { porBarbeiro[a.barbeiro_id] = (porBarbeiro[a.barbeiro_id] ?? 0) + 1; });
+    const maxId = Object.entries(porBarbeiro).sort((a, b) => b[1] - a[1])[0]?.[0];
+    const maisRequisitado = maxId ? ((barbeirosAtivos ?? []).find(b => b.id === maxId)?.nome ?? null) : null;
+    setDestaque({ criadosNoMes, maisRequisitado });
+
     setKpis([
       { label: "AGENDAMENTOS HOJE", value: totalHoje ?? 0, sub: format(now, "dd 'de' MMMM", { locale: ptBR }), icon: Calendar, accent: true },
       { label: "RECEITA DO MÊS", value: `R$ ${receitaMes.toFixed(2).replace(".", ",")}`, sub: "serviços concluídos", icon: DollarSign },
       { label: "CLIENTES", value: totalClientes ?? 0, sub: "cadastrados", icon: Users },
-      { label: "BARBEIROS ATIVOS", value: barbeirosAtivos ?? 0, sub: "em operação", icon: Scissors },
+      { label: "BARBEIROS ATIVOS", value: barbeirosAtivos?.length ?? 0, sub: "em operação", icon: Scissors },
     ]);
     setRecentes(await withClientes(recentsData as any));
     setStatusCounts(counts);
@@ -181,6 +192,7 @@ export default function Dashboard() {
   return (
     <div className="min-h-screen bg-background">
       <Navbar />
+      {isAdmin && <AdminNav />}
       <div className="max-w-7xl mx-auto px-6 py-10">
 
         {/* Header */}
@@ -219,6 +231,25 @@ export default function Dashboard() {
               </motion.div>
             ))}
           </div>
+        )}
+
+        {isAdmin && !loading && destaque && (
+          <motion.div {...fadeUp(5)} className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-10">
+            <div className="border border-border p-6 flex items-center justify-between gap-4">
+              <div>
+                <p className="font-mono text-[9px] tracking-[0.2em] text-foreground uppercase mb-2">Agendamentos criados este mês</p>
+                <p className="text-3xl font-light tracking-tighter text-primary">{destaque.criadosNoMes}</p>
+              </div>
+              <TrendingUp size={14} className="text-foreground/40 shrink-0" />
+            </div>
+            <div className="border border-border p-6 flex items-center justify-between gap-4">
+              <div className="min-w-0">
+                <p className="font-mono text-[9px] tracking-[0.2em] text-foreground uppercase mb-2">Barbeiro mais requisitado</p>
+                <p className="text-2xl font-light tracking-tighter text-primary truncate">{destaque.maisRequisitado ?? "—"}</p>
+              </div>
+              <Award size={14} className="text-foreground/40 shrink-0" />
+            </div>
+          </motion.div>
         )}
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">

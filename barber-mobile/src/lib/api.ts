@@ -1,5 +1,6 @@
 import Constants from 'expo-constants';
 import { Platform } from 'react-native';
+import { supabase } from './supabase';
 
 function getBaseUrl(): string {
   if (__DEV__) {
@@ -25,19 +26,36 @@ function getBaseUrl(): string {
 
 const BASE_URL = getBaseUrl();
 
-async function post<T>(path: string, body: unknown): Promise<T> {
+// Erro devolvido pelo backend, com o status HTTP e o codigo (ex.: BARBER_HAS_APPOINTMENTS)
+export class ApiError extends Error {
+  constructor(message: string, public status: number, public code?: string) {
+    super(message);
+  }
+}
+
+async function request<T>(method: 'GET' | 'POST' | 'DELETE', path: string, body?: unknown): Promise<T> {
   const url = `${BASE_URL}${path}`;
-  console.log('[API] POST', url);
+  console.log('[API]', method, url);
+  // As rotas /api/admin exigem o token da sessao
+  const { data } = await supabase.auth.getSession();
+  const token = data.session?.access_token;
   const res = await fetch(url, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
+    method,
+    headers: {
+      'Content-Type': 'application/json',
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+    body: body === undefined ? undefined : JSON.stringify(body),
   });
   if (!res.ok) {
     const errBody = await res.json().catch(() => ({}));
-    throw new Error(errBody.error ?? `HTTP ${res.status}`);
+    throw new ApiError(errBody.error ?? `HTTP ${res.status}`, res.status, errBody.code);
   }
   return res.json();
 }
 
-export const api = { post };
+const get = <T>(path: string) => request<T>('GET', path);
+const post = <T>(path: string, body: unknown) => request<T>('POST', path, body);
+const del = <T>(path: string) => request<T>('DELETE', path);
+
+export const api = { get, post, del };

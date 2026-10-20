@@ -13,6 +13,7 @@ import { F, Theme } from '../../lib/theme';
 import ErroFetch from '../../components/ErroFetch';
 import { ClienteStackParamList, ClienteTabParamList } from '../../navigation/ClienteNavigator';
 import LogoMark from '../../components/LogoMark';
+import { buscarNotasBarbeiros, formatarNota, NotaBarbeiro } from '../../lib/notasBarbeiros';
 
 type Nav = CompositeNavigationProp<
   BottomTabNavigationProp<ClienteTabParamList, 'Inicio'>,
@@ -26,6 +27,8 @@ interface Proximo {
   id: string;
   data_hora: string;
   barbeiro_id: string;
+  // Duracao gravada no agendamento (o cadastro do servico pode ter mudado depois)
+  duracao_min: number | null;
   barbeiros: { nome: string } | null;
   servicos: { nome: string; preco: number; duracao_min: number } | null;
 }
@@ -84,6 +87,7 @@ export default function HomeScreen() {
   const [proximo, setProximo]         = useState<Proximo | null>(null);
   const [ultimoCorte, setUltimoCorte] = useState<UltimoCorte | null>(null);
   const [barbeiros, setBarbeiros]     = useState<Barbeiro[]>([]);
+  const [notas, setNotas]             = useState<Record<string, NotaBarbeiro>>({});
   const [servicos, setServicos]       = useState<Servico[]>([]);
   const [naoLidas, setNaoLidas]       = useState(0);
   const [loading, setLoading]         = useState(true);
@@ -98,10 +102,10 @@ export default function HomeScreen() {
       // Conclui automaticamente os agendamentos cujo horario ja terminou
       await supabase.rpc('concluir_agendamentos_passados');
 
-      const [perfil, prox, ultimo, barbs, servs] = await Promise.all([
+      const [perfil, prox, ultimo, barbs, servs, notasBarbs] = await Promise.all([
         supabase.from('profiles').select('nome, formato_rosto').eq('user_id', user.id).single(),
         supabase.from('agendamentos')
-          .select('id, data_hora, barbeiro_id, barbeiros(nome), servicos(nome, preco, duracao_min)')
+          .select('id, data_hora, barbeiro_id, duracao_min, barbeiros(nome), servicos(nome, preco, duracao_min)')
           .eq('cliente_id', user.id).eq('status', 'confirmado')
           .gte('data_hora', new Date().toISOString())
           .order('data_hora', { ascending: true }).limit(1),
@@ -111,6 +115,7 @@ export default function HomeScreen() {
           .order('data_hora', { ascending: false }).limit(1),
         supabase.from('barbeiros').select('*').eq('ativo', true).order('nome'),
         supabase.from('servicos').select('*').eq('ativo', true).order('preco').limit(4),
+        buscarNotasBarbeiros(),
       ]);
 
       const falha = prox.error ?? barbs.error ?? servs.error;
@@ -120,6 +125,7 @@ export default function HomeScreen() {
       setFormato(perfil.data?.formato_rosto ?? null);
       setProximo(((prox.data ?? [])[0] as unknown as Proximo) ?? null);
       setBarbeiros(barbs.data ?? []);
+      setNotas(notasBarbs);
       setServicos(servs.data ?? []);
 
       // Considera apenas o corte concluido mais recente: se ja foi avaliado,
@@ -228,7 +234,7 @@ export default function HomeScreen() {
                   <Text style={s.nextService} numberOfLines={1}>{proximo.servicos?.nome ?? 'Serviço'}</Text>
                   <Text style={s.nextMeta} numberOfLines={1}>
                     com {proximo.barbeiros?.nome ?? '—'}
-                    {proximo.servicos ? `  ·  ${proximo.servicos.duracao_min} MIN  ·  ${preco(proximo.servicos.preco)}` : ''}
+                    {proximo.servicos ? `  ·  ${proximo.duracao_min ?? proximo.servicos.duracao_min} MIN  ·  ${preco(proximo.servicos.preco)}` : ''}
                   </Text>
                 </View>
               </View>
@@ -369,6 +375,17 @@ export default function HomeScreen() {
                 </View>
                 <Text style={s.barberName} numberOfLines={1}>{b.nome}</Text>
                 <Text style={s.barberEsp} numberOfLines={1}>{b.especialidade ?? 'Especialista em cortes'}</Text>
+                <View style={s.barberRating}>
+                  {notas[b.id] ? (
+                    <>
+                      <Feather name="star" size={11} color={C.accent} />
+                      <Text style={s.barberRatingNota}>{formatarNota(notas[b.id].media)}</Text>
+                      <Text style={s.barberRatingTotal}>({notas[b.id].total})</Text>
+                    </>
+                  ) : (
+                    <Text style={s.barberRatingTotal}>Sem avaliações</Text>
+                  )}
+                </View>
                 <View style={s.barberCta}>
                   <Text style={s.barberCtaText}>AGENDAR</Text>
                   <Feather name="arrow-up-right" size={11} color={C.accent} />
@@ -511,7 +528,10 @@ function makeStyles(C: Theme) {
     barberPhoto:   { width: '100%', aspectRatio: 1, backgroundColor: C.muted, justifyContent: 'center', alignItems: 'center', overflow: 'hidden', marginBottom: 10 },
     barberInitial: { fontFamily: F.sansLight, fontSize: 40, color: C.primary },
     barberName:    { fontFamily: F.sansMedium, fontSize: 14, color: C.primary },
-    barberEsp:     { fontFamily: F.sans, fontSize: 11, color: C.mutedFg, marginTop: 1, marginBottom: 10 },
+    barberEsp:     { fontFamily: F.sans, fontSize: 11, color: C.mutedFg, marginTop: 1, marginBottom: 6 },
+    barberRating:  { flexDirection: 'row', alignItems: 'center', gap: 4, height: 14, marginBottom: 8 },
+    barberRatingNota:  { fontFamily: F.sansMedium, fontSize: 12, color: C.primary },
+    barberRatingTotal: { fontFamily: F.mono, fontSize: 9, color: C.mutedFg, letterSpacing: 0.5 },
     barberCta:     { flexDirection: 'row', alignItems: 'center', gap: 4, borderTopWidth: 1, borderTopColor: C.border, paddingTop: 8 },
     barberCtaText: { fontFamily: F.mono, fontSize: 9, color: C.accent, letterSpacing: 1.5 },
 

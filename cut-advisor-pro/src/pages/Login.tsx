@@ -1,9 +1,9 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
 import { Eye, EyeOff, Mail, Lock, AlertCircle } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
-import { lovable } from "@/integrations/lovable/index";
+import { iniciarLoginGoogle } from "@/lib/loginGoogle";
 import { toast } from "@/components/ui/sonner";
 import LogoMark from "@/components/LogoMark";
 
@@ -14,6 +14,7 @@ const Login = () => {
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [googleLoading, setGoogleLoading] = useState(false);
+  const googleEmAndamento = useRef(false);
   const [errors, setErrors] = useState<{ email?: string; password?: string }>({});
 
   const validate = () => {
@@ -46,24 +47,26 @@ const Login = () => {
     navigate("/");
   };
 
+  // Voltar do Google pelo botao "voltar" restaura a pagina como estava:
+  // sem isto o botao ficaria preso em "CONECTANDO..."
+  useEffect(() => {
+    const liberar = (e: PageTransitionEvent) => { if (e.persisted) { googleEmAndamento.current = false; setGoogleLoading(false); } };
+    window.addEventListener("pageshow", liberar);
+    return () => window.removeEventListener("pageshow", liberar);
+  }, []);
+
   const handleGoogleLogin = async () => {
+    // A trava e uma ref: dois cliques seguidos chegam antes de o botao ser desabilitado
+    if (googleEmAndamento.current) return;
+    googleEmAndamento.current = true;
     setGoogleLoading(true);
-    const result = await lovable.auth.signInWithOAuth("google", {
-      redirect_uri: window.location.origin,
-    });
-
-    if (result.error) {
-      toast.error("Erro ao entrar com Google");
+    // Sem erro o navegador ja esta indo para o Google; o retorno chega em /auth/callback
+    const erro = await iniciarLoginGoogle();
+    if (erro) {
+      toast.error(erro);
+      googleEmAndamento.current = false;
       setGoogleLoading(false);
-      return;
     }
-
-    if (result.redirected) {
-      return;
-    }
-
-    toast.success("Login realizado com sucesso!");
-    navigate("/");
   };
 
   return (
@@ -100,6 +103,7 @@ const Login = () => {
 
           {/* Google Button */}
           <button
+            type="button"
             onClick={handleGoogleLogin}
             disabled={googleLoading}
             className="w-full border border-border bg-card py-3.5 flex items-center justify-center gap-3 text-sm text-primary font-medium tracking-wide transition-all hover:bg-secondary active:scale-95 disabled:opacity-50 mb-6"

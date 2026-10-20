@@ -88,10 +88,16 @@ export default function VisagismoScreen() {
         <Text style={s.pageLabel}>VISAGISMO</Text>
         <Text style={s.pageTitle}>Análise do Rosto</Text>
 
-        <TouchableOpacity style={s.btnIA} onPress={() => navigation.navigate('VisagismoFoto')}>
-          <Feather name="cpu" size={14} color={C.primaryFg} />
-          <Text style={s.btnIAText}>ANALISAR COM IA</Text>
-        </TouchableOpacity>
+        <View style={s.headerBtns}>
+          <TouchableOpacity style={s.btnIA} onPress={() => navigation.navigate('VisagismoFoto')}>
+            <Feather name="cpu" size={14} color={C.primaryFg} />
+            <Text style={s.btnIAText}>ANALISAR COM IA</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={s.btnSalvos} onPress={() => navigation.navigate('VisagismoSalvos')}>
+            <Feather name="bookmark" size={14} color={C.primary} />
+            <Text style={s.btnSalvosText}>MINHAS ANÁLISES</Text>
+          </TouchableOpacity>
+        </View>
       </View>
 
       <View style={s.progressoBg}>
@@ -138,7 +144,10 @@ function makeStyles(C: Theme) {
     opcaoText:      { fontFamily: F.sans, fontSize: 15, color: C.fg, flex: 1, marginRight: 12 },
     reiniciar:      { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 24 },
     reiniciarText:  { fontFamily: F.mono, fontSize: 10, color: C.mutedFg, letterSpacing: 1.5 },
-    btnIA:          { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: C.primary, paddingVertical: 12, paddingHorizontal: 20, marginTop: 16, alignSelf: 'flex-start' },
+    headerBtns:     { flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginTop: 16 },
+    btnIA:          { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: C.primary, borderWidth: 1, borderColor: C.primary, paddingVertical: 12, paddingHorizontal: 16 },
     btnIAText:      { fontFamily: F.mono, fontSize: 10, color: C.primaryFg, letterSpacing: 2 },
+    btnSalvos:      { flexDirection: 'row', alignItems: 'center', gap: 8, borderWidth: 1, borderColor: C.primary, paddingVertical: 12, paddingHorizontal: 16 },
+    btnSalvosText:  { fontFamily: F.mono, fontSize: 10, color: C.primary, letterSpacing: 2 },
   });
 }

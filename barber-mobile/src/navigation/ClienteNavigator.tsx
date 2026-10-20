@@ -11,7 +11,9 @@ import RecomendacaoScreen from '../screens/cliente/RecomendacaoScreen';
 import PerfilScreen from '../screens/cliente/PerfilScreen';
 import VisagismoFotoScreen from '../screens/cliente/VisagismoFotoScreen';
 import VisagismoResultadoScreen from '../screens/cliente/VisagismoResultadoScreen';
+import VisagismoSalvosScreen from '../screens/cliente/VisagismoSalvosScreen';
 import ChatScreen from '../screens/chat/ChatScreen';
+import { AnaliseSalva } from '../lib/visagismoSalvos';
 import { usePushToken } from '../hooks/usePushToken';
 import { useTheme } from '../contexts/ThemeContext';
 import { F } from '../lib/theme';
@@ -29,7 +31,9 @@ export type ClienteStackParamList = {
   Avaliacao: { agendamentoId: string; barbeiroId: string };
   Recomendacao: { formato: string };
   VisagismoFoto: undefined;
-  VisagismoResultado: { resultado: any; fotoUri?: string; fotoBase64?: string };
+  // "salvo" vem do historico: abre a analise ja gravada, sem gerar imagem de novo.
+  VisagismoResultado: { resultado: any; fotoUri?: string; fotoBase64?: string; salvo?: AnaliseSalva };
+  VisagismoSalvos: undefined;
   Chat: { outroNome: string; barbeiroId: string; clienteId: string };
 };
 
@@ -139,6 +143,19 @@ export default function ClienteNavigator() {
         options={{
           headerShown: true,
           title: 'RESULTADO',
+          headerStyle: { backgroundColor: C.bg },
+          headerTintColor: C.primary,
+          headerTitleStyle: { fontFamily: F.mono, fontSize: 11, letterSpacing: 2 },
+          headerShadowVisible: false,
+          headerBackTitle: '',
+        }}
+      />
+      <Stack.Screen
+        name="VisagismoSalvos"
+        component={VisagismoSalvosScreen}
+        options={{
+          headerShown: true,
+          title: 'MINHAS ANÁLISES',
           headerStyle: { backgroundColor: C.bg },
           headerTintColor: C.primary,
           headerTitleStyle: { fontFamily: F.mono, fontSize: 11, letterSpacing: 2 },

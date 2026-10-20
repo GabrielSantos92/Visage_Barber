@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useState, ReactNode } from "react";
+import { createContext, useContext, useEffect, useRef, useState, ReactNode } from "react";
 import { User, Session } from "@supabase/supabase-js";
 import { supabase } from "@/integrations/supabase/client";
 import type { Enums } from "@/integrations/supabase/types";
@@ -29,17 +29,32 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const [role, setRole] = useState<AppRole | null>(null);
   const [loading, setLoading] = useState(true);
 
+  // A role chega depois da sessao. Enquanto a primeira busca de um usuario nao
+  // termina, o contexto continua "carregando"; sem isso as paginas restritas
+  // viam role nula ao recarregar e mandavam o admin de volta para a home.
+  const [roleLoading, setRoleLoading] = useState(false);
+  const roleUserId = useRef<string | null>(null);
+
   const fetchRole = async (userId: string) => {
-    const { data } = await supabase
-      .from("user_roles")
-      .select("role")
-      .eq("user_id", userId);
-    // Prefer highest privilege: admin > barbeiro > cliente
-    if (data && data.length > 0) {
-      const roles = data.map((r) => r.role);
-      if (roles.includes("admin")) setRole("admin");
-      else if (roles.includes("barbeiro")) setRole("barbeiro");
-      else setRole("cliente");
+    // Renovacoes de token do mesmo usuario nao voltam ao estado de carregando
+    if (roleUserId.current !== userId) {
+      roleUserId.current = userId;
+      setRoleLoading(true);
+    }
+    try {
+      const { data } = await supabase
+        .from("user_roles")
+        .select("role")
+        .eq("user_id", userId);
+      // Prefer highest privilege: admin > barbeiro > cliente
+      if (data && data.length > 0) {
+        const roles = data.map((r) => r.role);
+        if (roles.includes("admin")) setRole("admin");
+        else if (roles.includes("barbeiro")) setRole("barbeiro");
+        else setRole("cliente");
+      }
+    } finally {
+      if (roleUserId.current === userId) setRoleLoading(false);
     }
   };
 
@@ -51,7 +66,9 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         if (session?.user) {
           fetchRole(session.user.id);
         } else {
+          roleUserId.current = null;
           setRole(null);
+          setRoleLoading(false);
         }
         setLoading(false);
       }
@@ -74,7 +91,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   };
 
   return (
-    <AuthContext.Provider value={{ user, session, role, loading, signOut }}>
+    <AuthContext.Provider value={{ user, session, role, loading: loading || roleLoading, signOut }}>
       {children}
     </AuthContext.Provider>
   );

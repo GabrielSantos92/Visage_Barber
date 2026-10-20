@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useEffect, useRef, useState } from 'react';
-import { Linking } from 'react-native';
+import { Alert, Linking } from 'react-native';
 import { Session, User } from '@supabase/supabase-js';
 import { supabase } from '../lib/supabase';
 import { Enums } from '../types/supabase';
@@ -51,6 +51,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     const qp = Object.fromEntries(new URLSearchParams(queryString));
     const fp = Object.fromEntries(new URLSearchParams(fragment));
+
+    // Link de recuperacao expirado ou ja usado: o Supabase devolve o erro no fragmento
+    if (url.includes('auth/callback') && (fp.error_code || qp.error_code)) {
+      Alert.alert('Link inválido', 'Este link de redefinição expirou ou já foi usado. Solicite um novo em "Esqueceu a senha?".');
+      return;
+    }
 
     if (qp.code) {
       // PKCE: exchangeCodeForSession fires PASSWORD_RECOVERY via onAuthStateChange

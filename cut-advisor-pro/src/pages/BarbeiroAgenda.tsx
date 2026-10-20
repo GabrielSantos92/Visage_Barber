@@ -2,13 +2,14 @@ import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
 import { format, startOfDay, endOfDay } from "date-fns";
 import { ptBR } from "date-fns/locale";
-import { Calendar, Clock, User, ChevronLeft, ChevronRight, MessageCircle } from "lucide-react";
+import { Calendar, Clock, User, ChevronLeft, ChevronRight, MessageCircle, Hourglass } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "@/components/ui/sonner";
 import Navbar from "@/components/Navbar";
 import ChatDialog from "@/components/ChatDialog";
 import type { Enums } from "@/integrations/supabase/types";
+import { etapasDoAgendamento, pausaQueContem, ROTULO_ETAPA } from "@/lib/etapas";
 
 type Status = Enums<"agendamento_status">;
 
@@ -18,6 +19,11 @@ type Agendamento = {
   status: Status;
   observacoes: string | null;
   cliente_id: string;
+  // Tempos gravados no agendamento (pausa_min nulo = atendimento continuo)
+  duracao_min: number | null;
+  ativo_inicial_min: number | null;
+  pausa_min: number | null;
+  ativo_final_min: number | null;
   profiles: { nome: string; telefone: string | null } | null;
   servicos: { nome: string; duracao_min: number; preco: number } | null;
 };
@@ -60,7 +66,7 @@ const BarbeiroAgenda = () => {
       await supabase.rpc("concluir_agendamentos_passados");
       const { data, error } = await supabase
         .from("agendamentos")
-        .select("id, data_hora, status, observacoes, cliente_id, servicos(nome, duracao_min, preco)")
+        .select("id, data_hora, status, observacoes, cliente_id, duracao_min, ativo_inicial_min, pausa_min, ativo_final_min, servicos(nome, duracao_min, preco)")
         .eq("barbeiro_id", barbeiroId)
         .gte("data_hora", startOfDay(date).toISOString())
         .lte("data_hora", endOfDay(date).toISOString())
@@ -148,6 +154,8 @@ const BarbeiroAgenda = () => {
   };
 
   const isToday = format(date, "yyyy-MM-dd") === format(new Date(), "yyyy-MM-dd");
+  const duracaoServico = (a: Agendamento) => a.servicos?.duracao_min;
+  const hora = (d: Date) => format(d, "HH:mm");
 
   return (
     <div className="min-h-screen bg-background">
@@ -222,6 +230,9 @@ const BarbeiroAgenda = () => {
 
             {agendamentos.map((a, i) => {
               const cfg = statusConfig[a.status];
+              const etapas = etapasDoAgendamento(a, duracaoServico(a));
+              const comPausa = etapas.length > 1;
+              const naPausa = a.status !== "cancelado" ? pausaQueContem(a, agendamentos, duracaoServico) : null;
               return (
                 <motion.div
                   key={a.id}
@@ -256,9 +267,40 @@ const BarbeiroAgenda = () => {
                       <User className="size-3" />
                       {a.servicos?.nome}
                     </span>
-                    <span>{a.servicos?.duracao_min}min</span>
+                    <span>{a.duracao_min ?? a.servicos?.duracao_min}min</span>
                     <span className="text-primary font-bold">R$ {Number(a.servicos?.preco).toFixed(2)}</span>
                   </div>
+
+                  {/* Coloracao e afins: quando o barbeiro esta com o cliente e quando pode atender outro */}
+                  {comPausa && (
+                    <div className="grid grid-cols-3 border border-border mb-4 font-mono text-[10px] uppercase tracking-widest">
+                      {etapas.map((e) => (
+                        <div
+                          key={e.tipo}
+                          className={
+                            e.tipo === "pausa"
+                              ? "p-2 border-x border-dashed border-border text-muted-foreground"
+                              : e.tipo === "finalizacao"
+                              ? "p-2 bg-accent/10 text-primary"
+                              : "p-2 bg-secondary text-primary"
+                          }
+                        >
+                          <p className="text-[9px] text-muted-foreground">{ROTULO_ETAPA[e.tipo]}</p>
+                          <p className="font-bold">{hora(e.inicio)}–{hora(e.fim)}</p>
+                          <p className="text-[9px]">
+                            {e.tipo === "pausa" ? "Livre p/ outro cliente" : e.tipo === "finalizacao" ? `Retornar às ${hora(e.inicio)}` : "Com o cliente"}
+                          </p>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {naPausa && (
+                    <p className="flex items-center gap-2 mb-4 font-mono text-[10px] uppercase tracking-widest text-accent">
+                      <Hourglass className="size-3" />
+                      Na pausa de {naPausa.agendamento.profiles?.nome ?? "outro cliente"} · retornar às {hora(naPausa.pausa.fim)}
+                    </p>
+                  )}
 
                   {/* Concluido acontece sozinho; o barbeiro so cancela ou marca falta */}
                   {a.status !== "cancelado" && (

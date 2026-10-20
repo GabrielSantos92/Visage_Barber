@@ -10,12 +10,17 @@ import { useTheme } from '../../contexts/ThemeContext';
 import { F, Theme } from '../../lib/theme';
 import ErroFetch from '../../components/ErroFetch';
 import { api } from '../../lib/api';
+import { normalizarTelefoneBR } from '../../lib/whatsapp';
 
 type Barbeiro = Tables<'barbeiros'>;
 
 interface Servico { id: string; nome: string; preco: number; duracao_min: number }
 
 const DIAS_NOMES = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
+
+const MSG_TEM_AGENDAMENTOS =
+  'Não é possível excluir este barbeiro, pois existem agendamentos vinculados a ele. ' +
+  'Para preservar o histórico dos atendimentos, a exclusão não pode ser realizada.';
 
 interface DiaConfig {
   ativo: boolean;
@@ -56,6 +61,7 @@ export default function BarbeariasScreen() {
   const [telefone, setTelefone]               = useState('');
   const [mostrarSenha, setMostrarSenha]       = useState(false);
   const [saving, setSaving]                   = useState(false);
+  const [excluindoId, setExcluindoId]         = useState<string | null>(null);
 
   // Modal serviços
   const [gerenciando, setGerenciando]         = useState<Barbeiro | null>(null);
@@ -102,6 +108,8 @@ setBarbeiros(data ?? []);
 
     if (modoModal === 'criar') {
       if (!email.trim()) { Alert.alert('Erro', 'Email é obrigatório.'); return; }
+      if (!telefone.trim()) { Alert.alert('Erro', 'Telefone é obrigatório.'); return; }
+      if (!normalizarTelefoneBR(telefone)) { Alert.alert('Erro', 'Telefone inválido. Informe DDD + número.'); return; }
       if (senha.length < 6) { Alert.alert('Erro', 'Senha deve ter no mínimo 6 caracteres.'); return; }
       setSaving(true);
       try {
@@ -109,7 +117,7 @@ setBarbeiros(data ?? []);
           email: email.trim(),
           password: senha,
           nome: nome.trim(),
-          telefone: telefone.trim() || undefined,
+          telefone: telefone.trim(),
           especialidade: especialidade.trim() || undefined,
         });
       } catch (e: any) {
@@ -161,6 +169,41 @@ setBarbeiros(data ?? []);
       await supabase.from('barbeiros').update({ ativo: true }).eq('id', b.id);
       fetchBarbeiros();
     }
+  }
+
+  // Com qualquer agendamento (em qualquer status) a exclusao nem chega a ser oferecida.
+  // Esta consulta so decide o que mostrar; quem aplica a regra e o backend.
+  async function pedirExclusao(b: Barbeiro) {
+    if (excluindoId) return;
+    setExcluindoId(b.id);
+    const { data, error } = await supabase.from('agendamentos').select('id').eq('barbeiro_id', b.id).limit(1);
+    setExcluindoId(null);
+    if (error) { Alert.alert('Erro', error.message); return; }
+    if (data && data.length > 0) { Alert.alert('Exclusão não permitida', MSG_TEM_AGENDAMENTOS); return; }
+
+    Alert.alert(
+      'Excluir barbeiro',
+      `Deseja excluir ${b.nome}? Esta ação é permanente: o cadastro, a agenda, os serviços vinculados e o acesso do barbeiro ao sistema serão removidos.`,
+      [
+        { text: 'Cancelar', style: 'cancel' },
+        { text: 'Excluir', style: 'destructive', onPress: () => excluir(b) },
+      ],
+    );
+  }
+
+  async function excluir(b: Barbeiro) {
+    setExcluindoId(b.id);
+    try {
+      await api.del(`/api/admin/barbeiros/${b.id}`);
+      Alert.alert('Sucesso', 'Barbeiro excluído com sucesso.');
+      fetchBarbeiros();
+    } catch (e: any) {
+      if (e?.code === 'BARBER_HAS_APPOINTMENTS') Alert.alert('Exclusão não permitida', MSG_TEM_AGENDAMENTOS);
+      else Alert.alert('Erro', e?.message ?? 'Erro ao excluir barbeiro.');
+      // 404: outro admin ja excluiu; a lista e recarregada para refletir
+      if (e?.code === 'BARBER_NOT_FOUND') fetchBarbeiros();
+    }
+    setExcluindoId(null);
   }
 
   async function abrirServicos(b: Barbeiro) {
@@ -319,6 +362,11 @@ setBarbeiros(data ?? []);
               <TouchableOpacity onPress={() => abrirEditar(item)} style={s.iconBtn}>
                 <Feather name="edit-2" size={14} color={C.mutedFg} />
               </TouchableOpacity>
+              <TouchableOpacity onPress={() => pedirExclusao(item)} style={s.iconBtn} disabled={excluindoId === item.id}>
+                {excluindoId === item.id
+                  ? <ActivityIndicator size="small" color={C.destructive} />
+                  : <Feather name="trash-2" size={14} color={C.destructive} />}
+              </TouchableOpacity>
               <TouchableOpacity
                 style={[s.statusBtn, { borderColor: item.ativo ? C.success : C.border }]}
                 onPress={() => alternarAtivo(item)}>
@@ -363,7 +411,7 @@ setBarbeiros(data ?? []);
 
             {modoModal === 'criar' && (
               <>
-                <Text style={s.fieldLabel}>TELEFONE</Text>
+                <Text style={s.fieldLabel}>TELEFONE *</Text>
                 <View style={s.inputRow}>
                   <Feather name="phone" size={14} color={C.mutedFg} style={{ paddingLeft: 14 }} />
                   <TextInput style={s.input} value={telefone} onChangeText={setTelefone}

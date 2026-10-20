@@ -9,14 +9,21 @@ import { supabase } from '../../lib/supabase';
 import { useTheme } from '../../contexts/ThemeContext';
 import { F, Theme } from '../../lib/theme';
 import ErroFetch from '../../components/ErroFetch';
+import { etapasDoAgendamento, pausaQueContem, ROTULO_ETAPA } from '../../lib/etapas';
 
 type Nav = StackNavigationProp<BarbeiroStackParamList>;
 
 interface Agendamento {
   id: string; data_hora: string; status: string; cliente_id: string;
+  // Tempos gravados no agendamento (pausa_min nulo = atendimento continuo)
+  duracao_min: number | null; ativo_inicial_min: number | null;
+  pausa_min: number | null; ativo_final_min: number | null;
   profiles: { nome: string } | null;
-  servicos: { nome: string; preco: number } | null;
+  servicos: { nome: string; preco: number; duracao_min: number } | null;
 }
+
+const hora = (d: Date) => d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+const duracaoServico = (a: Agendamento) => a.servicos?.duracao_min;
 
 type Filtro = 'ativo' | 'historico';
 
@@ -63,7 +70,7 @@ export default function BarbeiroHomeScreen() {
 
       const { data: agData, error } = await supabase
         .from('agendamentos')
-        .select('*, servicos(nome, preco)')
+        .select('*, servicos(nome, preco, duracao_min)')
         .eq('barbeiro_id', b.id)
         .order('data_hora', { ascending: false });
       if (error) throw error;
@@ -164,6 +171,8 @@ export default function BarbeiroHomeScreen() {
         renderItem={({ item }) => {
           const d = new Date(item.data_hora);
           const st = STATUS[item.status] ?? { label: item.status.toUpperCase(), color: C.fg };
+          const etapas = etapasDoAgendamento(item, duracaoServico(item));
+          const naPausa = item.status !== 'cancelado' ? pausaQueContem(item, todos, duracaoServico) : null;
           return (
             <View style={s.card}>
               <View style={s.cardTop}>
@@ -175,6 +184,28 @@ export default function BarbeiroHomeScreen() {
               <View style={s.divider} />
               <Text style={s.clienteNome}>{item.profiles?.nome ?? 'Cliente'}</Text>
               <Text style={s.servicoNome}>{item.servicos?.nome}  ·  R$ {item.servicos?.preco?.toFixed(2)}</Text>
+              {/* Coloracao e afins: quando o barbeiro esta com o cliente e quando pode atender outro */}
+              {etapas.length > 1 && (
+                <View style={s.etapas}>
+                  {etapas.map((e) => (
+                    <View key={e.tipo} style={[s.etapa, e.tipo === 'pausa' ? s.etapaPausa : e.tipo === 'finalizacao' ? s.etapaFinal : s.etapaAtiva]}>
+                      <Text style={s.etapaRotulo}>{ROTULO_ETAPA[e.tipo].toUpperCase()}</Text>
+                      <Text style={s.etapaHora}>{hora(e.inicio)}–{hora(e.fim)}</Text>
+                      <Text style={s.etapaRotulo}>
+                        {e.tipo === 'pausa' ? 'LIVRE P/ OUTRO' : e.tipo === 'finalizacao' ? `RETORNAR ${hora(e.inicio)}` : 'COM O CLIENTE'}
+                      </Text>
+                    </View>
+                  ))}
+                </View>
+              )}
+              {naPausa && (
+                <View style={s.naPausa}>
+                  <Feather name="clock" size={11} color={C.accent} />
+                  <Text style={[s.acaoText, { color: C.accent, flex: 1 }]}>
+                    NA PAUSA DE {(naPausa.agendamento.profiles?.nome ?? 'OUTRO CLIENTE').toUpperCase()} · RETORNAR ÀS {hora(naPausa.pausa.fim)}
+                  </Text>
+                </View>
+              )}
               {item.status === 'confirmado' && (
                 <View style={s.acoes}>
                   <TouchableOpacity style={s.acaoCancel} onPress={() => atualizar(item.id, 'cancelado')}>
@@ -241,6 +272,14 @@ function makeStyles(C: Theme) {
     divider:       { height: 1, backgroundColor: C.border, marginBottom: 12 },
     clienteNome:   { fontFamily: F.sansMedium, fontSize: 16, color: C.primary, marginBottom: 2 },
     servicoNome:   { fontFamily: F.sans, fontSize: 13, color: C.mutedFg },
+    etapas:        { flexDirection: 'row', borderWidth: 1, borderColor: C.border, marginTop: 12 },
+    etapa:         { flex: 1, padding: 8 },
+    etapaAtiva:    { backgroundColor: C.muted },
+    etapaPausa:    { borderLeftWidth: 1, borderRightWidth: 1, borderStyle: 'dashed', borderColor: C.border },
+    etapaFinal:    { backgroundColor: C.card },
+    etapaRotulo:   { fontFamily: F.mono, fontSize: 8, color: C.mutedFg, letterSpacing: 1 },
+    etapaHora:     { fontFamily: F.mono, fontSize: 11, color: C.primary, marginVertical: 2 },
+    naPausa:       { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 10 },
     acoes:         { flexDirection: 'row', gap: 16, marginTop: 14 },
     acaoCancel:    { flexDirection: 'row', alignItems: 'center', gap: 6 },
     acaoChat:        { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 14 },

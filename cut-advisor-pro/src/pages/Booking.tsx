@@ -1,16 +1,23 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
-import { Calendar, Clock, User, Scissors, ChevronLeft, ChevronRight, Check, ArrowLeft } from "lucide-react";
-import { format, addDays, startOfDay, endOfDay, isSameDay, isAfter, setHours, setMinutes } from "date-fns";
+import { Calendar, Clock, User, Scissors, ChevronLeft, ChevronRight, Check, ArrowLeft, Star } from "lucide-react";
+import { format, addDays, startOfDay, isSameDay, setHours, setMinutes } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "@/components/ui/sonner";
 import Navbar from "@/components/Navbar";
+import { buscarHorariosDisponiveis } from "@/lib/disponibilidade";
+import { interpretarErroAgendamento } from "@/lib/horarios";
+import { servicoAgendavel } from "@/lib/etapas";
+import { buscarNotasBarbeiros, formatarNota, NotaBarbeiro } from "@/lib/notasBarbeiros";
 
 type Barbeiro = { id: string; nome: string; especialidade: string | null };
-type Servico = { id: string; nome: string; preco: number; duracao_min: number };
+type Servico = {
+  id: string; nome: string; preco: number; duracao_min: number;
+  com_pausa: boolean; pausa_min: number | null;
+};
 
 const STEPS = ["Barbeiro", "Serviço", "Data", "Horário", "Confirmar"];
 
@@ -19,6 +26,7 @@ const Booking = () => {
   const { user } = useAuth();
   const [step, setStep] = useState(0);
   const [barbeiros, setBarbeiros] = useState<Barbeiro[]>([]);
+  const [notas, setNotas] = useState<Record<string, NotaBarbeiro>>({});
   const [servicos, setServicos] = useState<Servico[]>([]);
   const [selectedBarbeiro, setSelectedBarbeiro] = useState<Barbeiro | null>(null);
   const [selectedServico, setSelectedServico] = useState<Servico | null>(null);
@@ -35,8 +43,12 @@ const Booking = () => {
 
   useEffect(() => {
     const fetchBarbeiros = async () => {
-      const { data } = await supabase.from("barbeiros").select("id, nome, especialidade");
+      const [{ data }, notasBarbs] = await Promise.all([
+        supabase.from("barbeiros").select("id, nome, especialidade"),
+        buscarNotasBarbeiros(),
+      ]);
       if (data) setBarbeiros(data);
+      setNotas(notasBarbs);
     };
     fetchBarbeiros();
   }, []);
@@ -46,10 +58,11 @@ const Booking = () => {
     const fetchServicos = async () => {
       const { data } = await supabase
         .from("barbeiro_servicos")
-        .select("servico_id, servicos(id, nome, preco, duracao_min)")
+        .select("servico_id, servicos(id, nome, preco, duracao_min, com_pausa, pausa_min)")
         .eq("barbeiro_id", selectedBarbeiro.id);
       if (data) {
-        setServicos(data.map((d: any) => d.servicos).filter(Boolean));
+        // Servico com pausa ainda sem os tempos configurados nao e oferecido
+        setServicos(data.map((d: any) => d.servicos).filter((s: Servico | null) => s && servicoAgendavel(s)));
       }
     };
     fetchServicos();
@@ -57,60 +70,16 @@ const Booking = () => {
 
   useEffect(() => {
     if (!selectedBarbeiro || !selectedDate || !selectedServico) return;
+    // Calculado pelo banco: considera so os periodos em que o barbeiro precisa
+    // estar presente (pausas de coloracao ficam livres) e os outros
+    // agendamentos do proprio cliente
     const fetchSlots = async () => {
       setLoading(true);
-      const dayOfWeek = selectedDate.getDay();
-
-      // Get barbeiro schedule for this day
-      const { data: horarios } = await supabase
-        .from("horarios_disponiveis")
-        .select("hora_inicio, hora_fim")
-        .eq("barbeiro_id", selectedBarbeiro.id)
-        .eq("dia_semana", dayOfWeek);
-
-      if (!horarios || horarios.length === 0) {
+      try {
+        setAvailableSlots(await buscarHorariosDisponiveis(selectedBarbeiro.id, selectedServico, selectedDate));
+      } catch {
         setAvailableSlots([]);
-        setLoading(false);
-        return;
       }
-
-      // Get existing appointments for this barbeiro on this date
-      const { data: existing } = await supabase
-        .from("agendamentos")
-        .select("data_hora, servico_id")
-        .eq("barbeiro_id", selectedBarbeiro.id)
-        .gte("data_hora", startOfDay(selectedDate).toISOString())
-        .lte("data_hora", endOfDay(selectedDate).toISOString())
-        .neq("status", "cancelado");
-
-      const bookedTimes = new Set(
-        (existing || []).map(a => format(new Date(a.data_hora), "HH:mm"))
-      );
-
-      // Generate time slots
-      const slots: string[] = [];
-      const duration = selectedServico.duracao_min;
-      for (const h of horarios) {
-        const [startH, startM] = h.hora_inicio.split(":").map(Number);
-        const [endH, endM] = h.hora_fim.split(":").map(Number);
-        let current = startH * 60 + startM;
-        const end = endH * 60 + endM;
-
-        while (current + duration <= end) {
-          const hour = Math.floor(current / 60);
-          const min = current % 60;
-          const timeStr = `${String(hour).padStart(2, "0")}:${String(min).padStart(2, "0")}`;
-
-          // Check if slot is not booked and is in the future
-          const slotDate = setMinutes(setHours(selectedDate, hour), min);
-          if (!bookedTimes.has(timeStr) && isAfter(slotDate, new Date())) {
-            slots.push(timeStr);
-          }
-          current += 30; // 30 min intervals
-        }
-      }
-
-      setAvailableSlots(slots);
       setLoading(false);
     };
     fetchSlots();
@@ -133,16 +102,15 @@ const Booking = () => {
 
     setSubmitting(false);
 
-    if (error?.code === "23505") {
-      toast.error("Alguém acabou de reservar este horário. Escolha outro.");
-      setSelectedTime(null);
-      setStep(3);
-      setSlotsVersion(v => v + 1);
-      return;
-    }
-
+    // O banco recusa horarios sobrepostos (do barbeiro ou do proprio cliente)
     if (error) {
-      toast.error("Erro ao agendar. Tente novamente.");
+      const { mensagem, horarioIndisponivel } = interpretarErroAgendamento(error);
+      toast.error(mensagem);
+      if (horarioIndisponivel) {
+        setSelectedTime(null);
+        setStep(3);
+        setSlotsVersion(v => v + 1);
+      }
       return;
     }
 
@@ -233,6 +201,15 @@ const Booking = () => {
                           <p className="font-mono text-[10px] text-muted-foreground uppercase tracking-widest">
                             {b.especialidade || "Barbeiro"}
                           </p>
+                          {notas[b.id] && (
+                            <p className="flex items-center gap-1 mt-1 text-xs">
+                              <Star className="size-3 fill-accent text-accent" />
+                              <span className="font-bold text-primary">{formatarNota(notas[b.id].media)}</span>
+                              <span className="text-muted-foreground">
+                                ({notas[b.id].total} {notas[b.id].total === 1 ? "avaliação" : "avaliações"})
+                              </span>
+                            </p>
+                          )}
                         </div>
                       </div>
                       {selectedBarbeiro?.id === b.id && (

@@ -1,6 +1,6 @@
 import React, { useState, useCallback } from 'react';
-import { View, Text, StyleSheet, FlatList, TouchableOpacity, ActivityIndicator, RefreshControl, Alert } from 'react-native';
-import { Feather } from '@expo/vector-icons';
+import { View, Text, StyleSheet, FlatList, TouchableOpacity, ActivityIndicator, RefreshControl, Alert, Linking } from 'react-native';
+import { Feather, FontAwesome } from '@expo/vector-icons';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { StackNavigationProp } from '@react-navigation/stack';
 import { useAuth } from '../../contexts/AuthContext';
@@ -9,8 +9,11 @@ import { ClienteStackParamList } from '../../navigation/ClienteNavigator';
 import { useTheme } from '../../contexts/ThemeContext';
 import { F, Theme } from '../../lib/theme';
 import ErroFetch from '../../components/ErroFetch';
+import { linkWhatsAppAgendamento } from '../../lib/whatsapp';
 
 type Nav = StackNavigationProp<ClienteStackParamList>;
+
+const WHATSAPP_COLOR = '#25D366';
 
 interface Agendamento {
   id: string;
@@ -42,6 +45,7 @@ export default function AgendamentosScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
   const [unreadMap, setUnreadMap] = useState<Record<string, number>>({});
+  const [telefones, setTelefones] = useState<Record<string, string>>({});
 
   useFocusEffect(useCallback(() => { fetchAgendamentos(); }, []));
 
@@ -58,6 +62,15 @@ export default function AgendamentosScreen() {
       if (c) map[c.barbeiro_id] = (map[c.barbeiro_id] ?? 0) + 1;
     });
     setUnreadMap(map);
+  }
+
+  // Telefone do barbeiro (cadastrado pelo admin em profiles.telefone), por barbeiro_id
+  async function fetchTelefones() {
+    const { data, error } = await (supabase as any).rpc('telefones_barbeiros_do_cliente');
+    if (error) return;
+    const map: Record<string, string> = {};
+    (data ?? []).forEach((t: any) => { map[t.barbeiro_id] = t.telefone; });
+    setTelefones(map);
   }
 
   async function fetchAgendamentos() {
@@ -87,6 +100,7 @@ export default function AgendamentosScreen() {
     setLoading(false);
     setRefreshing(false);
     fetchUnread();
+    fetchTelefones();
   }
 
   async function cancelar(id: string) {
@@ -121,6 +135,12 @@ export default function AgendamentosScreen() {
         renderItem={({ item }) => {
           const st = STATUS[item.status] ?? { label: item.status.toUpperCase(), color: C.fg };
           const d = new Date(item.data_hora);
+          const whatsapp = linkWhatsAppAgendamento({
+            telefone: telefones[item.barbeiro_id],
+            barbeiroNome: item.barbeiros?.nome,
+            servicoNome: item.servicos?.nome,
+            dataHora: item.data_hora,
+          });
           return (
             <View style={s.card}>
               <View style={s.cardHeader}>
@@ -176,6 +196,14 @@ export default function AgendamentosScreen() {
                     )}
                   </TouchableOpacity>
                 )}
+                {item.status !== 'cancelado' && whatsapp && (
+                  <TouchableOpacity
+                    style={s.actionBtn}
+                    onPress={() => Linking.openURL(whatsapp).catch(() => Alert.alert('Erro', 'Não foi possível abrir o WhatsApp.'))}>
+                    <FontAwesome name="whatsapp" size={13} color={WHATSAPP_COLOR} />
+                    <Text style={[s.actionText, { color: WHATSAPP_COLOR }]}>WHATSAPP</Text>
+                  </TouchableOpacity>
+                )}
               </View>
             </View>
           );
@@ -208,7 +236,7 @@ function makeStyles(C: Theme) {
     cardDivider: { height: 1, backgroundColor: C.border, marginBottom: 12 },
     barbeiro:    { fontFamily: F.sansMedium, fontSize: 16, color: C.primary, marginBottom: 2 },
     servico:     { fontFamily: F.sans, fontSize: 13, color: C.mutedFg },
-    actions:         { flexDirection: 'row', marginTop: 14, gap: 12 },
+    actions:         { flexDirection: 'row', flexWrap: 'wrap', marginTop: 14, gap: 12 },
     actionBtn:       { flexDirection: 'row', alignItems: 'center', gap: 6 },
     actionText:      { fontFamily: F.mono, fontSize: 10, letterSpacing: 1.5 },
     unreadBadge:     { backgroundColor: C.destructive, borderRadius: 8, minWidth: 16, height: 16, justifyContent: 'center', alignItems: 'center', paddingHorizontal: 4 },

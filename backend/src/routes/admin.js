@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const { createClient } = require('@supabase/supabase-js');
+const { excluirBarbeiro } = require('../services/barbeiros');
 
 const supabaseAdmin = createClient(
   process.env.SUPABASE_URL,
@@ -13,6 +14,38 @@ const supabaseAuth = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY,
   { auth: { autoRefreshToken: false, persistSession: false } }
 );
+
+// Todas as rotas /api/admin exigem o token de sessão (Authorization: Bearer ...)
+// de um usuário com role 'admin'. Sem isso qualquer pessoa conseguiria criar barbeiros.
+async function requireAdmin(req, res, next) {
+  try {
+    const token = (req.headers.authorization || '').replace(/^Bearer\s+/i, '').trim();
+    if (!token) return res.status(401).json({ error: 'Não autenticado.' });
+
+    const { data, error } = await supabaseAuth.auth.getUser(token);
+    if (error || !data?.user) {
+      return res.status(401).json({ error: 'Sessão inválida ou expirada. Faça login novamente.' });
+    }
+
+    const { data: roles, error: roleError } = await supabaseAuth
+      .from('user_roles')
+      .select('role')
+      .eq('user_id', data.user.id)
+      .eq('role', 'admin');
+
+    if (roleError) return res.status(500).json({ error: 'Erro ao verificar permissão.' });
+    if (!roles || roles.length === 0) {
+      return res.status(403).json({ error: 'Acesso restrito ao administrador.' });
+    }
+
+    next();
+  } catch (err) {
+    console.error('[requireAdmin]', err);
+    res.status(500).json({ error: 'Erro ao verificar permissão.' });
+  }
+}
+
+router.use(requireAdmin);
 
 // GET /api/admin/metrics
 router.get('/metrics', async (_req, res) => {
@@ -69,6 +102,14 @@ router.post('/create-barbeiro', async (req, res) => {
       return res.status(400).json({ error: 'email, password e nome são obrigatórios.' });
     }
 
+    // O telefone vira o link de WhatsApp do barbeiro: exige DDD + número (com ou sem o 55)
+    const digitos = String(telefone ?? '').replace(/\D/g, '').replace(/^0+/, '');
+    const telefoneValido = digitos.length === 10 || digitos.length === 11
+      || ((digitos.length === 12 || digitos.length === 13) && digitos.startsWith('55'));
+    if (!telefoneValido) {
+      return res.status(400).json({ error: 'Telefone é obrigatório e deve ter DDD + número.' });
+    }
+
     const { data: authData, error: authError } = await supabaseAuth.auth.admin.createUser({
       email,
       password,
@@ -100,6 +141,18 @@ router.post('/create-barbeiro', async (req, res) => {
   } catch (err) {
     console.error('[create-barbeiro]', err);
     return res.status(500).json({ error: err.message ?? 'Erro interno ao criar barbeiro.' });
+  }
+});
+
+// DELETE /api/admin/barbeiros/:id
+// Exclui o barbeiro somente se ele não tiver nenhum agendamento (qualquer status)
+router.delete('/barbeiros/:id', async (req, res) => {
+  try {
+    const { status, body } = await excluirBarbeiro(supabaseAuth, req.params.id);
+    return res.status(status).json(body);
+  } catch (err) {
+    console.error('[delete-barbeiro]', err);
+    return res.status(500).json({ error: 'Erro interno ao excluir barbeiro.' });
   }
 });
 
