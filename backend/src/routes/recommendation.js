@@ -8,27 +8,27 @@ const router = express.Router();
  */
 const RECOMENDACOES = {
   oval: {
-    cortes: ['Undercut', 'Quiff', 'Pompadour', 'Slick Back', 'Crop Top', 'Textured Fringe'],
+    cortes: ['Corte desconectado', 'Topete', 'Topete clássico', 'Cabelo penteado para trás', 'Corte curto texturizado', 'Franja texturizada'],
     motivo: 'Formato oval é o mais versátil — aceita praticamente qualquer estilo.',
   },
   redondo: {
-    cortes: ['Fade Alto', 'Mohawk', 'Quiff com volume', 'Faux Hawk', 'Topknot', 'High and Tight'],
+    cortes: ['Degradê alto', 'Moicano', 'Topete com volume', 'Moicano disfarçado', 'Coque alto', 'Corte militar alto'],
     motivo: 'Cortes com volume no topo e laterais curtas alongam visualmente o rosto.',
   },
   quadrado: {
-    cortes: ['Corte Texturizado', 'Quiff Lateral', 'Topknot', 'Undercut Suave', 'French Crop', 'Side Part'],
+    cortes: ['Corte texturizado', 'Topete lateral', 'Coque alto', 'Corte desconectado suave', 'Corte francês', 'Corte com risca lateral'],
     motivo: 'Texturas e volumes suaves suavizam os ângulos marcados da mandíbula.',
   },
   triangular: {
-    cortes: ['Pompadour', 'Volume no Topo', 'Undercut Lateral', 'Quiff', 'Caesar Cut'],
+    cortes: ['Topete clássico', 'Volume no topo', 'Corte desconectado lateral', 'Topete', 'Corte César'],
     motivo: 'Volume na parte superior equilibra a testa larga com o queixo estreito.',
   },
   losango: {
-    cortes: ['Franja Lateral', 'Ondas Naturais', 'Quiff Texturizado', 'Side Swept', 'Buzz Cut'],
+    cortes: ['Franja lateral', 'Ondas naturais', 'Topete texturizado', 'Penteado de lado', 'Corte militar'],
     motivo: 'Franjas e laterais estruturadas complementam as maçãs do rosto proeminentes.',
   },
   oblongo: {
-    cortes: ['Fade Baixo', 'Lateral Sides', 'Textured Crop', 'Corte Clássico', 'Curly Top'],
+    cortes: ['Degradê baixo', 'Laterais mais cheias', 'Corte texturizado', 'Corte clássico', 'Cachos no topo'],
     motivo: 'Evitar altura excessiva; laterais mais largas equilibram o comprimento do rosto.',
   },
 };

@@ -19,12 +19,12 @@ const DESCRICOES: Record<string, { titulo: string; descricao: string; dica: stri
 };
 
 const RECOMENDACOES_LOCAL: Record<string, string[]> = {
-  oval:       ['Undercut', 'Quiff', 'Pompadour', 'Slick Back', 'Crop Top', 'Textured Fringe'],
-  redondo:    ['Fade Alto', 'Mohawk', 'Quiff com volume', 'Faux Hawk', 'Topknot', 'High and Tight'],
-  quadrado:   ['Corte Texturizado', 'Quiff Lateral', 'Topknot', 'Undercut Suave', 'French Crop', 'Side Part'],
-  triangular: ['Pompadour', 'Volume no Topo', 'Undercut Lateral', 'Quiff', 'Caesar Cut'],
-  losango:    ['Franja Lateral', 'Ondas Naturais', 'Quiff Texturizado', 'Side Swept', 'Buzz Cut'],
-  oblongo:    ['Fade Baixo', 'Lateral Sides', 'Textured Crop', 'Corte Clássico', 'Curly Top'],
+  oval:       ['Corte desconectado', 'Topete', 'Topete clássico', 'Cabelo penteado para trás', 'Corte curto texturizado', 'Franja texturizada'],
+  redondo:    ['Degradê alto', 'Moicano', 'Topete com volume', 'Moicano disfarçado', 'Coque alto', 'Corte militar alto'],
+  quadrado:   ['Corte texturizado', 'Topete lateral', 'Coque alto', 'Corte desconectado suave', 'Corte francês', 'Corte com risca lateral'],
+  triangular: ['Topete clássico', 'Volume no topo', 'Corte desconectado lateral', 'Topete', 'Corte César'],
+  losango:    ['Franja lateral', 'Ondas naturais', 'Topete texturizado', 'Penteado de lado', 'Corte militar'],
+  oblongo:    ['Degradê baixo', 'Laterais mais cheias', 'Corte texturizado', 'Corte clássico', 'Cachos no topo'],
 };
 
 export default function RecomendacaoScreen() {

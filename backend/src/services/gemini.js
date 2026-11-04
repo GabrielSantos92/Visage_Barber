@@ -76,7 +76,7 @@ const SCHEMA_VISAGISMO = {
           items: {
             type: 'object',
             properties: {
-              style: { type: 'string', description: 'nome do corte, em portugues' },
+              style: { type: 'string', description: 'nome do corte em portugues brasileiro, como e chamado nas barbearias do Brasil (ex.: Degradê baixo, Topete clássico, Corte com risca lateral)' },
               description: { type: 'string' },
               reason: { type: 'string' },
               // Exibido como lista na tela de resultado, entao fica em portugues.
@@ -97,7 +97,7 @@ const SCHEMA_VISAGISMO = {
           items: {
             type: 'object',
             properties: {
-              style: { type: 'string', description: 'nome do estilo de barba, em portugues' },
+              style: { type: 'string', description: 'nome do estilo de barba em portugues brasileiro (ex.: Barba cheia, Cavanhaque, Barba por fazer)' },
               description: { type: 'string' },
               reason: { type: 'string' },
               style_en: { type: 'string', description: 'nome do estilo em ingles, curto e visual' },
@@ -133,6 +133,15 @@ Preencha todos os campos. Os campos terminados em "_en" e os atributos de estilo
 (length, volume, texture, fade, finish, shape, outline) devem estar em INGLÊS,
 curtos e visuais, porque alimentam um modelo de edição de imagem.
 Os demais campos devem estar em português.
+
+Todos os nomes de cortes de cabelo, títulos, recomendações e descrições devem ser
+apresentados em português brasileiro (pt-BR), utilizando nomenclaturas naturais e
+reconhecidas nas barbearias brasileiras. Evite nomes em inglês, exceto quando forem
+termos técnicos amplamente utilizados e não possuírem uma tradução natural.
+Exemplos: "Degradê baixo" (não "Low Fade"), "Topete clássico" (não "Pompadour"),
+"Corte desconectado" (não "Undercut"), "Corte com risca lateral" (não "Side Part"),
+"Barba por fazer" (não "Stubble"). Esta regra NÃO vale para os campos "_en" e os
+atributos de estilo, que continuam em inglês.
 
 Em recommendations.hair e recommendations.beard, o PRIMEIRO item é a recomendação
 principal. Inclua de 2 a 3 opções em cada lista.`;

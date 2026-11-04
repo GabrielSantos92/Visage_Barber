@@ -21,6 +21,7 @@ import ImagemVisagismo from '../../components/ImagemVisagismo';
 import EscolherBarbeiroModal from '../../components/EscolherBarbeiroModal';
 import VisualizadorImagem from '../../components/VisualizadorImagem';
 import { useMensagensEspera } from '../../hooks/useMensagensEspera';
+import { analiseEmPtBR } from '../../lib/nomesCortes';
 
 type Route = RouteProp<ClienteStackParamList, 'VisagismoResultado'>;
 type Nav = StackNavigationProp<ClienteStackParamList>;
@@ -40,7 +41,9 @@ export default function VisagismoResultadoScreen() {
   const s = React.useMemo(() => makeStyles(C), [C]);
   const { user } = useAuth();
   const navigation = useNavigation<Nav>();
-  const { params: { resultado, fotoUri, fotoBase64, salvo } } = useRoute<Route>();
+  const { params: { resultado: resultadoRecebido, fotoUri, fotoBase64, salvo } } = useRoute<Route>();
+  // Nomes de corte e barba em pt-BR (a analise pode vir do historico, com nomes antigos)
+  const resultado = React.useMemo(() => analiseEmPtBR(resultadoRecebido), [resultadoRecebido]);
   // Aberta pelo historico: a comparacao ja esta gravada, nada e gerado de novo.
   const doHistorico = !!salvo;
 

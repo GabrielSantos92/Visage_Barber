@@ -1,5 +1,6 @@
 import { supabase as _supabase } from './supabase';
 import { sendPushNotification } from './notifications';
+import { analiseEmPtBR } from './nomesCortes';
 
 // visagismo_analises / conversas / mensagens nao estao nos types gerados do Supabase
 const db = _supabase as any;
@@ -51,7 +52,9 @@ export async function listarAnalises(userId: string): Promise<AnaliseSalva[]> {
     .eq('user_id', userId)
     .order('created_at', { ascending: false });
   if (error) throw error;
-  return data ?? [];
+  // Analises antigas podem ter nomes de corte em ingles: exibe em pt-BR sem
+  // alterar o que esta gravado no banco
+  return (data ?? []).map((a: AnaliseSalva) => ({ ...a, resultado: analiseEmPtBR(a.resultado) }));
 }
 
 export async function excluirAnalise(analise: AnaliseSalva) {
@@ -110,7 +113,7 @@ export async function enviarAnaliseNoChat(clienteId: string, barbeiroId: string,
     conversa = nova;
   }
 
-  const r = analise.resultado ?? {};
+  const r = analiseEmPtBR(analise.resultado ?? {});
   const conteudo = [
     `Minha análise de visagismo: ${r.corte_principal?.nome ?? 'corte recomendado'}`,
     r.barba?.estilo ? `barba ${r.barba.estilo}` : null,

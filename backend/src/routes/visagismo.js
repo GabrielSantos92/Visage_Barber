@@ -22,6 +22,7 @@ const router = express.Router();
 const { analisarVisagismo, montarPromptEdicao, editarCabeloBarba } = require('../services/gemini');
 const { alinharFoto, mascaraCabeloBarba, compor } = require('../services/imagem');
 const { protegerVisagismo } = require('./privacidade');
+const { analiseEmPtBR } = require('../services/nomesCortes');
 
 // LGPD: nenhuma foto chega aos servicos de IA sem login e consentimento vigente
 // do titular para esta finalidade (ver services/consentimento.js).
@@ -78,7 +79,9 @@ router.post('/analisar', async (req, res) => {
       return res.status(400).json({ error: 'imagem_base64 é obrigatório.' });
     }
 
-    const analise = await analisarVisagismo(imagem_base64);
+    // Nomes de corte e barba em pt-BR mesmo se o modelo responder em ingles
+    // (os campos "_en", usados na geracao da imagem, nao sao tocados)
+    const analise = analiseEmPtBR(await analisarVisagismo(imagem_base64));
     console.log('[visagismo] analise:', analise.face_shape, '->', analise.recommendations?.hair?.[0]?.style);
     return res.json(comCompatibilidade(analise));
   } catch (err) {
