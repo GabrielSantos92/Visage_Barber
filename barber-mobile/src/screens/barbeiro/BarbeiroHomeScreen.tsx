@@ -1,5 +1,5 @@
-import React, { useCallback, useState } from 'react';
-import { View, Text, StyleSheet, FlatList, TouchableOpacity, ActivityIndicator, RefreshControl, Alert } from 'react-native';
+import React, { useCallback, useEffect, useState } from 'react';
+import { View, Text, StyleSheet, FlatList, TouchableOpacity, ActivityIndicator, RefreshControl } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { StackNavigationProp } from '@react-navigation/stack';
@@ -9,6 +9,7 @@ import { supabase } from '../../lib/supabase';
 import { useTheme } from '../../contexts/ThemeContext';
 import { F, Theme } from '../../lib/theme';
 import ErroFetch from '../../components/ErroFetch';
+import ConfirmarCancelamentoModal from '../../components/ConfirmarCancelamentoModal';
 import { etapasDoAgendamento, pausaQueContem, ROTULO_ETAPA } from '../../lib/etapas';
 
 type Nav = StackNavigationProp<BarbeiroStackParamList>;
@@ -49,6 +50,17 @@ export default function BarbeiroHomeScreen() {
   const [filtro, setFiltro]           = useState<Filtro>('ativo');
   const [erro, setErro]               = useState<string | null>(null);
   const [unreadMap, setUnreadMap]     = useState<Record<string, number>>({});
+  // Agendamento aguardando confirmacao de cancelamento no modal
+  const [cancelando, setCancelando]   = useState<Agendamento | null>(null);
+  const [processando, setProcessando] = useState(false);
+  const [erroCancelamento, setErroCancelamento] = useState<string | null>(null);
+  const [aviso, setAviso]             = useState<{ tipo: 'sucesso' | 'erro'; texto: string } | null>(null);
+
+  useEffect(() => {
+    if (!aviso) return;
+    const t = setTimeout(() => setAviso(null), 4000);
+    return () => clearTimeout(t);
+  }, [aviso]);
 
   useFocusEffect(useCallback(() => { fetchDados(); }, []));
 
@@ -111,10 +123,39 @@ export default function BarbeiroHomeScreen() {
     setLoading(false); setRefreshing(false);
   }
 
-  async function atualizar(id: string, status: string) {
-    const { error } = await supabase.from('agendamentos').update({ status: status as any }).eq('id', id);
-    if (error) Alert.alert('Erro', error.message);
-    else fetchDados();
+  // "ok" so quando o banco confirma a alteracao. O .select() revela o caso em
+  // que nada mudou (RLS ou status ja alterado), que nao gera erro.
+  async function atualizar(id: string, status: string): Promise<'ok' | 'erro' | 'inalterado'> {
+    const { data, error } = await supabase.from('agendamentos')
+      .update({ status: status as any }).eq('id', id).neq('status', status as any).select('id');
+    if (error) return 'erro';
+    await fetchDados();
+    return data?.length ? 'ok' : 'inalterado';
+  }
+
+  const ehFalta = (a: Agendamento) => a.status === 'concluido' || new Date(a.data_hora) <= new Date();
+
+  function pedirCancelamento(item: Agendamento) {
+    setErroCancelamento(null);
+    setCancelando(item);
+  }
+
+  async function confirmarCancelamento() {
+    if (!cancelando || processando) return;
+    const falta = ehFalta(cancelando);
+    setProcessando(true);
+    setErroCancelamento(null);
+    const resultado = await atualizar(cancelando.id, 'cancelado');
+    setProcessando(false);
+    // Em erro o modal fica aberto para tentar de novo ou voltar
+    if (resultado === 'erro') {
+      setErroCancelamento('Não foi possível cancelar o agendamento. Verifique sua conexão e tente novamente.');
+      return;
+    }
+    setCancelando(null);
+    setAviso(resultado === 'ok'
+      ? { tipo: 'sucesso', texto: falta ? 'FALTA DO CLIENTE REGISTRADA' : 'AGENDAMENTO CANCELADO COM SUCESSO' }
+      : { tipo: 'erro', texto: 'NÃO FOI POSSÍVEL CANCELAR: O AGENDAMENTO PODE JÁ TER SIDO CANCELADO' });
   }
 
   if (loading) return <ActivityIndicator style={{ flex: 1, backgroundColor: C.bg }} color={C.accent} />;
@@ -163,6 +204,13 @@ export default function BarbeiroHomeScreen() {
 
       {erro && <ErroFetch message={erro} onRetry={() => { setErro(null); fetchDados(); }} />}
 
+      {aviso && (
+        <View style={[s.aviso, { borderColor: aviso.tipo === 'sucesso' ? C.success : C.destructive }]} accessibilityLiveRegion="polite">
+          <Feather name={aviso.tipo === 'sucesso' ? 'check' : 'alert-circle'} size={12} color={aviso.tipo === 'sucesso' ? C.success : C.destructive} />
+          <Text style={[s.avisoTexto, { color: aviso.tipo === 'sucesso' ? C.success : C.destructive }]}>{aviso.texto}</Text>
+        </View>
+      )}
+
       <FlatList
         data={agendamentos}
         keyExtractor={(item) => item.id}
@@ -208,7 +256,7 @@ export default function BarbeiroHomeScreen() {
               )}
               {item.status === 'confirmado' && (
                 <View style={s.acoes}>
-                  <TouchableOpacity style={s.acaoCancel} onPress={() => atualizar(item.id, 'cancelado')}>
+                  <TouchableOpacity style={s.acaoCancel} onPress={() => pedirCancelamento(item)}>
                     <Feather name="x" size={12} color={C.destructive} />
                     <Text style={[s.acaoText, { color: C.destructive }]}>
                       {new Date(item.data_hora) <= new Date() ? 'CLIENTE FALTOU' : 'CANCELAR'}
@@ -219,7 +267,7 @@ export default function BarbeiroHomeScreen() {
               {item.status === 'concluido' && (
                 // Concluido automaticamente — o barbeiro corrige se o cliente nao veio
                 <View style={s.acoes}>
-                  <TouchableOpacity style={s.acaoCancel} onPress={() => atualizar(item.id, 'cancelado')}>
+                  <TouchableOpacity style={s.acaoCancel} onPress={() => pedirCancelamento(item)}>
                     <Feather name="user-x" size={12} color={C.destructive} />
                     <Text style={[s.acaoText, { color: C.destructive }]}>CLIENTE FALTOU</Text>
                   </TouchableOpacity>
@@ -249,6 +297,24 @@ export default function BarbeiroHomeScreen() {
             {filtro === 'ativo' ? 'Nenhum agendamento marcado no momento.' : 'Nenhum atendimento concluído ou cancelado.'}
           </Text>
         }
+      />
+
+      {/* Confirmacao antes de cancelar: nada muda sem o toque em confirmar */}
+      <ConfirmarCancelamentoModal
+        visible={!!cancelando}
+        titulo={cancelando && ehFalta(cancelando) ? 'Registrar falta do cliente?' : 'Cancelar agendamento?'}
+        mensagem={cancelando && ehFalta(cancelando)
+          ? 'O agendamento será marcado como cancelado porque o cliente não compareceu.'
+          : 'Tem certeza de que deseja cancelar este agendamento? Essa ação poderá afetar o horário reservado pelo cliente.'}
+        detalhe={cancelando ? [
+          (cancelando.profiles?.nome ?? 'Cliente').toUpperCase(),
+          `${new Date(cancelando.data_hora).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' })} · ${hora(new Date(cancelando.data_hora))}${cancelando.servicos?.nome ? ` · ${cancelando.servicos.nome.toUpperCase()}` : ''}`,
+        ].join('\n') : undefined}
+        textoConfirmar={cancelando && ehFalta(cancelando) ? 'Confirmar falta' : 'Confirmar cancelamento'}
+        processando={processando}
+        erro={erroCancelamento}
+        onVoltar={() => setCancelando(null)}
+        onConfirmar={confirmarCancelamento}
       />
     </View>
   );
@@ -287,6 +353,8 @@ function makeStyles(C: Theme) {
     unreadBadge:     { backgroundColor: C.destructive, borderRadius: 8, minWidth: 16, height: 16, justifyContent: 'center', alignItems: 'center', paddingHorizontal: 4 },
     unreadBadgeText: { fontFamily: F.mono, fontSize: 9, color: '#fff' },
     btnPrimary:    { backgroundColor: C.primary, paddingVertical: 16, alignItems: 'center', marginTop: 20 },
+    aviso:         { flexDirection: 'row', alignItems: 'center', gap: 8, marginHorizontal: 24, marginTop: 12, borderWidth: 1, paddingHorizontal: 12, paddingVertical: 10 },
+    avisoTexto:    { flex: 1, fontFamily: F.mono, fontSize: 10, letterSpacing: 1.5 },
     btnPrimaryText:{ fontFamily: F.mono, fontSize: 11, color: C.primaryFg, letterSpacing: 2.5 },
   });
 }

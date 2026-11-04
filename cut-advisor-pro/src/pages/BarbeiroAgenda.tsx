@@ -2,12 +2,16 @@ import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
 import { format, startOfDay, endOfDay } from "date-fns";
 import { ptBR } from "date-fns/locale";
-import { Calendar, Clock, User, ChevronLeft, ChevronRight, MessageCircle, Hourglass } from "lucide-react";
+import { Calendar, Clock, User, ChevronLeft, ChevronRight, MessageCircle, Hourglass, Loader2 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "@/components/ui/sonner";
 import Navbar from "@/components/Navbar";
 import ChatDialog from "@/components/ChatDialog";
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription,
+  AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import type { Enums } from "@/integrations/supabase/types";
 import { etapasDoAgendamento, pausaQueContem, ROTULO_ETAPA } from "@/lib/etapas";
 
@@ -42,6 +46,9 @@ const BarbeiroAgenda = () => {
   const [loading, setLoading] = useState(true);
   const [naoLidas, setNaoLidas] = useState<Record<string, number>>({});
   const [chat, setChat] = useState<{ clienteId: string; nome: string } | null>(null);
+  // Agendamento aguardando confirmacao de cancelamento no Popup
+  const [cancelando, setCancelando] = useState<Agendamento | null>(null);
+  const [processando, setProcessando] = useState(false);
 
   // Find barbeiro record linked to this user
   useEffect(() => {
@@ -139,18 +146,42 @@ const BarbeiroAgenda = () => {
     setDate(d => startOfDay(new Date(d.getTime() + days * 86400000)));
   };
 
-  const updateStatus = async (id: string, newStatus: Status) => {
-    const { error } = await supabase
+  // "ok" so quando o banco confirma a alteracao. O .select() revela o caso em
+  // que nada mudou (RLS ou status ja alterado), que nao gera erro.
+  const updateStatus = async (id: string, newStatus: Status): Promise<"ok" | "erro" | "inalterado"> => {
+    const { data, error } = await supabase
       .from("agendamentos")
       .update({ status: newStatus })
-      .eq("id", id);
+      .eq("id", id)
+      .neq("status", newStatus)
+      .select("id");
 
     if (error) {
-      toast.error("Erro ao atualizar status");
-      return;
+      toast.error("Não foi possível cancelar o agendamento. Verifique sua conexão e tente novamente.");
+      return "erro";
+    }
+    if (!data?.length) {
+      // Mostra o status real (ex.: ja cancelado em outro aparelho)
+      const { data: atual } = await supabase.from("agendamentos").select("status").eq("id", id).maybeSingle();
+      if (atual) setAgendamentos(prev => prev.map(a => a.id === id ? { ...a, status: atual.status } : a));
+      toast.error("Este agendamento não pôde ser cancelado. Ele pode já ter sido cancelado.");
+      return "inalterado";
     }
     setAgendamentos(prev => prev.map(a => a.id === id ? { ...a, status: newStatus } : a));
-    toast.success(`Status atualizado para ${statusConfig[newStatus].label}`);
+    return "ok";
+  };
+
+  const ehFalta = (a: Agendamento) => a.status === "concluido" || new Date(a.data_hora) <= new Date();
+
+  const confirmarCancelamento = async () => {
+    if (!cancelando || processando) return;
+    const falta = ehFalta(cancelando);
+    setProcessando(true);
+    const resultado = await updateStatus(cancelando.id, "cancelado");
+    setProcessando(false);
+    // Em erro o Popup fica aberto para tentar de novo ou voltar
+    if (resultado !== "erro") setCancelando(null);
+    if (resultado === "ok") toast.success(falta ? "Falta do cliente registrada." : "Agendamento cancelado com sucesso.");
   };
 
   const isToday = format(date, "yyyy-MM-dd") === format(new Date(), "yyyy-MM-dd");
@@ -305,10 +336,10 @@ const BarbeiroAgenda = () => {
                   {/* Concluido acontece sozinho; o barbeiro so cancela ou marca falta */}
                   {a.status !== "cancelado" && (
                     <button
-                      onClick={() => updateStatus(a.id, "cancelado")}
+                      onClick={() => setCancelando(a)}
                       className="px-4 py-2 border border-destructive/30 text-destructive font-mono text-[10px] uppercase tracking-widest hover:bg-destructive hover:text-destructive-foreground transition-colors"
                     >
-                      {a.status === "concluido" || new Date(a.data_hora) <= new Date() ? "CLIENTE FALTOU" : "CANCELAR"}
+                      {ehFalta(a) ? "CLIENTE FALTOU" : "CANCELAR"}
                     </button>
                   )}
 
@@ -340,6 +371,44 @@ const BarbeiroAgenda = () => {
           outroNome={chat.nome}
         />
       )}
+
+      {/* Confirmacao antes de cancelar: nada muda sem o clique em confirmar */}
+      <AlertDialog open={!!cancelando} onOpenChange={(aberto) => { if (!aberto && !processando) setCancelando(null); }}>
+        <AlertDialogContent className="border-border bg-background sm:rounded-none max-w-[calc(100%-2rem)] sm:max-w-md">
+          <AlertDialogHeader>
+            <AlertDialogTitle className="text-primary">
+              {cancelando && ehFalta(cancelando) ? "Registrar falta do cliente?" : "Cancelar agendamento?"}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {cancelando && ehFalta(cancelando)
+                ? "O agendamento será marcado como cancelado porque o cliente não compareceu."
+                : "Tem certeza de que deseja cancelar este agendamento? Essa ação poderá afetar o horário reservado pelo cliente."}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          {cancelando && (
+            <div className="border border-border px-4 py-3 font-mono text-[10px] uppercase tracking-widest text-foreground">
+              <p className="text-primary">{cancelando.profiles?.nome ?? "Cliente"}</p>
+              <p className="mt-1">
+                {format(new Date(cancelando.data_hora), "dd/MM · HH:mm")}
+                {cancelando.servicos?.nome ? ` · ${cancelando.servicos.nome}` : ""}
+              </p>
+            </div>
+          )}
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={processando} className="rounded-none font-mono text-[10px] tracking-widest uppercase">
+              Voltar
+            </AlertDialogCancel>
+            <AlertDialogAction
+              disabled={processando}
+              onClick={(e) => { e.preventDefault(); confirmarCancelamento(); }}
+              className="rounded-none bg-destructive text-destructive-foreground hover:bg-destructive/90 font-mono text-[10px] tracking-widest uppercase"
+            >
+              {processando && <Loader2 className="size-3 mr-2 animate-spin" />}
+              {processando ? "Cancelando..." : cancelando && ehFalta(cancelando) ? "Confirmar falta" : "Confirmar cancelamento"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 };

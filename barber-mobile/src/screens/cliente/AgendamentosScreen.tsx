@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import { View, Text, StyleSheet, FlatList, TouchableOpacity, ActivityIndicator, RefreshControl, Alert, Linking } from 'react-native';
 import { Feather, FontAwesome } from '@expo/vector-icons';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
@@ -9,6 +9,7 @@ import { ClienteStackParamList } from '../../navigation/ClienteNavigator';
 import { useTheme } from '../../contexts/ThemeContext';
 import { F, Theme } from '../../lib/theme';
 import ErroFetch from '../../components/ErroFetch';
+import ConfirmarCancelamentoModal from '../../components/ConfirmarCancelamentoModal';
 import { linkWhatsAppAgendamento } from '../../lib/whatsapp';
 
 type Nav = StackNavigationProp<ClienteStackParamList>;
@@ -46,6 +47,17 @@ export default function AgendamentosScreen() {
   const [erro, setErro] = useState<string | null>(null);
   const [unreadMap, setUnreadMap] = useState<Record<string, number>>({});
   const [telefones, setTelefones] = useState<Record<string, string>>({});
+  // Agendamento aguardando confirmacao de cancelamento no modal
+  const [cancelando, setCancelando] = useState<Agendamento | null>(null);
+  const [processando, setProcessando] = useState(false);
+  const [erroCancelamento, setErroCancelamento] = useState<string | null>(null);
+  const [aviso, setAviso] = useState<{ tipo: 'sucesso' | 'erro'; texto: string } | null>(null);
+
+  useEffect(() => {
+    if (!aviso) return;
+    const t = setTimeout(() => setAviso(null), 4000);
+    return () => clearTimeout(t);
+  }, [aviso]);
 
   useFocusEffect(useCallback(() => { fetchAgendamentos(); }, []));
 
@@ -103,17 +115,36 @@ export default function AgendamentosScreen() {
     fetchTelefones();
   }
 
-  async function cancelar(id: string) {
-    const { error } = await supabase.from('agendamentos').update({ status: 'cancelado' as any }).eq('id', id);
-    if (error) Alert.alert('Erro', error.message);
-    else fetchAgendamentos();
+  // "ok" so quando o banco confirma a alteracao. O .select() revela o caso em
+  // que nada mudou (RLS ou status ja alterado), que nao gera erro.
+  async function cancelar(id: string): Promise<'ok' | 'erro' | 'inalterado'> {
+    const { data, error } = await supabase.from('agendamentos')
+      .update({ status: 'cancelado' as any }).eq('id', id).neq('status', 'cancelado' as any).select('id');
+    if (error) return 'erro';
+    await fetchAgendamentos();
+    return data?.length ? 'ok' : 'inalterado';
   }
 
-  function confirmarCancelamento(id: string) {
-    Alert.alert('Cancelar agendamento', 'Deseja mesmo cancelar este agendamento?', [
-      { text: 'Não', style: 'cancel' },
-      { text: 'Sim, cancelar', style: 'destructive', onPress: () => cancelar(id) },
-    ]);
+  function pedirCancelamento(item: Agendamento) {
+    setErroCancelamento(null);
+    setCancelando(item);
+  }
+
+  async function confirmarCancelamento() {
+    if (!cancelando || processando) return;
+    setProcessando(true);
+    setErroCancelamento(null);
+    const resultado = await cancelar(cancelando.id);
+    setProcessando(false);
+    // Em erro o modal fica aberto para tentar de novo ou voltar
+    if (resultado === 'erro') {
+      setErroCancelamento('Não foi possível cancelar o agendamento. Verifique sua conexão e tente novamente.');
+      return;
+    }
+    setCancelando(null);
+    setAviso(resultado === 'ok'
+      ? { tipo: 'sucesso', texto: 'AGENDAMENTO CANCELADO COM SUCESSO' }
+      : { tipo: 'erro', texto: 'NÃO FOI POSSÍVEL CANCELAR: O AGENDAMENTO PODE JÁ TER SIDO CANCELADO' });
   }
 
   if (loading) return <ActivityIndicator style={{ flex: 1, backgroundColor: C.bg }} color={C.accent} />;
@@ -126,6 +157,13 @@ export default function AgendamentosScreen() {
       </View>
 
       {erro && <ErroFetch message={erro} onRetry={() => { setErro(null); fetchAgendamentos(); }} />}
+
+      {aviso && (
+        <View style={[s.aviso, { borderColor: aviso.tipo === 'sucesso' ? C.success : C.destructive }]} accessibilityLiveRegion="polite">
+          <Feather name={aviso.tipo === 'sucesso' ? 'check' : 'alert-circle'} size={12} color={aviso.tipo === 'sucesso' ? C.success : C.destructive} />
+          <Text style={[s.avisoTexto, { color: aviso.tipo === 'sucesso' ? C.success : C.destructive }]}>{aviso.texto}</Text>
+        </View>
+      )}
 
       <FlatList
         data={agendamentos}
@@ -161,7 +199,7 @@ export default function AgendamentosScreen() {
 
               <View style={s.actions}>
                 {item.status === 'confirmado' && d > new Date() && (
-                  <TouchableOpacity style={s.actionBtn} onPress={() => confirmarCancelamento(item.id)}>
+                  <TouchableOpacity style={s.actionBtn} onPress={() => pedirCancelamento(item)}>
                     <Feather name="x" size={12} color={C.destructive} />
                     <Text style={[s.actionText, { color: C.destructive }]}>CANCELAR</Text>
                   </TouchableOpacity>
@@ -218,6 +256,22 @@ export default function AgendamentosScreen() {
           </View>
         }
       />
+
+      {/* Confirmacao antes de cancelar: nada muda sem o toque em confirmar */}
+      <ConfirmarCancelamentoModal
+        visible={!!cancelando}
+        titulo="Cancelar agendamento?"
+        mensagem="Tem certeza de que deseja cancelar este agendamento? O horário será liberado e poderá ser reservado por outro cliente."
+        detalhe={cancelando ? [
+          (cancelando.servicos?.nome ?? 'Serviço').toUpperCase(),
+          `${new Date(cancelando.data_hora).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' })} · ${new Date(cancelando.data_hora).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}${cancelando.barbeiros?.nome ? ` · ${cancelando.barbeiros.nome.toUpperCase()}` : ''}`,
+        ].join('\n') : undefined}
+        textoConfirmar="Confirmar cancelamento"
+        processando={processando}
+        erro={erroCancelamento}
+        onVoltar={() => setCancelando(null)}
+        onConfirmar={confirmarCancelamento}
+      />
     </View>
   );
 }
@@ -241,5 +295,7 @@ function makeStyles(C: Theme) {
     actionText:      { fontFamily: F.mono, fontSize: 10, letterSpacing: 1.5 },
     unreadBadge:     { backgroundColor: C.destructive, borderRadius: 8, minWidth: 16, height: 16, justifyContent: 'center', alignItems: 'center', paddingHorizontal: 4 },
     unreadBadgeText: { fontFamily: F.mono, fontSize: 9, color: '#fff' },
+    aviso:           { flexDirection: 'row', alignItems: 'center', gap: 8, marginHorizontal: 24, marginTop: 12, borderWidth: 1, paddingHorizontal: 12, paddingVertical: 10 },
+    avisoTexto:      { flex: 1, fontFamily: F.mono, fontSize: 10, letterSpacing: 1.5 },
   });
 }

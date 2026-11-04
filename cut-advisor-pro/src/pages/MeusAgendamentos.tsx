@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
-import { Calendar, Clock, User, X, ArrowLeft, MessageCircle } from "lucide-react";
+import { Calendar, Clock, User, X, ArrowLeft, MessageCircle, Loader2 } from "lucide-react";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { supabase } from "@/integrations/supabase/client";
@@ -9,6 +9,10 @@ import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "@/components/ui/sonner";
 import Navbar from "@/components/Navbar";
 import ChatDialog from "@/components/ChatDialog";
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription,
+  AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { linkWhatsAppAgendamento } from "@/lib/whatsapp";
 
 type Agendamento = {
@@ -41,6 +45,9 @@ const MeusAgendamentos = () => {
   const [naoLidas, setNaoLidas] = useState<Record<string, number>>({});
   const [chat, setChat] = useState<{ barbeiroId: string; nome: string } | null>(null);
   const [telefones, setTelefones] = useState<Record<string, string>>({});
+  // Agendamento aguardando confirmacao de cancelamento no Popup
+  const [cancelando, setCancelando] = useState<Agendamento | null>(null);
+  const [processando, setProcessando] = useState(false);
 
   useEffect(() => {
     if (!user) return;
@@ -99,21 +106,42 @@ const MeusAgendamentos = () => {
     }
   };
 
-  const handleCancel = async (id: string) => {
-    const { error } = await supabase
+  // "ok" so quando o banco confirma a alteracao. O .select() revela o caso em
+  // que nada mudou (RLS ou status ja alterado), que nao gera erro.
+  const handleCancel = async (id: string): Promise<"ok" | "erro" | "inalterado"> => {
+    const { data, error } = await supabase
       .from("agendamentos")
       .update({ status: "cancelado" as any })
-      .eq("id", id);
+      .eq("id", id)
+      .neq("status", "cancelado")
+      .select("id");
 
     if (error) {
-      toast.error("Erro ao cancelar");
-      return;
+      toast.error("Não foi possível cancelar o agendamento. Verifique sua conexão e tente novamente.");
+      return "erro";
+    }
+    if (!data?.length) {
+      // Mostra o status real (ex.: ja cancelado pelo barbeiro)
+      const { data: atual } = await supabase.from("agendamentos").select("status").eq("id", id).maybeSingle();
+      if (atual) setAgendamentos(prev => prev.map(a => a.id === id ? { ...a, status: atual.status } : a));
+      toast.error("Este agendamento não pôde ser cancelado. Ele pode já ter sido cancelado.");
+      return "inalterado";
     }
 
     setAgendamentos(prev =>
       prev.map(a => a.id === id ? { ...a, status: "cancelado" } : a)
     );
-    toast.success("Agendamento cancelado");
+    return "ok";
+  };
+
+  const confirmarCancelamento = async () => {
+    if (!cancelando || processando) return;
+    setProcessando(true);
+    const resultado = await handleCancel(cancelando.id);
+    setProcessando(false);
+    // Em erro o Popup fica aberto para tentar de novo ou voltar
+    if (resultado !== "erro") setCancelando(null);
+    if (resultado === "ok") toast.success("Agendamento cancelado com sucesso.");
   };
 
   return (
@@ -213,7 +241,7 @@ const MeusAgendamentos = () => {
                       )}
                       {!isPast && a.status === "confirmado" && (
                         <button
-                          onClick={() => handleCancel(a.id)}
+                          onClick={() => setCancelando(a)}
                           className="font-mono text-[10px] uppercase tracking-widest text-destructive hover:underline flex items-center gap-1"
                         >
                           <X className="size-3" /> Cancelar
@@ -237,6 +265,40 @@ const MeusAgendamentos = () => {
           outroNome={chat.nome}
         />
       )}
+
+      {/* Confirmacao antes de cancelar: nada muda sem o clique em confirmar */}
+      <AlertDialog open={!!cancelando} onOpenChange={(aberto) => { if (!aberto && !processando) setCancelando(null); }}>
+        <AlertDialogContent className="border-border bg-background sm:rounded-none max-w-[calc(100%-2rem)] sm:max-w-md">
+          <AlertDialogHeader>
+            <AlertDialogTitle className="text-primary">Cancelar agendamento?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Tem certeza de que deseja cancelar este agendamento? O horário será liberado e poderá ser reservado por outro cliente.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          {cancelando && (
+            <div className="border border-border px-4 py-3 font-mono text-[10px] uppercase tracking-widest text-foreground">
+              <p className="text-primary">{cancelando.servicos?.nome ?? "Serviço"}</p>
+              <p className="mt-1">
+                {format(new Date(cancelando.data_hora), "dd/MM · HH:mm")}
+                {cancelando.barbeiros?.nome ? ` · ${cancelando.barbeiros.nome}` : ""}
+              </p>
+            </div>
+          )}
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={processando} className="rounded-none font-mono text-[10px] tracking-widest uppercase">
+              Voltar
+            </AlertDialogCancel>
+            <AlertDialogAction
+              disabled={processando}
+              onClick={(e) => { e.preventDefault(); confirmarCancelamento(); }}
+              className="rounded-none bg-destructive text-destructive-foreground hover:bg-destructive/90 font-mono text-[10px] tracking-widest uppercase"
+            >
+              {processando && <Loader2 className="size-3 mr-2 animate-spin" />}
+              {processando ? "Cancelando..." : "Confirmar cancelamento"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 };
