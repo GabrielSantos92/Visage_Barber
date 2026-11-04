@@ -12,12 +12,11 @@ import { ClienteStackParamList } from '../../navigation/ClienteNavigator';
 import { useTheme } from '../../contexts/ThemeContext';
 import { F, Theme } from '../../lib/theme';
 import { api, ApiError } from '../../lib/api';
-import { buscarConsentimentoVisagismo } from '../../lib/privacidade';
 import AvisoPrivacidadeVisagismo from '../../components/AvisoPrivacidadeVisagismo';
 
 type Nav = StackNavigationProp<ClienteStackParamList>;
 
-type EstadoConsentimento = 'carregando' | 'pendente' | 'concedido' | 'erro';
+type EstadoConsentimento = 'pendente' | 'concedido';
 
 export default function VisagismoFotoScreen() {
   const { C } = useTheme();
@@ -30,21 +29,22 @@ export default function VisagismoFotoScreen() {
   const [cameraAtiva, setCameraAtiva] = useState(false);
   const [cameraPermission, requestCameraPermission] = useCameraPermissions();
   const cameraRef = useRef<CameraView>(null);
-  // Sem concordancia registrada no backend a foto nao pode nem ser escolhida
-  const [consentimento, setConsentimento] = useState<EstadoConsentimento>('carregando');
+  // O aviso aparece a cada visita, mesmo para quem ja concordou antes: a foto so
+  // pode ser escolhida depois de concordar de novo. O backend continua sendo
+  // quem decide se o envio e aceito.
+  const [consentimento, setConsentimento] = useState<EstadoConsentimento>('pendente');
 
-  function carregarConsentimento() {
-    setConsentimento('carregando');
-    buscarConsentimentoVisagismo()
-      .then((sit) => setConsentimento(sit.consentido ? 'concedido' : 'pendente'))
-      .catch(() => setConsentimento('erro'));
-  }
-
-  // Recarrega ao voltar para a tela (ex.: revogou no Perfil), sem reiniciar o
-  // aviso que ja esta aberto (ex.: voltou de "Consultar Aviso de Privacidade")
+  // Ao voltar para a tela (ex.: do resultado), recomeca pelo aviso. Se o aviso
+  // ja esta aberto (ex.: voltou de "Consultar Aviso de Privacidade"), nada muda.
+  // A ref evita rodar de novo logo apos concordar (so roda ao ganhar o foco).
+  const consentimentoRef = useRef(consentimento);
+  consentimentoRef.current = consentimento;
   useFocusEffect(useCallback(() => {
-    if (!foto && consentimento !== 'pendente') carregarConsentimento();
-  }, [foto, consentimento === 'pendente']));
+    if (consentimentoRef.current === 'pendente') return;
+    setConsentimento('pendente');
+    setFoto(null);
+    setFotoUri(null);
+  }, []));
 
   async function escolherGaleria() {
     const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
@@ -138,20 +138,7 @@ export default function VisagismoFotoScreen() {
       </View>
 
       {/* Aviso de privacidade: aparece antes de qualquer escolha de foto */}
-      {consentimento === 'carregando' ? (
-        <View style={s.uploadArea}>
-          <ActivityIndicator color={C.accent} />
-          <Text style={[s.uploadSub, { marginTop: 12, marginBottom: 0 }]}>Verificando autorização...</Text>
-        </View>
-      ) : consentimento === 'erro' ? (
-        <View style={s.uploadArea}>
-          <Text style={[s.uploadSub, { marginBottom: 12 }]}>Não foi possível verificar sua autorização para o uso da foto.</Text>
-          <TouchableOpacity style={s.btnUpload} onPress={carregarConsentimento}>
-            <Feather name="refresh-cw" size={14} color={C.primary} />
-            <Text style={s.btnUploadText}>TENTAR NOVAMENTE</Text>
-          </TouchableOpacity>
-        </View>
-      ) : consentimento === 'pendente' ? (
+      {consentimento === 'pendente' ? (
         <AvisoPrivacidadeVisagismo
           onConcordou={(sit) => setConsentimento(sit.consentido ? 'concedido' : 'pendente')}
           onConsultarAviso={() => navigation.navigate('AvisoPrivacidade')}

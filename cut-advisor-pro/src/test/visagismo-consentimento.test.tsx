@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -48,13 +48,23 @@ beforeEach(() => {
   api.apiPost.mockReset();
 });
 
+// apiPost responde conforme a rota: registro da concordancia ou analise
+function backend({ analise }: { analise: () => Promise<unknown> }) {
+  api.apiPost.mockImplementation((url: string) =>
+    url === URL_CONSENT ? Promise.resolve(situacao(true)) : analise());
+}
+
+async function concordar() {
+  fireEvent.click(await screen.findByRole("checkbox"));
+  await act(async () => { fireEvent.click(botaoConcordar()); });
+}
+
 describe("Visagismo - aviso de privacidade", () => {
   it("mostra o aviso antes de qualquer escolha de foto, com a caixa desmarcada", async () => {
     api.apiGet.mockResolvedValue(situacao(false));
     renderTela();
 
     expect(await screen.findByRole("heading", { name: AVISO_VISAGISMO.titulo })).toBeInTheDocument();
-    expect(api.apiGet).toHaveBeenCalledWith(URL_CONSENT);
     expect(screen.getByText("Como utilizaremos sua foto?")).toBeInTheDocument();
     expect(screen.getByText("Processamento por inteligência artificial")).toBeInTheDocument();
     expect(screen.getByText("Seus direitos")).toBeInTheDocument();
@@ -110,12 +120,25 @@ describe("Visagismo - aviso de privacidade", () => {
     expect(screen.queryByRole("button", { name: /da galeria/i })).not.toBeInTheDocument();
   });
 
-  it("quem ja concordou vai direto ao envio e a analise segue normalmente", async () => {
+  it("o aviso aparece a cada visita, mesmo para quem ja concordou antes", async () => {
     api.apiGet.mockResolvedValue(situacao(true));
-    api.apiPost.mockResolvedValue({ formato_rosto: "oval" });
+    const primeira = renderTela();
+    expect(await screen.findByRole("heading", { name: AVISO_VISAGISMO.titulo })).toBeInTheDocument();
+    expect(screen.getByRole("checkbox")).not.toBeChecked();
+    expect(screen.queryByRole("button", { name: /da galeria/i })).not.toBeInTheDocument();
+    primeira.unmount();
+
+    // Voltando a tela depois, o aviso aparece de novo, desmarcado
+    renderTela();
+    expect(await screen.findByRole("heading", { name: AVISO_VISAGISMO.titulo })).toBeInTheDocument();
+    expect(screen.getByRole("checkbox")).not.toBeChecked();
+    expect(api.apiGet).not.toHaveBeenCalled();
+  });
+
+  it("depois de concordar a analise segue normalmente", async () => {
+    backend({ analise: () => Promise.resolve({ formato_rosto: "oval" }) });
     const { container } = renderTela();
-    expect(await screen.findByRole("button", { name: /da galeria/i })).toBeInTheDocument();
-    expect(screen.queryByRole("checkbox")).not.toBeInTheDocument();
+    await concordar();
 
     await escolherFoto(container);
     await act(async () => { fireEvent.click(screen.getByRole("button", { name: /analisar com ia/i })); });
@@ -124,10 +147,11 @@ describe("Visagismo - aviso de privacidade", () => {
   });
 
   it("se o backend recusar por falta de consentimento, descarta a foto e mostra o aviso", async () => {
-    api.apiGet.mockResolvedValue(situacao(true));
-    api.apiPost.mockRejectedValue(new ApiError("É preciso concordar com o Aviso de Privacidade antes de enviar sua foto.", 403, "CONSENTIMENTO_NECESSARIO"));
+    backend({
+      analise: () => Promise.reject(new ApiError("É preciso concordar com o Aviso de Privacidade antes de enviar sua foto.", 403, "CONSENTIMENTO_NECESSARIO")),
+    });
     const { container } = renderTela();
-    await screen.findByRole("button", { name: /da galeria/i });
+    await concordar();
     await escolherFoto(container);
     await act(async () => { fireEvent.click(screen.getByRole("button", { name: /analisar com ia/i })); });
 
@@ -135,13 +159,6 @@ describe("Visagismo - aviso de privacidade", () => {
     expect(screen.queryByAltText("Foto selecionada")).not.toBeInTheDocument();
     expect(screen.getByRole("checkbox")).not.toBeChecked();
     expect(chamadasPost("/api/visagismo/analisar")).toHaveLength(1);
-  });
-
-  it("erro ao verificar a autorizacao permite tentar de novo", async () => {
-    api.apiGet.mockRejectedValueOnce(new Error("offline")).mockResolvedValueOnce(situacao(false));
-    renderTela();
-    fireEvent.click(await screen.findByRole("button", { name: /tentar novamente/i }));
-    await waitFor(() => expect(screen.getByRole("checkbox")).toBeInTheDocument());
   });
 });
 
