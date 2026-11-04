@@ -137,7 +137,7 @@ const Booking = () => {
           </button>
           <div className="inline-block px-2 py-1 border border-border mb-4">
             <span className="font-mono text-[10px] uppercase tracking-widest text-foreground">
-              BOOKING // PROTOCOL
+              AGENDAMENTO // PROTOCOLO
             </span>
           </div>
           <h1 className="text-3xl font-light tracking-tighter text-primary">

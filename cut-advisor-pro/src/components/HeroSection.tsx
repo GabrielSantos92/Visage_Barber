@@ -16,12 +16,12 @@ const HeroSection = () => {
         >
           <div className="inline-block px-2 py-1 border border-border mb-6">
             <span className="font-mono text-[10px] uppercase tracking-tighter text-foreground">
-              Model: 2024-V2 // Performance Grooming
+              Modelo: 2024-V2 // Grooming de Alta Performance
             </span>
           </div>
           <h1 className="text-5xl md:text-7xl lg:text-8xl font-light tracking-tighter text-primary leading-[0.9] mb-8">
-            CALIBRATE <br />
-            <span className="font-bold italic">YOUR IDENTITY</span>
+            CALIBRE <br />
+            <span className="font-bold italic">SUA IDENTIDADE</span>
           </h1>
           <p className="max-w-[45ch] text-lg text-foreground leading-relaxed mb-12">
             Estética de precisão para o indivíduo de alta performance. Nossos
@@ -43,7 +43,7 @@ const HeroSection = () => {
                 Agendar Sessão
               </span>
               <span className="font-mono text-[10px] uppercase text-primary">
-                Step 01/03
+                Etapa 01/03
               </span>
             </div>
             <div className="grid grid-cols-2 gap-px bg-border">
@@ -78,15 +78,15 @@ const HeroSection = () => {
           <div className="absolute inset-0 bg-gradient-to-t from-background via-transparent to-transparent" />
           <div className="absolute top-6 right-6 font-mono text-[10px] text-primary space-y-2">
             <div className="flex justify-between gap-8">
-              <span>X-AXIS</span>
+              <span>EIXO X</span>
               <span>14.02</span>
             </div>
             <div className="flex justify-between gap-8">
-              <span>Y-AXIS</span>
+              <span>EIXO Y</span>
               <span>89.44</span>
             </div>
             <div className="flex justify-between gap-8">
-              <span>SKEW</span>
+              <span>INCLINAÇÃO</span>
               <span>0.00°</span>
             </div>
           </div>

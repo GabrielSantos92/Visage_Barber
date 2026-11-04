@@ -43,7 +43,7 @@ const Navbar = () => {
             <div className="flex items-center gap-4">
               {(role === "admin" || role === "barbeiro") && (
                 <Link to="/dashboard" className="text-foreground hover:text-primary transition-colors flex items-center gap-1">
-                  <LayoutDashboard className="size-3" /> DASHBOARD
+                  <LayoutDashboard className="size-3" /> PAINEL
                 </Link>
               )}
               {role === "admin" && (
@@ -113,7 +113,7 @@ const Navbar = () => {
                 <>
                   {(role === "admin" || role === "barbeiro") && (
                     <Link to="/dashboard" className="block font-mono text-xs tracking-widest uppercase text-foreground hover:text-primary transition-colors" onClick={() => setOpen(false)}>
-                      DASHBOARD
+                      PAINEL
                     </Link>
                   )}
                   {role === "admin" && (
