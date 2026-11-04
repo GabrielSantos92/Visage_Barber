@@ -5,6 +5,7 @@ import { ptBR } from "date-fns/locale";
 import { supabase } from "@/integrations/supabase/client";
 import AdminLayout from "@/components/admin/AdminNav";
 import type { Tables } from "@/integrations/supabase/types";
+import { exibirTelefone, telefoneCorresponde } from "@/lib/telefone";
 
 type Usuario = Tables<"profiles">;
 
@@ -28,7 +29,7 @@ const AdminUsuarios = () => {
   const visiveis = useMemo(() => {
     const termo = busca.trim().toLowerCase();
     if (!termo) return usuarios;
-    return usuarios.filter((u) => [u.nome ?? "", u.telefone ?? ""].some((v) => v.toLowerCase().includes(termo)));
+    return usuarios.filter((u) => (u.nome ?? "").toLowerCase().includes(termo) || telefoneCorresponde(u.telefone, termo));
   }, [usuarios, busca]);
 
   return (
@@ -98,7 +99,7 @@ const AdminUsuarios = () => {
                     </div>
                   </td>
                   <td className="px-4 py-4 font-mono text-[11px] text-foreground whitespace-nowrap">
-                    {u.telefone || <span className="text-muted-foreground">Sem telefone</span>}
+                    {exibirTelefone(u.telefone) || <span className="text-muted-foreground">Sem telefone</span>}
                   </td>
                   <td className="px-6 py-4 font-mono text-[10px] text-muted-foreground text-right whitespace-nowrap uppercase">
                     {format(new Date(u.created_at), "dd MMM yyyy", { locale: ptBR })}

@@ -4,6 +4,7 @@ import { supabase } from '../../lib/supabase';
 import { useTheme } from '../../contexts/ThemeContext';
 import { F, Theme } from '../../lib/theme';
 import ErroFetch from '../../components/ErroFetch';
+import { exibirTelefone } from '../../lib/telefone';
 
 interface Usuario {
   id: string;
@@ -62,7 +63,7 @@ export default function UsuariosScreen() {
               </View>
               <View style={s.info}>
                 <Text style={s.nome}>{item.nome || '(sem nome)'}</Text>
-                <Text style={s.detalhe}>{item.telefone ?? 'Sem telefone'}</Text>
+                <Text style={s.detalhe}>{exibirTelefone(item.telefone) || 'Sem telefone'}</Text>
               </View>
               <Text style={s.desde}>{desde}</Text>
             </View>

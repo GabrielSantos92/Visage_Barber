@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const { createClient } = require('@supabase/supabase-js');
 const { excluirBarbeiro } = require('../services/barbeiros');
+const { telefoneParaSalvar, validarTelefone } = require('../services/telefone');
 
 const supabaseAdmin = createClient(
   process.env.SUPABASE_URL,
@@ -102,19 +103,17 @@ router.post('/create-barbeiro', async (req, res) => {
       return res.status(400).json({ error: 'email, password e nome são obrigatórios.' });
     }
 
-    // O telefone vira o link de WhatsApp do barbeiro: exige DDD + número (com ou sem o 55)
-    const digitos = String(telefone ?? '').replace(/\D/g, '').replace(/^0+/, '');
-    const telefoneValido = digitos.length === 10 || digitos.length === 11
-      || ((digitos.length === 12 || digitos.length === 13) && digitos.startsWith('55'));
-    if (!telefoneValido) {
-      return res.status(400).json({ error: 'Telefone é obrigatório e deve ter DDD + número.' });
-    }
+    // O telefone vira o link de WhatsApp do barbeiro: mesmas regras da web e do
+    // mobile, e o banco recebe so os digitos (sem mascara nem 55)
+    const erroTelefone = validarTelefone(telefone, { obrigatorio: true });
+    if (erroTelefone) return res.status(400).json({ error: erroTelefone });
+    const digitos = telefoneParaSalvar(telefone);
 
     const { data: authData, error: authError } = await supabaseAuth.auth.admin.createUser({
       email,
       password,
       email_confirm: true,
-      user_metadata: { nome, telefone: telefone ?? '' },
+      user_metadata: { nome, telefone: digitos },
     });
 
     if (authError) {
@@ -127,7 +126,7 @@ router.post('/create-barbeiro', async (req, res) => {
     const userId = authData.user.id;
 
     const [profileRes, roleRes, barbeiroRes] = await Promise.all([
-      supabaseAdmin.from('profiles').upsert({ id: userId, nome: nome.trim(), telefone: telefone?.trim() ?? '' }),
+      supabaseAdmin.from('profiles').upsert({ id: userId, nome: nome.trim(), telefone: digitos }),
       supabaseAdmin.from('user_roles').insert({ user_id: userId, role: 'barbeiro' }),
       supabaseAdmin.from('barbeiros').insert({ user_id: userId, nome: nome.trim(), especialidade: especialidade?.trim() || null }).select().single(),
     ]);

@@ -14,6 +14,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import type { Enums } from "@/integrations/supabase/types";
 import { etapasDoAgendamento, pausaQueContem, ROTULO_ETAPA } from "@/lib/etapas";
+import { exibirTelefone } from "@/lib/telefone";
 
 type Status = Enums<"agendamento_status">;
 
@@ -280,7 +281,7 @@ const BarbeiroAgenda = () => {
                       <div>
                         <p className="text-sm font-bold text-primary">{a.profiles?.nome || "—"}</p>
                         {a.profiles?.telefone && (
-                          <p className="font-mono text-[10px] text-muted-foreground">{a.profiles.telefone}</p>
+                          <p className="font-mono text-[10px] text-muted-foreground">{exibirTelefone(a.profiles.telefone)}</p>
                         )}
                       </div>
                     </div>

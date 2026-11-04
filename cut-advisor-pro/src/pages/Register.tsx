@@ -3,6 +3,8 @@ import { Link, useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
 import { Eye, EyeOff, Mail, Lock, User, Phone, AlertCircle, CheckCircle } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
+import TelefoneInput from "@/components/TelefoneInput";
+import { telefoneParaSalvar, validarTelefone } from "@/lib/telefone";
 import { toast } from "@/components/ui/sonner";
 import LogoMark from "@/components/LogoMark";
 
@@ -38,6 +40,8 @@ const Register = () => {
     else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email)) e.email = "Email inválido";
     if (!form.password) e.password = "Senha é obrigatória";
     else if (form.password.length < 6) e.password = "Mínimo 6 caracteres";
+    const erroTelefone = validarTelefone(form.telefone);
+    if (erroTelefone) e.telefone = erroTelefone;
     if (form.password !== form.confirmPassword) e.confirmPassword = "Senhas não coincidem";
     setErrors(e);
     return Object.keys(e).length === 0;
@@ -54,7 +58,7 @@ const Register = () => {
       options: {
         data: {
           nome: form.nome,
-          telefone: form.telefone,
+          telefone: telefoneParaSalvar(form.telefone),
         },
       },
     });
@@ -159,14 +163,18 @@ const Register = () => {
               </label>
               <div className="relative">
                 <Phone className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
-                <input
-                  type="tel"
+                <TelefoneInput
                   value={form.telefone}
-                  onChange={(e) => updateField("telefone", e.target.value)}
+                  onChange={(v) => updateField("telefone", v)}
                   className="w-full bg-card border border-border pl-10 pr-4 py-3 text-sm text-primary placeholder:text-muted-foreground focus:outline-none focus:border-primary transition-colors"
                   placeholder="(11) 99999-9999"
                 />
               </div>
+              {errors.telefone && (
+                <p className="mt-1 text-xs text-destructive flex items-center gap-1">
+                  <AlertCircle className="size-3" /> {errors.telefone}
+                </p>
+              )}
             </div>
 
             {/* Password */}

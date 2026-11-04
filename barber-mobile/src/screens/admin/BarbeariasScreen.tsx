@@ -10,7 +10,8 @@ import { useTheme } from '../../contexts/ThemeContext';
 import { F, Theme } from '../../lib/theme';
 import ErroFetch from '../../components/ErroFetch';
 import { api } from '../../lib/api';
-import { normalizarTelefoneBR } from '../../lib/whatsapp';
+import { telefoneParaSalvar, validarTelefone } from '../../lib/telefone';
+import TelefoneInput from '../../components/TelefoneInput';
 
 type Barbeiro = Tables<'barbeiros'>;
 
@@ -108,8 +109,8 @@ setBarbeiros(data ?? []);
 
     if (modoModal === 'criar') {
       if (!email.trim()) { Alert.alert('Erro', 'Email é obrigatório.'); return; }
-      if (!telefone.trim()) { Alert.alert('Erro', 'Telefone é obrigatório.'); return; }
-      if (!normalizarTelefoneBR(telefone)) { Alert.alert('Erro', 'Telefone inválido. Informe DDD + número.'); return; }
+      const erroTelefone = validarTelefone(telefone, { obrigatorio: true });
+      if (erroTelefone) { Alert.alert('Erro', `${erroTelefone}.`); return; }
       if (senha.length < 6) { Alert.alert('Erro', 'Senha deve ter no mínimo 6 caracteres.'); return; }
       setSaving(true);
       try {
@@ -117,7 +118,7 @@ setBarbeiros(data ?? []);
           email: email.trim(),
           password: senha,
           nome: nome.trim(),
-          telefone: telefone.trim(),
+          telefone: telefoneParaSalvar(telefone),
           especialidade: especialidade.trim() || undefined,
         });
       } catch (e: any) {
@@ -414,9 +415,8 @@ setBarbeiros(data ?? []);
                 <Text style={s.fieldLabel}>TELEFONE *</Text>
                 <View style={s.inputRow}>
                   <Feather name="phone" size={14} color={C.mutedFg} style={{ paddingLeft: 14 }} />
-                  <TextInput style={s.input} value={telefone} onChangeText={setTelefone}
-                    placeholder="(11) 99999-9999" placeholderTextColor={C.mutedFg}
-                    keyboardType="phone-pad" />
+                  <TelefoneInput style={s.input} value={telefone} onChangeText={setTelefone}
+                    placeholder="(11) 99999-9999" placeholderTextColor={C.mutedFg} />
                 </View>
 
                 <Text style={s.fieldLabel}>EMAIL DE ACESSO *</Text>

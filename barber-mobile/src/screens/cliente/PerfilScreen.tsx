@@ -5,6 +5,8 @@ import { useAuth } from '../../contexts/AuthContext';
 import { supabase } from '../../lib/supabase';
 import { useTheme } from '../../contexts/ThemeContext';
 import { F, Theme } from '../../lib/theme';
+import TelefoneInput from '../../components/TelefoneInput';
+import { telefoneParaCampo, telefoneParaSalvar, validarTelefone } from '../../lib/telefone';
 import PrivacidadePerfil from '../../components/PrivacidadePerfil';
 import { useNavigation } from '@react-navigation/native';
 import { StackNavigationProp } from '@react-navigation/stack';
@@ -28,16 +30,18 @@ export default function PerfilScreen() {
     if (!user) return;
     const { data } = await supabase.from('profiles').select('*').eq('user_id', user.id).single();
     setNome(data?.nome ?? '');
-    setTelefone(data?.telefone ?? '');
+    setTelefone(telefoneParaCampo(data?.telefone));
     setFormatoRosto(data?.formato_rosto ?? '');
     setLoading(false);
   }
 
   async function salvar() {
     if (!user) return;
+    const erroTelefone = validarTelefone(telefone);
+    if (erroTelefone) { Alert.alert('Telefone inválido', `${erroTelefone}.`); return; }
     setSaving(true);
     const { error } = await supabase.from('profiles')
-      .update({ nome, telefone, formato_rosto: formatoRosto || null })
+      .update({ nome, telefone: telefoneParaSalvar(telefone), formato_rosto: formatoRosto || null })
       .eq('user_id', user.id);
     setSaving(false);
     if (error) Alert.alert('Erro', error.message);
@@ -68,7 +72,7 @@ export default function PerfilScreen() {
         <Label C={C}>TELEFONE</Label>
         <View style={s.inputRow}>
           <Feather name="phone" size={14} color={C.mutedFg} style={s.icon} />
-          <TextInput style={s.input} value={telefone} onChangeText={setTelefone} placeholder="(11) 99999-9999" placeholderTextColor={C.mutedFg} keyboardType="phone-pad" />
+          <TelefoneInput style={s.input} value={telefone} onChangeText={setTelefone} placeholder="(11) 99999-9999" placeholderTextColor={C.mutedFg} />
         </View>
 
         <Label C={C}>EMAIL</Label>

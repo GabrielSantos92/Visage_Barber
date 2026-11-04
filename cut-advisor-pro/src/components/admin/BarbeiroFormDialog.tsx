@@ -4,7 +4,8 @@ import { supabase } from "@/integrations/supabase/client";
 import { toast } from "@/components/ui/sonner";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { apiPost } from "@/lib/api";
-import { normalizarTelefoneBR } from "@/lib/whatsapp";
+import TelefoneInput from "@/components/TelefoneInput";
+import { telefoneParaSalvar, validarTelefone } from "@/lib/telefone";
 
 export interface BarbeiroEditavel {
   id: string;
@@ -58,8 +59,8 @@ const BarbeiroFormDialog = ({ open, barbeiro, onClose, onSaved }: Props) => {
     if (!editando) {
       if (!email.trim()) e.email = "Email é obrigatório";
       else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) e.email = "Email inválido";
-      if (!telefone.trim()) e.telefone = "Telefone é obrigatório";
-      else if (!normalizarTelefoneBR(telefone)) e.telefone = "Telefone inválido. Informe DDD + número";
+      const erroTelefone = validarTelefone(telefone, { obrigatorio: true });
+      if (erroTelefone) e.telefone = erroTelefone;
       if (senha.length < 6) e.senha = "Senha deve ter no mínimo 6 caracteres";
     }
     setErros(e);
@@ -83,7 +84,7 @@ const BarbeiroFormDialog = ({ open, barbeiro, onClose, onSaved }: Props) => {
           email: email.trim(),
           password: senha,
           nome: nome.trim(),
-          telefone: telefone.trim(),
+          telefone: telefoneParaSalvar(telefone),
           especialidade: especialidade.trim() || undefined,
         });
         toast.success(`Barbeiro ${nome.trim()} criado com sucesso!`);
@@ -128,8 +129,8 @@ const BarbeiroFormDialog = ({ open, barbeiro, onClose, onSaved }: Props) => {
               <>
                 <div>
                   <label className={labelCls}>Telefone / WhatsApp *</label>
-                  <input
-                    type="tel" value={telefone} onChange={(e) => { setTelefone(e.target.value); limparErro("telefone"); }}
+                  <TelefoneInput
+                    value={telefone} onChange={(v) => { setTelefone(v); limparErro("telefone"); }}
                     className={inputCls} placeholder="(11) 99999-9999"
                   />
                   <FieldError msg={erros.telefone} />

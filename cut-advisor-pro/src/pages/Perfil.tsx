@@ -6,6 +6,8 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "@/components/ui/sonner";
 import Navbar from "@/components/Navbar";
+import TelefoneInput from "@/components/TelefoneInput";
+import { telefoneParaCampo, telefoneParaSalvar, validarTelefone } from "@/lib/telefone";
 import PrivacidadePerfil from "@/components/PrivacidadePerfil";
 
 const Perfil = () => {
@@ -24,7 +26,7 @@ const Perfil = () => {
       .eq("user_id", user.id)
       .single()
       .then(({ data }) => {
-        if (data) setForm({ nome: data.nome || "", telefone: data.telefone || "" });
+        if (data) setForm({ nome: data.nome || "", telefone: telefoneParaCampo(data.telefone) });
         setLoading(false);
       });
   }, [user]);
@@ -32,6 +34,8 @@ const Perfil = () => {
   const validate = () => {
     const e: Record<string, string> = {};
     if (!form.nome.trim()) e.nome = "Nome é obrigatório";
+    const erroTelefone = validarTelefone(form.telefone);
+    if (erroTelefone) e.telefone = erroTelefone;
     setErrors(e);
     return Object.keys(e).length === 0;
   };
@@ -43,7 +47,7 @@ const Perfil = () => {
     setSaving(true);
     const { error } = await supabase
       .from("profiles")
-      .update({ nome: form.nome.trim(), telefone: form.telefone.trim() || null })
+      .update({ nome: form.nome.trim(), telefone: telefoneParaSalvar(form.telefone) || null })
       .eq("user_id", user.id);
     setSaving(false);
 
@@ -155,14 +159,18 @@ const Perfil = () => {
               </label>
               <div className="relative">
                 <Phone className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
-                <input
-                  type="tel"
+                <TelefoneInput
                   value={form.telefone}
-                  onChange={(e) => setForm(p => ({ ...p, telefone: e.target.value }))}
+                  onChange={(v) => { setForm(p => ({ ...p, telefone: v })); setErrors(p => ({ ...p, telefone: "" })); }}
                   className="w-full bg-card border border-border pl-10 pr-4 py-3 text-sm text-primary placeholder:text-muted-foreground focus:outline-none focus:border-primary transition-colors"
                   placeholder="(11) 99999-9999"
                 />
               </div>
+              {errors.telefone && (
+                <p className="mt-1 text-xs text-destructive flex items-center gap-1">
+                  <AlertCircle className="size-3" /> {errors.telefone}
+                </p>
+              )}
             </div>
 
             <button

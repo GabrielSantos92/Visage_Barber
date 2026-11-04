@@ -1,6 +1,7 @@
 const express = require('express');
 const { createClient } = require('@supabase/supabase-js');
 const { criarRecuperacaoSenha, RecuperacaoErro } = require('../services/recuperacaoSenha');
+const { telefoneParaSalvar } = require('../services/telefone');
 
 const router = express.Router();
 
@@ -23,7 +24,7 @@ router.post('/register', async (req, res) => {
     email,
     password,
     email_confirm: true,
-    user_metadata: { nome, telefone: telefone ?? '' },
+    user_metadata: { nome, telefone: telefoneParaSalvar(telefone) },
   });
 
   if (error) {

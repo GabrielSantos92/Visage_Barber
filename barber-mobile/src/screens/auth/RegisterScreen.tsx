@@ -9,6 +9,8 @@ import { supabase } from '../../lib/supabase';
 import { AuthStackParamList } from '../../navigation/AuthNavigator';
 import { useTheme } from '../../contexts/ThemeContext';
 import { F, Theme } from '../../lib/theme';
+import TelefoneInput from '../../components/TelefoneInput';
+import { telefoneParaSalvar, validarTelefone } from '../../lib/telefone';
 import LogoMark from '../../components/LogoMark';
 
 type Props = { navigation: StackNavigationProp<AuthStackParamList, 'Register'> };
@@ -41,6 +43,8 @@ export default function RegisterScreen({ navigation }: Props) {
     if (!email.trim())       e.email = 'Email é obrigatório.';
     if (senha.length < 6)    e.senha = 'Mínimo 6 caracteres.';
     if (senha !== confirmar) e.confirmar = 'As senhas não coincidem.';
+    const erroTelefone = validarTelefone(telefone);
+    if (erroTelefone) e.telefone = `${erroTelefone}.`;
     setErros(e);
     return Object.keys(e).length === 0;
   }
@@ -52,7 +56,7 @@ export default function RegisterScreen({ navigation }: Props) {
       const { data, error } = await supabase.auth.signUp({
         email: email.trim(),
         password: senha,
-        options: { data: { nome: nome.trim(), telefone: telefone.trim() } },
+        options: { data: { nome: nome.trim(), telefone: telefoneParaSalvar(telefone) } },
       });
       if (error) {
         setLoading(false);
@@ -108,10 +112,11 @@ export default function RegisterScreen({ navigation }: Props) {
                 autoCapitalize="none" keyboardType="email-address" />
             </Field>
 
-            <Field label="TELEFONE (OPCIONAL)" C={C}>
+            <Field label="TELEFONE (OPCIONAL)" erro={erros.telefone} C={C}>
               <Feather name="phone" size={15} color={C.mutedFg} style={s.icon} />
-              <TextInput style={s.input} value={telefone} onChangeText={setTelefone}
-                placeholder="(11) 99999-9999" placeholderTextColor={C.mutedFg} keyboardType="phone-pad" />
+              <TelefoneInput style={s.input} value={telefone}
+                onChangeText={(v) => { setTelefone(v); setErros(e => ({ ...e, telefone: '' })); }}
+                placeholder="(11) 99999-9999" placeholderTextColor={C.mutedFg} />
             </Field>
 
             <Field label="SENHA" erro={erros.senha} C={C}>

@@ -11,6 +11,7 @@ import BarbeiroFormDialog from "@/components/admin/BarbeiroFormDialog";
 import BarbeiroServicosDialog from "@/components/admin/BarbeiroServicosDialog";
 import BarbeiroAgendaDialog from "@/components/admin/BarbeiroAgendaDialog";
 import { apiDelete } from "@/lib/api";
+import { exibirTelefone, telefoneCorresponde } from "@/lib/telefone";
 import type { Tables } from "@/integrations/supabase/types";
 
 type Barbeiro = Tables<"barbeiros">;
@@ -80,7 +81,7 @@ const AdminBarbeiros = () => {
       if (filtro === "inativos" && b.ativo) return false;
       if (!termo) return true;
       const telefone = b.user_id ? telefones[b.user_id] ?? "" : "";
-      return [b.nome, b.especialidade ?? "", telefone].some((v) => v.toLowerCase().includes(termo));
+      return [b.nome, b.especialidade ?? ""].some((v) => v.toLowerCase().includes(termo)) || telefoneCorresponde(telefone, termo);
     });
   }, [barbeiros, telefones, busca, filtro]);
 
@@ -231,7 +232,7 @@ const AdminBarbeiros = () => {
                     </div>
                   </td>
                   <td className="px-4 py-4 font-mono text-[11px] text-foreground whitespace-nowrap">
-                    {(b.user_id && telefones[b.user_id]) || <span className="text-muted-foreground">Sem telefone</span>}
+                    {(b.user_id && exibirTelefone(telefones[b.user_id])) || <span className="text-muted-foreground">Sem telefone</span>}
                   </td>
                   <td className="px-4 py-4">
                     <span className="flex items-center gap-1.5 font-mono text-[9px] text-muted-foreground whitespace-nowrap">
