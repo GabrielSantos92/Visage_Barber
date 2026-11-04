@@ -1,0 +1,14 @@
+{
+  "cli": { "appVersionSource": "local" },
+  "build": {
+    "preview": {
+      "distribution": "internal",
+      "android": { "buildType": "apk" },
+      "env": {
+        "EXPO_PUBLIC_API_URL": "https://visage-backend-vnfg.onrender.com",
+        "EXPO_PUBLIC_SUPABASE_URL": "https://ecngjhpnycirhisghazy.supabase.co",
+        "EXPO_PUBLIC_SUPABASE_ANON_KEY": "sb_publishable_yi5nYCp3oYjwsc73O5ANXg_-SZwQpfq"
+      }
+    }
+  }
+}
