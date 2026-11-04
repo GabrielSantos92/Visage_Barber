@@ -11,6 +11,7 @@ import { F, Theme } from '../../lib/theme';
 import ErroFetch from '../../components/ErroFetch';
 import ConfirmarCancelamentoModal from '../../components/ConfirmarCancelamentoModal';
 import { etapasDoAgendamento, pausaQueContem, ROTULO_ETAPA } from '../../lib/etapas';
+import { ordenarAgendamentos } from '../../lib/ordemAgendamentos';
 
 type Nav = StackNavigationProp<BarbeiroStackParamList>;
 
@@ -64,11 +65,12 @@ export default function BarbeiroHomeScreen() {
 
   useFocusEffect(useCallback(() => { fetchDados(); }, []));
 
-  const agendamentos = todos.filter((a) =>
+  // Dias mais proximos primeiro e, dentro do dia, do primeiro horario ao ultimo
+  const agendamentos = ordenarAgendamentos(todos.filter((a) =>
     filtro === 'ativo'
       ? a.status === 'confirmado'
       : a.status === 'concluido' || a.status === 'cancelado',
-  );
+  ));
 
   async function fetchDados() {
     if (!user) return;
@@ -84,7 +86,7 @@ export default function BarbeiroHomeScreen() {
         .from('agendamentos')
         .select('*, servicos(nome, preco, duracao_min)')
         .eq('barbeiro_id', b.id)
-        .order('data_hora', { ascending: false });
+        .order('data_hora', { ascending: true });
       if (error) throw error;
 
       // cliente_id aponta para auth.users, não profiles — buscar separado.

@@ -9,6 +9,7 @@ import Navbar from "@/components/Navbar";
 import { AdminNav } from "@/components/admin/AdminNav";
 import { Navigate } from "react-router-dom";
 import type { Enums } from "@/integrations/supabase/types";
+import { ordenarAgendamentos } from "@/lib/ordemAgendamentos";
 
 type Status = Enums<"agendamento_status">;
 
@@ -179,7 +180,8 @@ export default function Dashboard() {
       { label: "A ATENDER HOJE", value: confirmados, sub: "horários marcados", icon: Clock },
       { label: "CONCLUÍDOS HOJE", value: concluidos, sub: "atendimentos finalizados", icon: CheckCircle2 },
     ]);
-    setRecentes(await withClientes(recentsData as any));
+    // Barbeiro: dias mais proximos primeiro e, dentro do dia, horario crescente
+    setRecentes(ordenarAgendamentos(await withClientes(recentsData as any)));
     setStatusCounts(counts);
     setLoading(false);
   }

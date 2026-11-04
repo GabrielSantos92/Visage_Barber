@@ -3,14 +3,16 @@ import { MemoryRouter } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 // ---- Supabase simulado: cada consulta vira um "ctx" respondido por `responder`
-type Ctx = { tabela: string; op: "select" | "update"; valores?: any; filtros: [string, string, any][] };
+type Ctx = { tabela: string; op: "select" | "update"; valores?: any; filtros: [string, string, any][]; ordem?: [string, boolean][] };
 let responder: (ctx: Ctx) => Promise<{ data: any; error: any }>;
 const updates: Ctx[] = [];
+const consultas: Ctx[] = [];
 
 function consulta(tabela: string) {
   const ctx: Ctx = { tabela, op: "select", filtros: [] };
   const resolver = () => {
     if (ctx.op === "update") updates.push(ctx);
+    else consultas.push(ctx);
     return responder(ctx);
   };
   const b: any = {
@@ -18,7 +20,8 @@ function consulta(tabela: string) {
     update: (v: any) => { ctx.op = "update"; ctx.valores = v; return b; },
     eq: (c: string, v: any) => { ctx.filtros.push(["eq", c, v]); return b; },
     neq: (c: string, v: any) => { ctx.filtros.push(["neq", c, v]); return b; },
-    gte: () => b, lte: () => b, in: () => b, order: () => b,
+    gte: () => b, lte: () => b, in: () => b,
+    order: (c: string, o?: { ascending?: boolean }) => { (ctx.ordem ??= []).push([c, o?.ascending ?? true]); return b; },
     single: resolver, maybeSingle: resolver,
     then: (ok: any, falha: any) => resolver().then(ok, falha),
   };
@@ -50,6 +53,7 @@ let statusNoBanco: string;
 
 beforeEach(() => {
   updates.length = 0;
+  consultas.length = 0;
   toast.success.mockClear();
   toast.error.mockClear();
   lista = [ag("a1", "c1", futuro), ag("a2", "c2", passado), ag("a3", "c3", futuro, "cancelado")];
@@ -179,5 +183,21 @@ describe("BarbeiroAgenda - confirmacao de cancelamento", () => {
   it("o chat continua disponivel nos cartoes", async () => {
     await renderAgenda();
     expect(within(cartao("Ana")).getByRole("button", { name: /chat/i })).toBeInTheDocument();
+  });
+
+  it("agenda do dia: busca em ordem crescente de horario e mantem a ordem apos cancelar", async () => {
+    const as = (h: number, m: number) => { const d = new Date(); d.setHours(h, m, 0, 0); return d.toISOString(); };
+    // O banco devolve ja ordenado por data_hora (a tela exibe nessa ordem)
+    lista = [ag("a1", "c1", as(8, 0)), ag("a2", "c2", as(9, 30)), ag("a3", "c3", as(13, 0))];
+    await renderAgenda();
+
+    const daLista = consultas.find((c) => c.tabela === "agendamentos" && c.ordem);
+    expect(daLista?.ordem).toEqual([["data_hora", true]]);
+    const nomes = () => screen.getAllByText(/^(Ana|Bruno|Caio)$/).filter((el) => !el.closest("[role=alertdialog]")).map((el) => el.textContent);
+    expect(nomes()).toEqual(["Ana", "Bruno", "Caio"]);
+
+    fireEvent.click(within(cartao("Bruno")).getByRole("button", { name: /cancelar|cliente faltou/i }));
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: /confirmar/i })); });
+    expect(nomes()).toEqual(["Ana", "Bruno", "Caio"]);
   });
 });
