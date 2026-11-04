@@ -33,7 +33,7 @@ export class ApiError extends Error {
   }
 }
 
-async function request<T>(method: 'GET' | 'POST' | 'DELETE', path: string, body?: unknown): Promise<T> {
+async function request<T>(method: 'GET' | 'POST' | 'DELETE', path: string, body?: unknown, signal?: AbortSignal): Promise<T> {
   const url = `${BASE_URL}${path}`;
   console.log('[API]', method, url);
   // As rotas /api/admin exigem o token da sessao
@@ -46,6 +46,7 @@ async function request<T>(method: 'GET' | 'POST' | 'DELETE', path: string, body?
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
     },
     body: body === undefined ? undefined : JSON.stringify(body),
+    signal,
   });
   if (!res.ok) {
     const errBody = await res.json().catch(() => ({}));
@@ -55,7 +56,9 @@ async function request<T>(method: 'GET' | 'POST' | 'DELETE', path: string, body?
 }
 
 const get = <T>(path: string) => request<T>('GET', path);
-const post = <T>(path: string, body: unknown) => request<T>('POST', path, body);
+// `signal` permite cancelar a requisicao (ex.: ao sair da tela)
+const post = <T>(path: string, body: unknown, opts?: { signal?: AbortSignal }) =>
+  request<T>('POST', path, body, opts?.signal);
 const del = <T>(path: string) => request<T>('DELETE', path);
 
 export const api = { get, post, del };

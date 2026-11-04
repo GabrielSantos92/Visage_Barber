@@ -1,9 +1,10 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   View, Text, StyleSheet, ScrollView, Image,
   ActivityIndicator, TouchableOpacity, Alert, Platform,
 } from 'react-native';
 import { Feather } from '@expo/vector-icons';
+import Animated, { FadeIn } from 'react-native-reanimated';
 import { captureRef } from 'react-native-view-shot';
 import * as Sharing from 'expo-sharing';
 import { RouteProp, useNavigation, useRoute } from '@react-navigation/native';
@@ -18,10 +19,15 @@ import {
 } from '../../lib/visagismoSalvos';
 import ImagemVisagismo from '../../components/ImagemVisagismo';
 import EscolherBarbeiroModal from '../../components/EscolherBarbeiroModal';
+import VisualizadorImagem from '../../components/VisualizadorImagem';
+import { useMensagensEspera } from '../../hooks/useMensagensEspera';
 
 type Route = RouteProp<ClienteStackParamList, 'VisagismoResultado'>;
 type Nav = StackNavigationProp<ClienteStackParamList>;
 type Acao = 'app' | 'enviar' | 'excluir' | 'galeria' | 'compartilhar';
+type StatusImagem = 'gerando' | 'pronta' | 'erro';
+
+const TEMPO_LIMITE_MS = 360000;
 
 // O Expo Go nao traz o modulo nativo da galeria, e importar no topo do arquivo
 // derruba o app na abertura. Carregado so no uso, a falha cai no catch de quem chama.
@@ -39,18 +45,24 @@ export default function VisagismoResultadoScreen() {
   const doHistorico = !!salvo;
 
   const [imagemUrl, setImagemUrl]           = useState<string | null>(null);
-  const [imagemCarregada, setImagemCarregada] = useState(false);
-  const [imagemErro, setImagemErro]         = useState(false);
+  const [status, setStatus]                 = useState<StatusImagem>('gerando');
+  const [erroMsg, setErroMsg]               = useState('');
+  const [ampliada, setAmpliada]             = useState<'original' | 'gerada' | null>(null);
   const [acao, setAcao]                     = useState<Acao | null>(null);
   const [analiseSalva, setAnaliseSalva]     = useState<AnaliseSalva | null>(salvo ?? null);
   const [naGaleria, setNaGaleria]           = useState(false);
   const [escolhendoBarbeiro, setEscolhendoBarbeiro] = useState(false);
-  const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Requisicao em andamento: impede chamadas duplicadas e e cancelada ao sair da tela.
+  const requisicaoRef = useRef<AbortController | null>(null);
   const comparacaoRef = useRef<View>(null);
+  const espera = useMensagensEspera(!doHistorico && status === 'gerando');
 
   useEffect(() => {
     if (!doHistorico) gerarImagem();
-    return () => { if (timeoutRef.current) clearTimeout(timeoutRef.current); };
+    return () => {
+      requisicaoRef.current?.abort();
+      requisicaoRef.current = null;
+    };
   }, []);
 
   // Transforma o cartao de comparacao (antes + depois) em um unico JPG.
@@ -145,33 +157,43 @@ export default function VisagismoResultadoScreen() {
     setAcao(null);
   }
 
-  async function gerarImagem() {
-    setImagemCarregada(false);
-    setImagemErro(false);
+  const gerarImagem = useCallback(async () => {
+    if (requisicaoRef.current) return;
+    const controller = new AbortController();
+    requisicaoRef.current = controller;
+    let estourouTempo = false;
+    const timeout = setTimeout(() => { estourouTempo = true; controller.abort(); }, TEMPO_LIMITE_MS);
+    setStatus('gerando');
+    setErroMsg('');
     setImagemUrl(null);
     setNaGaleria(false);
-    timeoutRef.current = setTimeout(() => setImagemErro(true), 360000);
     try {
       const data = await api.post<{ base64: string; contentType: string }>('/api/visagismo/imagem-referencia', {
         // A analise inteira: o backend extrai dela so os atributos de estilo.
         analise: resultado,
         imagem_base64: fotoBase64 ?? '',
-      });
-      if (timeoutRef.current) clearTimeout(timeoutRef.current);
+      }, { signal: controller.signal });
       setImagemUrl(`data:${data.contentType};base64,${data.base64}`);
-      setImagemCarregada(true);
-    } catch (e: any) {
-      if (timeoutRef.current) clearTimeout(timeoutRef.current);
-      setImagemErro(true);
+      setStatus('pronta');
+    } catch {
+      // Cancelada porque o usuario saiu da tela: nada a mostrar.
+      if (controller.signal.aborted && !estourouTempo) return;
+      setErroMsg(estourouTempo
+        ? 'A geração demorou mais que o esperado.'
+        : 'Não foi possível gerar a imagem agora.');
+      setStatus('erro');
+    } finally {
+      clearTimeout(timeout);
+      if (requisicaoRef.current === controller) requisicaoRef.current = null;
     }
-  }
+  }, [resultado, fotoBase64]);
 
   const formatoLabel: Record<string, string> = {
     oval: 'Oval', redondo: 'Redondo', quadrado: 'Quadrado',
     triangular: 'Triangular', losango: 'Losango', oblongo: 'Oblongo',
   };
 
-  const podeSalvar = !doHistorico && imagemCarregada && !!imagemUrl && Platform.OS !== 'web';
+  const podeSalvar = !doHistorico && status === 'pronta' && !!imagemUrl && Platform.OS !== 'web';
 
   return (
     <View style={s.screen}>
@@ -219,30 +241,54 @@ export default function VisagismoResultadoScreen() {
         {fotoUri ? (
           <View style={s.fotoContainer}>
             <Text style={s.fotoLabel}>SUA FOTO</Text>
-            <Image source={{ uri: fotoUri }} style={s.fotoImg} resizeMode="cover" />
+            <TouchableOpacity
+              style={s.fotoImg}
+              activeOpacity={0.85}
+              onPress={() => setAmpliada('original')}
+              accessibilityRole="imagebutton"
+              accessibilityLabel="Ampliar sua foto"
+            >
+              <Image source={{ uri: fotoUri }} style={StyleSheet.absoluteFill} resizeMode="cover" />
+              <View style={s.iconeAmpliar} pointerEvents="none">
+                <Feather name="maximize-2" size={11} color={C.primary} />
+              </View>
+            </TouchableOpacity>
           </View>
         ) : null}
 
         <View style={s.fotoContainer}>
           <Text style={s.fotoLabel}>COM O CORTE IDEAL</Text>
           <View style={s.fotoImg}>
-            {imagemCarregada && imagemUrl ? (
-              <Image source={{ uri: imagemUrl }} style={StyleSheet.absoluteFill} resizeMode="cover" />
-            ) : imagemErro ? (
-              <View style={s.corteCard}>
-                <Feather name="scissors" size={22} color={C.accent} />
-                <Text style={s.corteCardNome}>{resultado.corte_principal?.nome}</Text>
-                {(resultado.corte_principal?.caracteristicas ?? []).slice(0, 3).map((c: string, i: number) => (
-                  <Text key={i} style={s.corteCardItem}>· {c}</Text>
-                ))}
-                <TouchableOpacity onPress={gerarImagem} style={{ marginTop: 10 }}>
-                  <Text style={s.fotoPlaceholderText}>↻ GERAR IMAGEM</Text>
+            {status === 'pronta' && imagemUrl ? (
+              <TouchableOpacity
+                style={StyleSheet.absoluteFill}
+                activeOpacity={0.85}
+                onPress={() => setAmpliada('gerada')}
+                accessibilityRole="imagebutton"
+                accessibilityLabel="Ampliar foto com o corte ideal"
+              >
+                <Image source={{ uri: imagemUrl }} style={StyleSheet.absoluteFill} resizeMode="cover" />
+                <View style={s.iconeAmpliar} pointerEvents="none">
+                  <Feather name="maximize-2" size={11} color={C.primary} />
+                </View>
+              </TouchableOpacity>
+            ) : status === 'erro' ? (
+              <View style={s.corteCard} accessibilityRole="alert">
+                <Feather name="alert-circle" size={18} color={C.accent} />
+                <Text style={s.corteCardNome}>{erroMsg}</Text>
+                <TouchableOpacity onPress={gerarImagem} style={{ marginTop: 4 }} hitSlop={10} accessibilityRole="button">
+                  <Text style={s.fotoPlaceholderText}>↻ TENTAR NOVAMENTE</Text>
                 </TouchableOpacity>
               </View>
             ) : (
-              <View style={s.fotoPlaceholder}>
+              <View style={s.fotoPlaceholder} accessibilityLiveRegion="polite">
                 <ActivityIndicator color={C.accent} />
-                <Text style={s.fotoPlaceholderText}>GERANDO...</Text>
+                <View style={s.mensagemEspera}>
+                  <Animated.Text key={espera.passo} entering={FadeIn.duration(500)} style={s.mensagemEsperaTexto}>
+                    {espera.mensagem.toUpperCase()}
+                  </Animated.Text>
+                </View>
+                <Text style={s.segundos}>{espera.segundos}s</Text>
               </View>
             )}
           </View>
@@ -410,6 +456,13 @@ export default function VisagismoResultadoScreen() {
 
     </ScrollView>
 
+    <VisualizadorImagem
+      visible={ampliada !== null}
+      uri={ampliada === 'original' ? fotoUri ?? null : ampliada === 'gerada' ? imagemUrl : null}
+      titulo={ampliada === 'original' ? 'SUA FOTO' : 'COM O CORTE IDEAL'}
+      onClose={() => setAmpliada(null)}
+    />
+
     <EscolherBarbeiroModal
       visible={escolhendoBarbeiro}
       onClose={() => setEscolhendoBarbeiro(false)}
@@ -431,9 +484,12 @@ function makeStyles(C: Theme) {
     fotoImg:              { width: '100%', height: 160, backgroundColor: C.card, overflow: 'hidden' },
     fotoPlaceholder:      { flex: 1, justifyContent: 'center', alignItems: 'center', borderWidth: 1, borderColor: C.border },
     fotoPlaceholderText:  { fontFamily: F.mono, fontSize: 9, color: C.accent, marginTop: 8, letterSpacing: 1 },
+    mensagemEspera:       { height: 40, justifyContent: 'center', paddingHorizontal: 8, marginTop: 6 },
+    mensagemEsperaTexto:  { fontFamily: F.mono, fontSize: 9, color: C.accent, letterSpacing: 1, textAlign: 'center', lineHeight: 13 },
+    segundos:             { fontFamily: F.mono, fontSize: 9, color: C.mutedFg },
+    iconeAmpliar:         { position: 'absolute', right: 6, bottom: 6, width: 22, height: 22, alignItems: 'center', justifyContent: 'center', backgroundColor: C.bg + 'CC', borderWidth: 1, borderColor: C.border },
     corteCard:            { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 12, borderWidth: 1, borderColor: C.accent, backgroundColor: C.card },
-    corteCardNome:        { fontFamily: F.sansMedium, fontSize: 13, color: C.primary, textAlign: 'center', marginTop: 8, marginBottom: 6 },
-    corteCardItem:        { fontFamily: F.sans, fontSize: 10, color: C.mutedFg, textAlign: 'center', lineHeight: 16 },
+    corteCardNome:        { fontFamily: F.sansMedium, fontSize: 12, color: C.primary, textAlign: 'center', marginTop: 8, marginBottom: 6 },
     acoesRow:             { flexDirection: 'row', paddingHorizontal: 24, paddingTop: 12, gap: 12 },
     btnAcao:              { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, borderWidth: 1, borderColor: C.primary, paddingVertical: 14 },
     btnAcaoPrimario:      { backgroundColor: C.primary },
