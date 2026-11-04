@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useCallback } from 'react';
 import {
   View, Text, StyleSheet, TouchableOpacity, Image,
   ActivityIndicator, Alert, ScrollView,
@@ -6,14 +6,18 @@ import {
 import * as ImagePicker from 'expo-image-picker';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import { Feather } from '@expo/vector-icons';
-import { useNavigation } from '@react-navigation/native';
+import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { StackNavigationProp } from '@react-navigation/stack';
 import { ClienteStackParamList } from '../../navigation/ClienteNavigator';
 import { useTheme } from '../../contexts/ThemeContext';
 import { F, Theme } from '../../lib/theme';
-import { api } from '../../lib/api';
+import { api, ApiError } from '../../lib/api';
+import { buscarConsentimentoVisagismo } from '../../lib/privacidade';
+import AvisoPrivacidadeVisagismo from '../../components/AvisoPrivacidadeVisagismo';
 
 type Nav = StackNavigationProp<ClienteStackParamList>;
+
+type EstadoConsentimento = 'carregando' | 'pendente' | 'concedido' | 'erro';
 
 export default function VisagismoFotoScreen() {
   const { C } = useTheme();
@@ -26,6 +30,21 @@ export default function VisagismoFotoScreen() {
   const [cameraAtiva, setCameraAtiva] = useState(false);
   const [cameraPermission, requestCameraPermission] = useCameraPermissions();
   const cameraRef = useRef<CameraView>(null);
+  // Sem concordancia registrada no backend a foto nao pode nem ser escolhida
+  const [consentimento, setConsentimento] = useState<EstadoConsentimento>('carregando');
+
+  function carregarConsentimento() {
+    setConsentimento('carregando');
+    buscarConsentimentoVisagismo()
+      .then((sit) => setConsentimento(sit.consentido ? 'concedido' : 'pendente'))
+      .catch(() => setConsentimento('erro'));
+  }
+
+  // Recarrega ao voltar para a tela (ex.: revogou no Perfil), sem reiniciar o
+  // aviso que ja esta aberto (ex.: voltou de "Consultar Aviso de Privacidade")
+  useFocusEffect(useCallback(() => {
+    if (!foto && consentimento !== 'pendente') carregarConsentimento();
+  }, [foto, consentimento === 'pendente']));
 
   async function escolherGaleria() {
     const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
@@ -75,6 +94,12 @@ export default function VisagismoFotoScreen() {
       const resultado = await api.post<any>('/api/visagismo/analisar', { imagem_base64: foto });
       navigation.navigate('VisagismoResultado', { resultado, fotoUri: fotoUri ?? undefined, fotoBase64: foto ?? undefined });
     } catch (e: any) {
+      // Autorizacao revogada em outro aparelho: descarta a foto e mostra o aviso de novo
+      if (e instanceof ApiError && e.code === 'CONSENTIMENTO_NECESSARIO') {
+        setFoto(null);
+        setFotoUri(null);
+        setConsentimento('pendente');
+      }
       Alert.alert('Erro', e.message ?? 'Não foi possível analisar a foto.');
     }
     setLoading(false);
@@ -112,8 +137,27 @@ export default function VisagismoFotoScreen() {
         <Text style={s.pageSub}>Envie uma foto do seu rosto para receber recomendações personalizadas de corte e estilo.</Text>
       </View>
 
-      {/* Preview da foto */}
-      {foto ? (
+      {/* Aviso de privacidade: aparece antes de qualquer escolha de foto */}
+      {consentimento === 'carregando' ? (
+        <View style={s.uploadArea}>
+          <ActivityIndicator color={C.accent} />
+          <Text style={[s.uploadSub, { marginTop: 12, marginBottom: 0 }]}>Verificando autorização...</Text>
+        </View>
+      ) : consentimento === 'erro' ? (
+        <View style={s.uploadArea}>
+          <Text style={[s.uploadSub, { marginBottom: 12 }]}>Não foi possível verificar sua autorização para o uso da foto.</Text>
+          <TouchableOpacity style={s.btnUpload} onPress={carregarConsentimento}>
+            <Feather name="refresh-cw" size={14} color={C.primary} />
+            <Text style={s.btnUploadText}>TENTAR NOVAMENTE</Text>
+          </TouchableOpacity>
+        </View>
+      ) : consentimento === 'pendente' ? (
+        <AvisoPrivacidadeVisagismo
+          onConcordou={(sit) => setConsentimento(sit.consentido ? 'concedido' : 'pendente')}
+          onConsultarAviso={() => navigation.navigate('AvisoPrivacidade')}
+          onVoltar={() => navigation.goBack()}
+        />
+      ) : foto ? (
         <View style={s.previewContainer}>
           <Image source={{ uri: `data:image/jpeg;base64,${foto}` }} style={s.preview} />
           <TouchableOpacity style={s.trocarFoto} onPress={() => setFoto(null)}>
@@ -158,8 +202,15 @@ export default function VisagismoFotoScreen() {
         ))}
       </View>
 
+      {consentimento === 'concedido' && (
+        <TouchableOpacity style={s.autorizado} onPress={() => navigation.navigate('AvisoPrivacidade')}>
+          <Feather name="shield" size={11} color={C.accent} />
+          <Text style={s.autorizadoTexto}>USO DA FOTO AUTORIZADO · VER AVISO DE PRIVACIDADE</Text>
+        </TouchableOpacity>
+      )}
+
       {/* Botão analisar */}
-      {foto && (
+      {foto && consentimento === 'concedido' && (
         <TouchableOpacity style={s.btnAnalisar} onPress={analisar} disabled={loading}>
           {loading ? (
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
@@ -200,6 +251,8 @@ function makeStyles(C: Theme) {
     dicasLabel:         { fontFamily: F.mono, fontSize: 10, color: C.mutedFg, letterSpacing: 1.5, marginBottom: 14 },
     dicaItem:           { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 10 },
     dicaText:           { fontFamily: F.sans, fontSize: 13, color: C.fg },
+    autorizado:         { flexDirection: 'row', alignItems: 'center', gap: 6, marginHorizontal: 24, marginTop: -8, paddingVertical: 6 },
+    autorizadoTexto:    { fontFamily: F.mono, fontSize: 9, color: C.mutedFg, letterSpacing: 1.2, flex: 1 },
     btnAnalisar:        { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10, backgroundColor: C.primary, marginHorizontal: 24, marginTop: 24, paddingVertical: 18 },
     btnAnalisarText:    { fontFamily: F.mono, fontSize: 11, color: C.primaryFg, letterSpacing: 2.5 },
     // Camera

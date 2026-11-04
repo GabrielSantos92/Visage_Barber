@@ -7,6 +7,9 @@ import {
 } from "@/hooks/use-mensagens-espera";
 
 vi.mock("@/components/Navbar", () => ({ default: () => null }));
+vi.mock("@/integrations/supabase/client", () => ({
+  supabase: { auth: { getSession: async () => ({ data: { session: { access_token: "tok-cliente" } } }) } },
+}));
 
 const resultado = {
   formato_rosto: "oval",
@@ -18,8 +21,8 @@ type Pendente = { resolve: (r: Response) => void; reject: (e: unknown) => void; 
 let pendentes: Pendente[];
 let fetchMock: ReturnType<typeof vi.fn>;
 
-function renderTela() {
-  return render(
+async function renderTela() {
+  const r = render(
     <MemoryRouter initialEntries={[{ pathname: "/visagismo/resultado", state: { resultado, fotoUrl: "blob:original", fotoBase64: "abc" } }]}>
       <Routes>
         <Route path="/visagismo/resultado" element={<VisagismoResultado />} />
@@ -27,6 +30,8 @@ function renderTela() {
       </Routes>
     </MemoryRouter>,
   );
+  await act(async () => {});
+  return r;
 }
 
 const respostaOk = () => new Response(JSON.stringify({ contentType: "image/png", base64: "Z2VyYWRh" }), { status: 200 });
@@ -61,7 +66,7 @@ afterEach(() => {
 });
 
 describe("mensagens de espera", () => {
-  it("segue a sequencia e depois alterna as frases neutras", () => {
+  it("segue a sequencia e depois alterna as frases neutras", async () => {
     expect(mensagemDoPasso(0)).toBe(MENSAGENS_ESPERA[0]);
     expect(mensagemDoPasso(MENSAGENS_ESPERA.length - 1)).toBe("Quase pronto...");
     expect(mensagemDoPasso(MENSAGENS_ESPERA.length)).toBe(MENSAGENS_ESPERA_LONGA[0]);
@@ -71,7 +76,7 @@ describe("mensagens de espera", () => {
 
 describe("VisagismoResultado", () => {
   it("troca as mensagens durante a geracao e mostra a imagem ao concluir", async () => {
-    renderTela();
+    await renderTela();
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(screen.getByRole("status")).toHaveTextContent(MENSAGENS_ESPERA[0]);
 
@@ -89,13 +94,14 @@ describe("VisagismoResultado", () => {
   });
 
   it("mostra erro compreensivel e a nova tentativa faz uma unica chamada", async () => {
-    renderTela();
+    await renderTela();
     await act(async () => { pendentes[0].resolve(new Response("{}", { status: 502 })); });
     expect(screen.getByRole("alert")).toHaveTextContent("Não foi possível gerar a imagem agora.");
     expect(vi.getTimerCount()).toBe(0);
 
     const tentar = screen.getByRole("button", { name: /tentar novamente/i });
     fireEvent.click(tentar);
+    await act(async () => {});
     expect(fetchMock).toHaveBeenCalledTimes(2);
     expect(screen.getByRole("status")).toHaveTextContent(MENSAGENS_ESPERA[0]);
 
@@ -104,22 +110,22 @@ describe("VisagismoResultado", () => {
   });
 
   it("cancela a requisicao e mostra erro de tempo esgotado", async () => {
-    renderTela();
+    await renderTela();
     await act(async () => { vi.advanceTimersByTime(360000); });
     expect(pendentes[0].signal.aborted).toBe(true);
     expect(screen.getByRole("alert")).toHaveTextContent("demorou mais que o esperado");
   });
 
   it("cancela a requisicao e limpa os temporizadores ao sair da tela", async () => {
-    const { unmount } = renderTela();
+    const { unmount } = await renderTela();
     unmount();
     expect(pendentes[0].signal.aborted).toBe(true);
     await act(async () => {});
     expect(vi.getTimerCount()).toBe(0);
   });
 
-  it("amplia a foto original enquanto a IA ainda gera, e fecha com Escape", () => {
-    renderTela();
+  it("amplia a foto original enquanto a IA ainda gera, e fecha com Escape", async () => {
+    await renderTela();
     // Imagem gerada ainda indisponivel: nao ha como abrir o visualizador dela
     expect(screen.queryByRole("button", { name: /ampliar foto com o corte ideal/i })).not.toBeInTheDocument();
 
@@ -138,7 +144,7 @@ describe("VisagismoResultado", () => {
   });
 
   it("amplia a imagem gerada com botoes, teclado, roda e pinca", async () => {
-    renderTela();
+    await renderTela();
     await act(async () => { pendentes[0].resolve(respostaOk()); });
     fireEvent.click(screen.getByRole("button", { name: /ampliar foto com o corte ideal/i }));
     const dialog = screen.getByRole("dialog");
@@ -172,5 +178,16 @@ describe("VisagismoResultado", () => {
 
     fireEvent.click(screen.getByRole("button", { name: /fechar/i }));
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  });
+
+  it("envia o token da sessao e mostra o motivo quando o uso da foto nao esta autorizado", async () => {
+    await renderTela();
+    expect(fetchMock.mock.calls[0][1].headers).toMatchObject({ Authorization: "Bearer tok-cliente" });
+
+    await act(async () => {
+      pendentes[0].resolve(new Response(JSON.stringify({ error: "É preciso concordar com o Aviso de Privacidade antes de enviar sua foto.", code: "CONSENTIMENTO_NECESSARIO" }), { status: 403 }));
+    });
+    expect(screen.getByRole("alert")).toHaveTextContent("É preciso concordar com o Aviso de Privacidade");
+    expect(vi.getTimerCount()).toBe(0);
   });
 });

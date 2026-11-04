@@ -12,6 +12,7 @@ import PerfilScreen from '../screens/cliente/PerfilScreen';
 import VisagismoFotoScreen from '../screens/cliente/VisagismoFotoScreen';
 import VisagismoResultadoScreen from '../screens/cliente/VisagismoResultadoScreen';
 import VisagismoSalvosScreen from '../screens/cliente/VisagismoSalvosScreen';
+import AvisoPrivacidadeScreen from '../screens/cliente/AvisoPrivacidadeScreen';
 import ChatScreen from '../screens/chat/ChatScreen';
 import { AnaliseSalva } from '../lib/visagismoSalvos';
 import { usePushToken } from '../hooks/usePushToken';
@@ -34,6 +35,7 @@ export type ClienteStackParamList = {
   // "salvo" vem do historico: abre a analise ja gravada, sem gerar imagem de novo.
   VisagismoResultado: { resultado: any; fotoUri?: string; fotoBase64?: string; salvo?: AnaliseSalva };
   VisagismoSalvos: undefined;
+  AvisoPrivacidade: undefined;
   Chat: { outroNome: string; barbeiroId: string; clienteId: string };
 };
 
@@ -156,6 +158,19 @@ export default function ClienteNavigator() {
         options={{
           headerShown: true,
           title: 'MINHAS ANÁLISES',
+          headerStyle: { backgroundColor: C.bg },
+          headerTintColor: C.primary,
+          headerTitleStyle: { fontFamily: F.mono, fontSize: 11, letterSpacing: 2 },
+          headerShadowVisible: false,
+          headerBackTitle: '',
+        }}
+      />
+      <Stack.Screen
+        name="AvisoPrivacidade"
+        component={AvisoPrivacidadeScreen}
+        options={{
+          headerShown: true,
+          title: 'PRIVACIDADE',
           headerStyle: { backgroundColor: C.bg },
           headerTintColor: C.primary,
           headerTitleStyle: { fontFamily: F.mono, fontSize: 11, letterSpacing: 2 },

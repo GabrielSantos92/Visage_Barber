@@ -13,7 +13,7 @@ import { ClienteStackParamList } from '../../navigation/ClienteNavigator';
 import { useAuth } from '../../contexts/AuthContext';
 import { useTheme } from '../../contexts/ThemeContext';
 import { F, Theme } from '../../lib/theme';
-import { api } from '../../lib/api';
+import { api, ApiError } from '../../lib/api';
 import {
   AnaliseSalva, BarbeiroChat, salvarAnalise, excluirAnalise, enviarAnaliseNoChat,
 } from '../../lib/visagismoSalvos';
@@ -175,9 +175,15 @@ export default function VisagismoResultadoScreen() {
       }, { signal: controller.signal });
       setImagemUrl(`data:${data.contentType};base64,${data.base64}`);
       setStatus('pronta');
-    } catch {
+    } catch (e) {
       // Cancelada porque o usuario saiu da tela: nada a mostrar.
       if (controller.signal.aborted && !estourouTempo) return;
+      // Sem login ou com a autorizacao do uso da foto revogada: mostra o motivo
+      if (e instanceof ApiError && (e.status === 401 || e.status === 403)) {
+        setErroMsg(e.message);
+        setStatus('erro');
+        return;
+      }
       setErroMsg(estourouTempo
         ? 'A geração demorou mais que o esperado.'
         : 'Não foi possível gerar a imagem agora.');

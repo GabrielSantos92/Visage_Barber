@@ -21,6 +21,11 @@ const router = express.Router();
 
 const { analisarVisagismo, montarPromptEdicao, editarCabeloBarba } = require('../services/gemini');
 const { alinharFoto, mascaraCabeloBarba, compor } = require('../services/imagem');
+const { protegerVisagismo } = require('./privacidade');
+
+// LGPD: nenhuma foto chega aos servicos de IA sem login e consentimento vigente
+// do titular para esta finalidade (ver services/consentimento.js).
+router.use(protegerVisagismo);
 
 // As telas de resultado (web e mobile) ja consomem o formato antigo. A analise
 // passou a devolver o schema novo, entao devolvemos os dois: o novo como fonte

@@ -22,6 +22,7 @@ import AdminUsuarios from "./pages/admin/AdminUsuarios";
 import AdminServicos from "./pages/admin/AdminServicos";
 import Visagismo from "./pages/Visagismo";
 import VisagismoResultado from "./pages/VisagismoResultado";
+import AvisoPrivacidade from "./pages/AvisoPrivacidade";
 import Dashboard from "./pages/Dashboard";
 import NotFound from "./pages/NotFound";
 import ProtectedRoute from "./components/ProtectedRoute";
@@ -56,8 +57,9 @@ const App = () => (
             <Route path="/admin/barbeiros" element={<ProtectedRoute roles={["admin"]}><AdminBarbeiros /></ProtectedRoute>} />
             <Route path="/admin/usuarios" element={<ProtectedRoute roles={["admin"]}><AdminUsuarios /></ProtectedRoute>} />
             <Route path="/admin/servicos" element={<ProtectedRoute roles={["admin"]}><AdminServicos /></ProtectedRoute>} />
-            <Route path="/visagismo" element={<Visagismo />} />
-            <Route path="/visagismo/resultado" element={<VisagismoResultado />} />
+            <Route path="/visagismo" element={<ProtectedRoute><Visagismo /></ProtectedRoute>} />
+            <Route path="/visagismo/resultado" element={<ProtectedRoute><VisagismoResultado /></ProtectedRoute>} />
+            <Route path="/privacidade" element={<AvisoPrivacidade />} />
             <Route path="/dashboard" element={<ProtectedRoute roles={["admin", "barbeiro"]}><Dashboard /></ProtectedRoute>} />
             {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
             <Route path="*" element={<NotFound />} />

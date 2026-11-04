@@ -1,9 +1,12 @@
-import { useState, useRef } from "react";
-import { useNavigate } from "react-router-dom";
-import { Camera, ImageIcon, X, Cpu, Sun, User, Crop, MinusCircle } from "lucide-react";
+import { useState, useRef, useEffect } from "react";
+import { useNavigate, Link } from "react-router-dom";
+import { Camera, ImageIcon, X, Cpu, Sun, User, Crop, MinusCircle, ShieldCheck, RotateCcw } from "lucide-react";
 import Navbar from "@/components/Navbar";
+import AvisoPrivacidadeVisagismo from "@/components/AvisoPrivacidadeVisagismo";
+import { ApiError, apiPost } from "@/lib/api";
+import { buscarConsentimentoVisagismo } from "@/lib/privacidade";
 
-const API_URL = import.meta.env.VITE_API_URL || "http://localhost:3001";
+type EstadoConsentimento = "carregando" | "pendente" | "concedido" | "erro";
 
 export default function Visagismo() {
   const navigate = useNavigate();
@@ -12,10 +15,21 @@ export default function Visagismo() {
   const [cameraAtiva, setCameraAtiva] = useState(false);
   const [loading, setLoading] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
+  // Sem concordancia registrada no backend a foto nao pode nem ser escolhida
+  const [consentimento, setConsentimento] = useState<EstadoConsentimento>("carregando");
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
+
+  function carregarConsentimento() {
+    setConsentimento("carregando");
+    buscarConsentimentoVisagismo()
+      .then((s) => setConsentimento(s.consentido ? "concedido" : "pendente"))
+      .catch(() => setConsentimento("erro"));
+  }
+
+  useEffect(() => { carregarConsentimento(); }, []);
 
   function escolherGaleria() {
     fileInputRef.current?.click();
@@ -72,18 +86,15 @@ export default function Visagismo() {
     setLoading(true);
     setErro(null);
     try {
-      const res = await fetch(`${API_URL}/api/visagismo/analisar`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ imagem_base64: foto }),
-      });
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({}));
-        throw new Error(err.error || `Erro ${res.status}`);
-      }
-      const resultado = await res.json();
+      const resultado = await apiPost("/api/visagismo/analisar", { imagem_base64: foto });
       navigate("/visagismo/resultado", { state: { resultado, fotoUrl, fotoBase64: foto } });
     } catch (e: any) {
+      // Autorizacao revogada em outro aparelho: descarta a foto e mostra o aviso de novo
+      if (e instanceof ApiError && e.code === "CONSENTIMENTO_NECESSARIO") {
+        setFoto(null);
+        setFotoUrl(null);
+        setConsentimento("pendente");
+      }
       setErro(e.message || "Erro ao analisar.");
     }
     setLoading(false);
@@ -138,8 +149,24 @@ export default function Visagismo() {
           onChange={onFileChange}
         />
 
-        {/* Photo area */}
-        {foto ? (
+        {/* Aviso de privacidade: aparece antes de qualquer escolha de foto */}
+        {consentimento === "carregando" ? (
+          <div className="border border-border p-10 mb-10 text-center">
+            <span className="font-mono text-xs text-muted-foreground animate-pulse">VERIFICANDO AUTORIZAÇÃO...</span>
+          </div>
+        ) : consentimento === "erro" ? (
+          <div role="alert" className="border border-destructive/30 p-6 mb-10 text-center">
+            <p className="text-sm text-foreground mb-4">Não foi possível verificar sua autorização para o uso da foto.</p>
+            <button onClick={carregarConsentimento} className="inline-flex items-center gap-2 font-mono text-[10px] tracking-widest uppercase text-accent hover:text-primary transition-colors">
+              <RotateCcw size={12} /> Tentar novamente
+            </button>
+          </div>
+        ) : consentimento === "pendente" ? (
+          <AvisoPrivacidadeVisagismo
+            onConcordou={(s) => { setErro(null); setConsentimento(s.consentido ? "concedido" : "pendente"); }}
+            onVoltar={() => navigate(-1)}
+          />
+        ) : foto ? (
           <div className="mb-10 flex flex-col items-center">
             <img
               src={fotoUrl!}
@@ -181,6 +208,16 @@ export default function Visagismo() {
           </div>
         )}
 
+        {consentimento === "concedido" && (
+          <p className="flex items-center gap-2 mb-10 -mt-6 font-mono text-[10px] tracking-widest uppercase text-muted-foreground">
+            <ShieldCheck size={12} className="text-accent" />
+            Uso da foto autorizado ·{" "}
+            <Link to="/privacidade" target="_blank" rel="noopener noreferrer" className="text-accent hover:underline">Aviso de Privacidade</Link>
+            {" "}·{" "}
+            <Link to="/perfil" className="text-accent hover:underline">Gerenciar</Link>
+          </p>
+        )}
+
         {/* Tips */}
         <div className="mb-10">
           <p className="font-mono text-[10px] text-foreground tracking-[0.3em] uppercase mb-5">
@@ -207,7 +244,7 @@ export default function Visagismo() {
         )}
 
         {/* Analyze button */}
-        {foto && (
+        {foto && consentimento === "concedido" && (
           <button
             onClick={analisar}
             disabled={loading}

@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { Scissors, User, List, Zap, Droplet, XCircle, Star, RotateCcw, ArrowLeft, Maximize2 } from "lucide-react";
 import Navbar from "@/components/Navbar";
+import { supabase } from "@/integrations/supabase/client";
 import VisualizadorImagem from "@/components/VisualizadorImagem";
 import { useMensagensEspera } from "@/hooks/use-mensagens-espera";
 
@@ -45,9 +46,12 @@ export default function VisagismoResultado() {
     setImagemUrl(null);
     setErroMsg("");
     try {
+      // A rota exige a sessao: o backend confere login e consentimento antes da IA
+      const { data: sessao } = await supabase.auth.getSession();
+      const token = sessao.session?.access_token;
       const res = await fetch(`${API_URL}/api/visagismo/imagem-referencia`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) },
         body: JSON.stringify({
           // A analise inteira: o backend extrai dela so os atributos de estilo.
           analise: state.resultado,
@@ -55,6 +59,12 @@ export default function VisagismoResultado() {
         }),
         signal: controller.signal,
       });
+      if (res.status === 401 || res.status === 403) {
+        const corpo = await res.json().catch(() => ({}));
+        setErroMsg(corpo.error ?? "Sua autorização para o uso da foto não está ativa.");
+        setStatus("erro");
+        return;
+      }
       if (!res.ok) throw new Error(`Erro ${res.status}`);
       const data = await res.json();
       setImagemUrl(`data:${data.contentType};base64,${data.base64}`);

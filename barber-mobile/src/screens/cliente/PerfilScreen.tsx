@@ -5,12 +5,17 @@ import { useAuth } from '../../contexts/AuthContext';
 import { supabase } from '../../lib/supabase';
 import { useTheme } from '../../contexts/ThemeContext';
 import { F, Theme } from '../../lib/theme';
+import PrivacidadePerfil from '../../components/PrivacidadePerfil';
+import { useNavigation } from '@react-navigation/native';
+import { StackNavigationProp } from '@react-navigation/stack';
+import { ClienteStackParamList } from '../../navigation/ClienteNavigator';
 
 export default function PerfilScreen() {
   const { C } = useTheme();
   const s = React.useMemo(() => makeStyles(C), [C]);
 
   const { user, signOut } = useAuth();
+  const navigation = useNavigation<StackNavigationProp<ClienteStackParamList>>();
   const [nome, setNome]         = useState('');
   const [telefone, setTelefone] = useState('');
   const [formatoRosto, setFormatoRosto] = useState('');
@@ -84,6 +89,8 @@ export default function PerfilScreen() {
             ? <ActivityIndicator color={C.primaryFg} size="small" />
             : <Text style={s.btnPrimaryText}>SALVAR ALTERAÇÕES</Text>}
         </TouchableOpacity>
+
+        <PrivacidadePerfil onConsultarAviso={() => navigation.navigate('AvisoPrivacidade')} />
 
         <TouchableOpacity style={s.btnSecondary} onPress={signOut}>
           <Feather name="log-out" size={14} color={C.mutedFg} />

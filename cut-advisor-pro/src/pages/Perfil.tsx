@@ -6,6 +6,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "@/components/ui/sonner";
 import Navbar from "@/components/Navbar";
+import PrivacidadePerfil from "@/components/PrivacidadePerfil";
 
 const Perfil = () => {
   const navigate = useNavigate();
@@ -177,6 +178,8 @@ const Perfil = () => {
             </button>
           </motion.form>
         )}
+
+        <PrivacidadePerfil />
       </main>
     </div>
   );
