@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import {
-  View, Text, TouchableOpacity, StyleSheet, KeyboardAvoidingView, Platform, ScrollView,
+  View, Text, TouchableOpacity, StyleSheet, KeyboardAvoidingView, ScrollView,
 } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { supabase } from '../../lib/supabase';
@@ -34,8 +34,8 @@ export default function RedefinirSenhaScreen() {
   }
 
   return (
-    <KeyboardAvoidingView style={s.screen} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-      <ScrollView contentContainerStyle={s.scroll} keyboardShouldPersistTaps="handled">
+    <KeyboardAvoidingView style={s.screen} behavior="padding">
+      <ScrollView contentContainerStyle={s.scroll} keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag">
 
         <View style={s.logoRow}>
           <View style={s.logoMark}><LogoMark size={32} color={C.primary} bg={C.bg} line={C.border} /></View>

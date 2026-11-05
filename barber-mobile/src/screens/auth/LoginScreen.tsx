@@ -1,7 +1,7 @@
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
 import {
   View, Text, TextInput, TouchableOpacity, StyleSheet,
-  KeyboardAvoidingView, Platform, ActivityIndicator, ScrollView,
+  KeyboardAvoidingView, ActivityIndicator, ScrollView,
 } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { StackNavigationProp } from '@react-navigation/stack';
@@ -22,6 +22,7 @@ export default function LoginScreen({ navigation }: Props) {
   const [mostrarSenha, setMostrarSenha] = useState(false);
   const [loading, setLoading] = useState(false);
   const [erro, setErro] = useState('');
+  const senhaRef = useRef<TextInput>(null);
 
   async function handleLogin() {
     setErro('');
@@ -33,8 +34,8 @@ export default function LoginScreen({ navigation }: Props) {
   }
 
   return (
-    <KeyboardAvoidingView style={s.screen} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-      <ScrollView contentContainerStyle={s.scroll} keyboardShouldPersistTaps="handled">
+    <KeyboardAvoidingView style={s.screen} behavior="padding">
+      <ScrollView contentContainerStyle={s.scroll} keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag">
 
         <View style={s.logoRow}>
           <View style={s.logoMark}><LogoMark size={32} color={C.primary} bg={C.bg} line={C.border} /></View>
@@ -60,7 +61,13 @@ export default function LoginScreen({ navigation }: Props) {
                 placeholder="seu@email.com"
                 placeholderTextColor={C.mutedFg}
                 autoCapitalize="none"
+                autoCorrect={false}
                 keyboardType="email-address"
+                autoComplete="email"
+                textContentType="emailAddress"
+                returnKeyType="next"
+                submitBehavior="submit"
+                onSubmitEditing={() => senhaRef.current?.focus()}
               />
             </View>
 
@@ -68,12 +75,17 @@ export default function LoginScreen({ navigation }: Props) {
             <View style={s.inputRow}>
               <Feather name="lock" size={15} color={C.mutedFg} style={s.inputIcon} />
               <TextInput
+                ref={senhaRef}
                 style={[s.input, { flex: 1 }]}
                 value={senha}
                 onChangeText={(v) => { setSenha(v); setErro(''); }}
                 placeholder="••••••••"
                 placeholderTextColor={C.mutedFg}
                 secureTextEntry={!mostrarSenha}
+                autoComplete="current-password"
+                textContentType="password"
+                returnKeyType="go"
+                onSubmitEditing={() => { if (!loading) handleLogin(); }}
               />
               <TouchableOpacity onPress={() => setMostrarSenha(!mostrarSenha)} style={s.eyeBtn}>
                 <Feather name={mostrarSenha ? 'eye-off' : 'eye'} size={15} color={C.mutedFg} />
