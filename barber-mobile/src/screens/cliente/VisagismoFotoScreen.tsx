@@ -13,6 +13,8 @@ import { useTheme } from '../../contexts/ThemeContext';
 import { F, Theme } from '../../lib/theme';
 import { api, ApiError } from '../../lib/api';
 import AvisoPrivacidadeVisagismo from '../../components/AvisoPrivacidadeVisagismo';
+import PersonalizacaoVisagismo from '../../components/PersonalizacaoVisagismo';
+import { Preferencias, preferenciasParaEnvio, semMudanca } from '../../lib/personalizacaoVisagismo';
 
 type Nav = StackNavigationProp<ClienteStackParamList>;
 
@@ -33,6 +35,8 @@ export default function VisagismoFotoScreen() {
   // pode ser escolhida depois de concordar de novo. O backend continua sendo
   // quem decide se o envio e aceito.
   const [consentimento, setConsentimento] = useState<EstadoConsentimento>('pendente');
+  // Visagismo personalizado (opcional): estilo, barba e cor do cabelo
+  const [preferencias, setPreferencias] = useState<Preferencias>({});
 
   // Ao voltar para a tela (ex.: do resultado), recomeca pelo aviso. Se o aviso
   // ja esta aberto (ex.: voltou de "Consultar Aviso de Privacidade"), nada muda.
@@ -88,10 +92,12 @@ export default function VisagismoFotoScreen() {
   }
 
   async function analisar() {
-    if (!foto) return;
+    if (!foto || semMudanca(preferencias)) return;
     setLoading(true);
     try {
-      const resultado = await api.post<any>('/api/visagismo/analisar', { imagem_base64: foto });
+      // Sem personalizacao o pedido e o mesmo de sempre
+      const pref = preferenciasParaEnvio(preferencias);
+      const resultado = await api.post<any>('/api/visagismo/analisar', pref ? { imagem_base64: foto, preferencias: pref } : { imagem_base64: foto });
       navigation.navigate('VisagismoResultado', { resultado, fotoUri: fotoUri ?? undefined, fotoBase64: foto ?? undefined });
     } catch (e: any) {
       // Autorizacao revogada em outro aparelho: descarta a foto e mostra o aviso de novo
@@ -196,9 +202,18 @@ export default function VisagismoFotoScreen() {
         </TouchableOpacity>
       )}
 
+      {foto && consentimento === 'concedido' && (
+        <PersonalizacaoVisagismo valor={preferencias} onChange={setPreferencias} />
+      )}
+
       {/* Botão analisar */}
       {foto && consentimento === 'concedido' && (
-        <TouchableOpacity style={s.btnAnalisar} onPress={analisar} disabled={loading}>
+        <TouchableOpacity
+          style={[s.btnAnalisar, semMudanca(preferencias) && { opacity: 0.5 }]}
+          onPress={analisar}
+          disabled={loading || semMudanca(preferencias)}
+          accessibilityState={{ disabled: loading || semMudanca(preferencias) }}
+        >
           {loading ? (
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
               <ActivityIndicator color={C.primaryFg} size="small" />

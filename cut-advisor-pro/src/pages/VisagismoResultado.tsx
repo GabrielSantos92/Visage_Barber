@@ -1,10 +1,11 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
-import { Scissors, User, List, Zap, Droplet, XCircle, Star, RotateCcw, ArrowLeft, Maximize2 } from "lucide-react";
+import { Scissors, User, List, Zap, Droplet, XCircle, Star, RotateCcw, ArrowLeft, Maximize2, Info, SlidersHorizontal } from "lucide-react";
 import Navbar from "@/components/Navbar";
 import { supabase } from "@/integrations/supabase/client";
 import VisualizadorImagem from "@/components/VisualizadorImagem";
 import { useMensagensEspera } from "@/hooks/use-mensagens-espera";
+import { resumoPreferencias } from "@/lib/personalizacaoVisagismo";
 
 const API_URL = import.meta.env.VITE_API_URL || "http://localhost:3001";
 const TEMPO_LIMITE_MS = 360000;
@@ -14,7 +15,9 @@ const formatoLabel: Record<string, string> = {
   triangular: "Triangular", losango: "Losango", oblongo: "Oblongo",
 };
 
-type StatusImagem = "gerando" | "pronta" | "erro";
+// nao_aplicavel: a analise indicou que o visagismo nao se aplica a foto (rosto
+// feminino); a simulacao nao e pedida ao backend
+type StatusImagem = "gerando" | "pronta" | "erro" | "nao_aplicavel";
 
 function IconeAmpliar() {
   return (
@@ -28,8 +31,9 @@ export default function VisagismoResultado() {
   const { state } = useLocation() as { state: { resultado: any; fotoUrl?: string; fotoBase64?: string } };
   const navigate = useNavigate();
 
+  const naoAplicavel = state?.resultado?.aplicavel === false;
   const [imagemUrl, setImagemUrl] = useState<string | null>(null);
-  const [status, setStatus] = useState<StatusImagem>("gerando");
+  const [status, setStatus] = useState<StatusImagem>(naoAplicavel ? "nao_aplicavel" : "gerando");
   const [erroMsg, setErroMsg] = useState("");
   const [ampliada, setAmpliada] = useState<"original" | "gerada" | null>(null);
   // Requisicao em andamento: impede chamadas duplicadas e e cancelada ao sair da tela.
@@ -37,7 +41,7 @@ export default function VisagismoResultado() {
   const espera = useMensagensEspera(status === "gerando");
 
   const gerarImagem = useCallback(async () => {
-    if (requisicaoRef.current || !state?.resultado) return;
+    if (requisicaoRef.current || !state?.resultado || state.resultado.aplicavel === false) return;
     const controller = new AbortController();
     requisicaoRef.current = controller;
     let estourouTempo = false;
@@ -93,6 +97,7 @@ export default function VisagismoResultado() {
 
   if (!state?.resultado) return null;
   const { resultado, fotoUrl } = state;
+  const pedido = resumoPreferencias(resultado.preferencias);
 
   return (
     <div className="min-h-screen bg-background">
@@ -144,6 +149,14 @@ export default function VisagismoResultado() {
                   <img src={imagemUrl} alt="Corte ideal" className="w-full h-full object-contain" />
                   <IconeAmpliar />
                 </button>
+              ) : status === "nao_aplicavel" ? (
+                <div className="flex flex-col items-center gap-2 p-5 text-center border border-border m-4">
+                  <Info size={20} className="text-accent" />
+                  <p className="font-mono text-[10px] text-accent tracking-widest uppercase">Sem simulação</p>
+                  <p className="font-mono text-[10px] text-primary leading-relaxed">
+                    O visagismo masculino não se aplica a esta foto.
+                  </p>
+                </div>
               ) : status === "erro" ? (
                 <div role="alert" className="flex flex-col items-center gap-2 p-5 text-center border border-accent/30 m-4">
                   <Scissors size={20} className="text-accent" />
@@ -181,6 +194,26 @@ export default function VisagismoResultado() {
           alt={ampliada === "original" ? "Sua foto" : "Sua foto com o corte ideal"}
           titulo={ampliada === "original" ? "SUA FOTO" : "COM O CORTE IDEAL"}
         />
+
+        {/* Visagismo personalizado: o que o cliente pediu e como a IA aplicou */}
+        {pedido.length > 0 && (
+          <div className="border border-accent/30 p-6 mb-4">
+            <div className="flex items-center gap-2 mb-4">
+              <SlidersHorizontal size={14} className="text-accent" />
+              <p className="font-mono text-[10px] text-foreground tracking-[0.2em]">SEU PEDIDO</p>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {pedido.map((p) => (
+                <span key={p} className="border border-accent px-3 py-1.5 font-mono text-[10px] text-accent tracking-widest uppercase">
+                  {p}
+                </span>
+              ))}
+            </div>
+            {resultado.personalizacao && (
+              <p className="text-sm text-foreground leading-relaxed mt-4">{resultado.personalizacao}</p>
+            )}
+          </div>
+        )}
 
         {/* Formato do rosto */}
         <div className="border border-border p-6 mb-4">

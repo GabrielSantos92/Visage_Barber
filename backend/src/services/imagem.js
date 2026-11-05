@@ -76,10 +76,12 @@ async function alinharFoto(buf) {
 }
 
 // Mascara em tons de cinza: BRANCO onde pode editar (cabelo + barba), preto no resto.
-async function mascaraCabeloBarba(pngAlinhado, largura, altura) {
+// `partes` encolhe a area editavel na personalizacao (ex.: so 'hair' quando o
+// cliente quer manter a barba) — ver partesEditaveis em services/personalizacao.js.
+async function mascaraCabeloBarba(pngAlinhado, largura, altura, partes = ['hair', 'beard', 'mustache']) {
   const saida = await rodarPredicao(MODELO_MASCARA, {
     image: `data:image/png;base64,${pngAlinhado.toString('base64')}`,
-    mask_prompt: 'hair,beard,mustache',
+    mask_prompt: partes.join(','),
     // O rosto fica de fora da area editavel ja na segmentacao.
     negative_mask_prompt: 'eyes,nose,mouth,lips,ears,background',
     // A dilatacao do proprio modelo e grosseira demais; damos a folga adiante.

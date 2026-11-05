@@ -3,7 +3,9 @@ import { useNavigate, Link } from "react-router-dom";
 import { Camera, ImageIcon, X, Cpu, Sun, User, Crop, MinusCircle, ShieldCheck } from "lucide-react";
 import Navbar from "@/components/Navbar";
 import AvisoPrivacidadeVisagismo from "@/components/AvisoPrivacidadeVisagismo";
+import PersonalizacaoVisagismo from "@/components/PersonalizacaoVisagismo";
 import { ApiError, apiPost } from "@/lib/api";
+import { Preferencias, preferenciasParaEnvio, semMudanca } from "@/lib/personalizacaoVisagismo";
 
 type EstadoConsentimento = "pendente" | "concedido";
 
@@ -18,6 +20,8 @@ export default function Visagismo() {
   // pode ser escolhida depois de concordar de novo. O backend continua sendo
   // quem decide se o envio e aceito.
   const [consentimento, setConsentimento] = useState<EstadoConsentimento>("pendente");
+  // Visagismo personalizado (opcional): estilo, barba e cor do cabelo
+  const [preferencias, setPreferencias] = useState<Preferencias>({});
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -74,11 +78,13 @@ export default function Visagismo() {
   }
 
   async function analisar() {
-    if (!foto) return;
+    if (!foto || semMudanca(preferencias)) return;
     setLoading(true);
     setErro(null);
     try {
-      const resultado = await apiPost("/api/visagismo/analisar", { imagem_base64: foto });
+      // Sem personalizacao o pedido e o mesmo de sempre
+      const pref = preferenciasParaEnvio(preferencias);
+      const resultado = await apiPost("/api/visagismo/analisar", pref ? { imagem_base64: foto, preferencias: pref } : { imagem_base64: foto });
       navigate("/visagismo/resultado", { state: { resultado, fotoUrl, fotoBase64: foto } });
     } catch (e: any) {
       // Autorizacao revogada em outro aparelho: descarta a foto e mostra o aviso de novo
@@ -217,6 +223,10 @@ export default function Visagismo() {
           ))}
         </div>
 
+        {foto && consentimento === "concedido" && (
+          <PersonalizacaoVisagismo valor={preferencias} onChange={setPreferencias} />
+        )}
+
         {/* Error */}
         {erro && (
           <p className="text-destructive font-mono text-xs mb-5 border border-destructive/30 p-3">
@@ -228,7 +238,7 @@ export default function Visagismo() {
         {foto && consentimento === "concedido" && (
           <button
             onClick={analisar}
-            disabled={loading}
+            disabled={loading || semMudanca(preferencias)}
             className="w-full flex items-center justify-center gap-3 bg-primary text-primary-foreground py-5 font-mono text-[11px] tracking-[0.3em] uppercase hover:bg-accent transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {loading ? (

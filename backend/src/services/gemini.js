@@ -12,6 +12,7 @@
 
 const { rodarPredicao, baixar, primeiraUrl, juntarTexto } = require('./replicate');
 const { mimeDoBase64 } = require('./imagem');
+const { textoPersonalizacao, linhaCorDoCabelo, EDICAO } = require('./personalizacao');
 
 const GOOGLE_BASE = 'https://generativelanguage.googleapis.com/v1beta/models';
 
@@ -117,8 +118,11 @@ const SCHEMA_VISAGISMO = {
     cores_ideais: { type: 'array', items: { type: 'string' } },
     o_que_evitar: { type: 'array', items: { type: 'string' } },
     resumo: { type: 'string' },
+    // false = a simulacao com imagem nao e gerada (ver visagismoAplicavel)
+    aplicavel: { type: 'boolean', description: 'false somente se a foto mostrar claramente um rosto feminino; em qualquer outro caso, inclusive na dúvida, true' },
+    personalizacao: { type: 'string', description: 'só quando o cliente pedir personalização: 1 ou 2 frases, em português, explicando como as preferências foram aplicadas' },
   },
-  required: ['face_shape', 'face_analysis', 'hair_analysis', 'beard_analysis', 'recommendations', 'cores_ideais', 'o_que_evitar', 'resumo'],
+  required: ['face_shape', 'face_analysis', 'hair_analysis', 'beard_analysis', 'recommendations', 'cores_ideais', 'o_que_evitar', 'resumo', 'aplicavel'],
 };
 
 const PROMPT_ANALISE = `Você é um consultor profissional de visagismo masculino em uma barbearia.
@@ -144,9 +148,18 @@ Exemplos: "Degradê baixo" (não "Low Fade"), "Topete clássico" (não "Pompadou
 atributos de estilo, que continuam em inglês.
 
 Em recommendations.hair e recommendations.beard, o PRIMEIRO item é a recomendação
-principal. Inclua de 2 a 3 opções em cada lista.`;
+principal. Inclua de 2 a 3 opções em cada lista.
 
-async function analisarComGoogle(imagemBase64) {
+Este é um serviço de visagismo MASCULINO de barbearia. Preencha "aplicavel" com false
+somente se a foto mostrar claramente um rosto feminino. Em qualquer outro caso,
+inclusive na dúvida, preencha "aplicavel" com true.`;
+
+// Sem personalizacao, o pedido e exatamente o de antes.
+function montarPromptAnalise(preferencias = null) {
+  return preferencias ? `${PROMPT_ANALISE}\n\n${textoPersonalizacao(preferencias)}` : PROMPT_ANALISE;
+}
+
+async function analisarComGoogle(imagemBase64, prompt) {
   const r = await fetch(`${GOOGLE_BASE}/${MODELO_ANALISE}:generateContent?key=${process.env.GEMINI_API_KEY}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -154,7 +167,7 @@ async function analisarComGoogle(imagemBase64) {
       contents: [{
         role: 'user',
         parts: [
-          { text: PROMPT_ANALISE },
+          { text: prompt },
           { inline_data: { mimeType: mimeDoBase64(imagemBase64), data: imagemBase64 } },
         ],
       }],
@@ -175,10 +188,10 @@ async function analisarComGoogle(imagemBase64) {
   return dados.candidates?.[0]?.content?.parts?.map(p => p.text).join('') ?? '';
 }
 
-async function analisarComReplicate(imagemBase64) {
+async function analisarComReplicate(imagemBase64, prompt) {
   // O Replicate nao expoe responseSchema, entao o schema vai no proprio prompt.
   const saida = await rodarPredicao(REPLICATE_ANALISE, {
-    prompt: `${PROMPT_ANALISE}\n\nResponda SOMENTE com um JSON válido neste schema:\n${JSON.stringify(SCHEMA_VISAGISMO)}`,
+    prompt: `${prompt}\n\nResponda SOMENTE com um JSON válido neste schema:\n${JSON.stringify(SCHEMA_VISAGISMO)}`,
     system_instruction: 'Você é um especialista em visagismo masculino. Responda APENAS com JSON válido, sem markdown e sem texto adicional.',
     images: [`data:${mimeDoBase64(imagemBase64)};base64,${imagemBase64}`],
     temperature: 0.4,
@@ -186,17 +199,19 @@ async function analisarComReplicate(imagemBase64) {
   return juntarTexto(saida);
 }
 
-async function analisarVisagismo(imagemBase64) {
+// `preferencias` ja validadas por normalizarPreferencias (services/personalizacao.js)
+async function analisarVisagismo(imagemBase64, preferencias = null) {
   const direto = usarGoogleDireto();
   console.log(`[gemini] analise via ${direto ? `Google ${MODELO_ANALISE}` : `Replicate ${REPLICATE_ANALISE}`}`);
+  const prompt = montarPromptAnalise(preferencias);
 
   let texto;
   try {
-    texto = direto ? await analisarComGoogle(imagemBase64) : await analisarComReplicate(imagemBase64);
+    texto = direto ? await analisarComGoogle(imagemBase64, prompt) : await analisarComReplicate(imagemBase64, prompt);
   } catch (e) {
     if (!direto || !e.semCredito) throw e;
     console.error('[gemini] Google indisponivel, analisando via Replicate:', e.message);
-    texto = await analisarComReplicate(imagemBase64);
+    texto = await analisarComReplicate(imagemBase64, prompt);
   }
 
   const bloco = texto.match(/\{[\s\S]*\}/);
@@ -225,10 +240,26 @@ The hairstyle and beard must be realistically integrated into the original photo
 The final image must look like the original photograph with only the hairstyle and beard changed.
 The face must remain the same person and must remain visually unchanged.`;
 
+// Recomendacao que nao da para aplicar na foto ("Não aplicável", "N/A", "none")
+const NAO_APLICAVEL = /^\s*(n[ãa]o\s+aplic[áa]vel|n\/a|not\s+applicable|none)\s*\.?\s*$/i;
+function naoAplicavel(recomendacao) {
+  const nome = recomendacao?.style_en || recomendacao?.style;
+  return !nome || NAO_APLICAVEL.test(nome) || NAO_APLICAVEL.test(recomendacao.style ?? '');
+}
+
+// Se vale gerar a simulacao. Nao vale quando a analise diz que o visagismo nao
+// se aplica a foto (rosto feminino) ou quando nao ha corte nem barba a aplicar.
+function visagismoAplicavel(analise) {
+  if (analise?.aplicavel === false) return false;
+  return !naoAplicavel(analise?.recommendations?.hair?.[0]) || !naoAplicavel(analise?.recommendations?.beard?.[0]);
+}
+
 // Do JSON da analise entram SO os atributos de estilo. O resto (formato do
 // rosto, justificativas, proporcoes) fica de fora de proposito: o formato do
 // rosto serve para ESCOLHER o corte, nunca para o modelo redesenhar o rosto.
-function montarPromptEdicao(analise) {
+// Com personalizacao, manter o corte, a cor e a barba viram linhas fixas
+// (services/personalizacao.js): seguem o que o cliente marcou, nao a IA.
+function montarPromptEdicao(analise, preferencias = null) {
   const cabelo = analise?.recommendations?.hair?.[0];
   const barba = analise?.recommendations?.beard?.[0];
 
@@ -240,12 +271,20 @@ function montarPromptEdicao(analise) {
 
   const linhas = ['EDIT ONLY HAIR AND BEARD. PRESERVE THE ORIGINAL FACE AND IDENTITY.', '', REGRA_EDICAO, ''];
 
-  if (cabelo) {
+  if (preferencias?.estilo === 'manter') {
+    linhas.push(EDICAO.manterCorte);
+  } else if (!naoAplicavel(cabelo)) {
     linhas.push(`Recommended hairstyle: ${cabelo.style_en || cabelo.style}`);
     const attr = atributos(cabelo, ['length', 'volume', 'texture', 'fade', 'finish']);
     if (attr) linhas.push(`Hair attributes: ${attr}`);
   }
-  if (barba) {
+  if (preferencias?.cor_cabelo) linhas.push(linhaCorDoCabelo(preferencias));
+
+  if (preferencias?.barba === 'sem') {
+    linhas.push(EDICAO.semBarba);
+  } else if (preferencias?.barba === 'manter') {
+    linhas.push(EDICAO.manterBarba);
+  } else if (!naoAplicavel(barba)) {
     linhas.push(`Recommended beard: ${barba.style_en || barba.style}`);
     const attr = atributos(barba, ['length', 'shape', 'outline', 'finish']);
     if (attr) linhas.push(`Beard attributes: ${attr}`);
@@ -307,4 +346,7 @@ async function editarCabeloBarba(pngAlinhado, prompt) {
   }
 }
 
-module.exports = { analisarVisagismo, montarPromptEdicao, editarCabeloBarba, SCHEMA_VISAGISMO };
+module.exports = {
+  analisarVisagismo, montarPromptAnalise, montarPromptEdicao, editarCabeloBarba, visagismoAplicavel,
+  SCHEMA_VISAGISMO, PROMPT_ANALISE,
+};

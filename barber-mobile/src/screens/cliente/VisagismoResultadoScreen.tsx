@@ -22,11 +22,14 @@ import EscolherBarbeiroModal from '../../components/EscolherBarbeiroModal';
 import VisualizadorImagem from '../../components/VisualizadorImagem';
 import { useMensagensEspera } from '../../hooks/useMensagensEspera';
 import { analiseEmPtBR } from '../../lib/nomesCortes';
+import { resumoPreferencias } from '../../lib/personalizacaoVisagismo';
 
 type Route = RouteProp<ClienteStackParamList, 'VisagismoResultado'>;
 type Nav = StackNavigationProp<ClienteStackParamList>;
 type Acao = 'app' | 'enviar' | 'excluir' | 'galeria' | 'compartilhar';
-type StatusImagem = 'gerando' | 'pronta' | 'erro';
+// nao_aplicavel: a analise indicou que o visagismo nao se aplica a foto (rosto
+// feminino); a simulacao nao e pedida ao backend
+type StatusImagem = 'gerando' | 'pronta' | 'erro' | 'nao_aplicavel';
 
 const TEMPO_LIMITE_MS = 360000;
 
@@ -48,7 +51,7 @@ export default function VisagismoResultadoScreen() {
   const doHistorico = !!salvo;
 
   const [imagemUrl, setImagemUrl]           = useState<string | null>(null);
-  const [status, setStatus]                 = useState<StatusImagem>('gerando');
+  const [status, setStatus]                 = useState<StatusImagem>(resultado.aplicavel === false ? 'nao_aplicavel' : 'gerando');
   const [erroMsg, setErroMsg]               = useState('');
   const [ampliada, setAmpliada]             = useState<'original' | 'gerada' | null>(null);
   const [acao, setAcao]                     = useState<Acao | null>(null);
@@ -161,7 +164,7 @@ export default function VisagismoResultadoScreen() {
   }
 
   const gerarImagem = useCallback(async () => {
-    if (requisicaoRef.current) return;
+    if (requisicaoRef.current || resultado.aplicavel === false) return;
     const controller = new AbortController();
     requisicaoRef.current = controller;
     let estourouTempo = false;
@@ -203,6 +206,11 @@ export default function VisagismoResultadoScreen() {
   };
 
   const podeSalvar = !doHistorico && status === 'pronta' && !!imagemUrl && Platform.OS !== 'web';
+  const pedido = resumoPreferencias(resultado.preferencias);
+  // "Barba cheia" ja diz barba; "Cavanhaque" vira "Barba cavanhaque"
+  const barbaRodape = resultado.barba?.estilo
+    ? (/barba/i.test(resultado.barba.estilo) ? resultado.barba.estilo : `Barba ${resultado.barba.estilo}`)
+    : '';
 
   return (
     <View style={s.screen}>
@@ -227,7 +235,7 @@ export default function VisagismoResultadoScreen() {
         </View>
         <Text style={s.comparacaoRodape}>
           ROSTO {(formatoLabel[resultado.formato_rosto] ?? resultado.formato_rosto ?? '').toUpperCase()}
-          {resultado.barba?.estilo ? ` · BARBA ${resultado.barba.estilo.toUpperCase()}` : ''}
+          {barbaRodape ? ` · ${barbaRodape.toUpperCase()}` : ''}
         </Text>
       </View>
     )}
@@ -281,6 +289,12 @@ export default function VisagismoResultadoScreen() {
                   <Feather name="maximize-2" size={11} color={C.primary} />
                 </View>
               </TouchableOpacity>
+            ) : status === 'nao_aplicavel' ? (
+              <View style={s.semSimulacao}>
+                <Feather name="info" size={18} color={C.accent} />
+                <Text style={s.semSimulacaoTitulo}>SEM SIMULAÇÃO</Text>
+                <Text style={s.semSimulacaoTexto}>O visagismo masculino não se aplica a esta foto.</Text>
+              </View>
             ) : status === 'erro' ? (
               <View style={s.corteCard} accessibilityRole="alert">
                 <Feather name="alert-circle" size={18} color={C.accent} />
@@ -359,6 +373,24 @@ export default function VisagismoResultadoScreen() {
               : <Feather name="share-2" size={12} color={C.mutedFg} />}
             <Text style={s.linkAcaoText}>COMPARTILHAR</Text>
           </TouchableOpacity>
+        </View>
+      )}
+
+      {/* Visagismo personalizado: o que o cliente pediu e como a IA aplicou */}
+      {pedido.length > 0 && (
+        <View style={[s.card, { borderColor: C.accent }]}>
+          <View style={s.cardHeader}>
+            <Feather name="sliders" size={14} color={C.accent} />
+            <Text style={s.cardLabel}>SEU PEDIDO</Text>
+          </View>
+          <View style={s.tagsRow}>
+            {pedido.map((p) => (
+              <View key={p} style={[s.tag, { borderColor: C.accent }]}>
+                <Text style={[s.tagText, { color: C.accent }]}>{p.toUpperCase()}</Text>
+              </View>
+            ))}
+          </View>
+          {!!resultado.personalizacao && <Text style={[s.resumoText, { marginTop: 14 }]}>{resultado.personalizacao}</Text>}
         </View>
       )}
 
@@ -499,6 +531,9 @@ function makeStyles(C: Theme) {
     iconeAmpliar:         { position: 'absolute', right: 6, bottom: 6, width: 22, height: 22, alignItems: 'center', justifyContent: 'center', backgroundColor: C.bg + 'CC', borderWidth: 1, borderColor: C.border },
     corteCard:            { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 12, borderWidth: 1, borderColor: C.accent, backgroundColor: C.card },
     corteCardNome:        { fontFamily: F.sansMedium, fontSize: 12, color: C.primary, textAlign: 'center', marginTop: 8, marginBottom: 6 },
+    semSimulacao:         { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 12, borderWidth: 1, borderColor: C.border },
+    semSimulacaoTitulo:   { fontFamily: F.mono, fontSize: 9, color: C.accent, letterSpacing: 1, marginTop: 8, marginBottom: 6 },
+    semSimulacaoTexto:    { fontFamily: F.sans, fontSize: 12, color: C.primary, textAlign: 'center', lineHeight: 17 },
     acoesRow:             { flexDirection: 'row', paddingHorizontal: 24, paddingTop: 12, gap: 12 },
     btnAcao:              { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, borderWidth: 1, borderColor: C.primary, paddingVertical: 14 },
     btnAcaoPrimario:      { backgroundColor: C.primary },

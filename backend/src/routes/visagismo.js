@@ -1,7 +1,7 @@
 // Rotas do visagismo. A logica de IA fica em services/gemini.js e o tratamento
 // de pixels em services/imagem.js — aqui so orquestramos.
 //
-//   FOTO DO USUARIO
+//   FOTO DO USUARIO (+ personalizacao opcional: estilo, barba, cor do cabelo)
 //        v
 //   Gemini Flash          ETAPA 1: analisa e recomenda (JSON estruturado)
 //        v
@@ -19,10 +19,11 @@ const express = require('express');
 const sharp = require('sharp');
 const router = express.Router();
 
-const { analisarVisagismo, montarPromptEdicao, editarCabeloBarba } = require('../services/gemini');
+const { analisarVisagismo, montarPromptEdicao, editarCabeloBarba, visagismoAplicavel } = require('../services/gemini');
 const { alinharFoto, mascaraCabeloBarba, compor } = require('../services/imagem');
 const { protegerVisagismo } = require('./privacidade');
 const { analiseEmPtBR } = require('../services/nomesCortes');
+const { normalizarPreferencias, partesEditaveis } = require('../services/personalizacao');
 
 // LGPD: nenhuma foto chega aos servicos de IA sem login e consentimento vigente
 // do titular para esta finalidade (ver services/consentimento.js).
@@ -31,7 +32,9 @@ router.use(protegerVisagismo);
 // As telas de resultado (web e mobile) ja consomem o formato antigo. A analise
 // passou a devolver o schema novo, entao devolvemos os dois: o novo como fonte
 // de verdade e o antigo derivado dele, para nao quebrar o que ja funciona.
-function comCompatibilidade(analise) {
+// `aplicavel` diz as telas se a simulacao deve ser gerada; `preferencias` volta
+// junto para a geracao da imagem seguir o pedido e o historico mostra-lo.
+function comCompatibilidade(analise, preferencias = null) {
   const cabelos = analise.recommendations?.hair ?? [];
   const barbas = analise.recommendations?.beard ?? [];
   const cabelo = cabelos[0] ?? {};
@@ -40,6 +43,9 @@ function comCompatibilidade(analise) {
 
   return {
     ...analise,
+    aplicavel: visagismoAplicavel(analise),
+    preferencias: preferencias ?? undefined,
+    personalizacao: preferencias ? analise.personalizacao : undefined,
     formato_rosto: analise.face_shape,
     tracos: [rosto.proportions, rosto.forehead, rosto.jawline, rosto.cheekbones]
       .filter(Boolean).join(' '),
@@ -78,13 +84,17 @@ router.post('/analisar', async (req, res) => {
     if (!imagem_base64) {
       return res.status(400).json({ error: 'imagem_base64 é obrigatório.' });
     }
+    // Personalizacao opcional; opcao invalida vira 400 antes de chamar a IA
+    const preferencias = normalizarPreferencias(req.body.preferencias);
 
     // Nomes de corte e barba em pt-BR mesmo se o modelo responder em ingles
     // (os campos "_en", usados na geracao da imagem, nao sao tocados)
-    const analise = analiseEmPtBR(await analisarVisagismo(imagem_base64));
-    console.log('[visagismo] analise:', analise.face_shape, '->', analise.recommendations?.hair?.[0]?.style);
-    return res.json(comCompatibilidade(analise));
+    const analise = analiseEmPtBR(await analisarVisagismo(imagem_base64, preferencias));
+    console.log('[visagismo] analise:', analise.face_shape, '->', analise.recommendations?.hair?.[0]?.style,
+      '| aplicavel:', visagismoAplicavel(analise), '| personalizada:', Boolean(preferencias));
+    return res.json(comCompatibilidade(analise, preferencias));
   } catch (err) {
+    if (err.code === 'PREFERENCIA_INVALIDA') return res.status(400).json({ error: err.message, code: err.code });
     console.error('[visagismo] erro analisar:', err.message);
     return res.status(502).json({ error: err.message ?? 'Erro ao analisar a imagem.' });
   }
@@ -99,14 +109,19 @@ router.post('/imagem-referencia', async (req, res) => {
     }
 
     const analise = analiseDoCorpo(req.body);
-    const prompt = montarPromptEdicao(analise);
+    const preferencias = normalizarPreferencias(analise.preferencias);
+    // As telas ja nao pedem a imagem nesse caso; aqui a regra vale para qualquer cliente
+    if (!visagismoAplicavel(analise)) {
+      return res.status(422).json({ error: 'A simulação não se aplica a esta foto.', code: 'VISAGISMO_NAO_APLICAVEL' });
+    }
+    const prompt = montarPromptEdicao(analise, preferencias);
     const original = await alinharFoto(Buffer.from(imagem_base64, 'base64'));
 
     // A mascara e o que impede a IA de refazer o rosto. Se a segmentacao falhar
     // ainda entregamos a imagem, mas avisamos na resposta que a garantia caiu.
     let mascara = null;
     try {
-      mascara = await mascaraCabeloBarba(original.png, original.largura, original.altura);
+      mascara = await mascaraCabeloBarba(original.png, original.largura, original.altura, partesEditaveis(preferencias));
     } catch (e) {
       console.error('[visagismo] falha ao segmentar cabelo/barba:', e.message);
     }
@@ -126,6 +141,7 @@ router.post('/imagem-referencia', async (req, res) => {
       mascara_aplicada: Boolean(mascara),
     });
   } catch (err) {
+    if (err.code === 'PREFERENCIA_INVALIDA') return res.status(400).json({ error: err.message, code: err.code });
     console.error('[visagismo] erro imagem-referencia:', err.message);
     return res.status(502).json({ error: err.message ?? 'Erro ao gerar imagem.' });
   }

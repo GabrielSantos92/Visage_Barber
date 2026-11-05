@@ -21,9 +21,9 @@ type Pendente = { resolve: (r: Response) => void; reject: (e: unknown) => void; 
 let pendentes: Pendente[];
 let fetchMock: ReturnType<typeof vi.fn>;
 
-async function renderTela() {
+async function renderTela(analise: Record<string, unknown> = resultado) {
   const r = render(
-    <MemoryRouter initialEntries={[{ pathname: "/visagismo/resultado", state: { resultado, fotoUrl: "blob:original", fotoBase64: "abc" } }]}>
+    <MemoryRouter initialEntries={[{ pathname: "/visagismo/resultado", state: { resultado: analise, fotoUrl: "blob:original", fotoBase64: "abc" } }]}>
       <Routes>
         <Route path="/visagismo/resultado" element={<VisagismoResultado />} />
         <Route path="/visagismo" element={<p>tela visagismo</p>} />
@@ -189,5 +189,40 @@ describe("VisagismoResultado", () => {
     });
     expect(screen.getByRole("alert")).toHaveTextContent("É preciso concordar com o Aviso de Privacidade");
     expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("nao pede a imagem quando a analise diz que o visagismo nao se aplica a foto", async () => {
+    await renderTela({ ...resultado, aplicavel: false });
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(screen.queryByRole("status")).not.toBeInTheDocument();
+    expect(screen.getByText("Sem simulação")).toBeInTheDocument();
+    expect(screen.getByText("O visagismo masculino não se aplica a esta foto.")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /tentar novamente/i })).not.toBeInTheDocument();
+    // O resto da analise continua na tela, e nada fica rodando
+    expect(screen.getByText("CORTE IDEAL")).toBeInTheDocument();
+    act(() => { vi.advanceTimersByTime(INTERVALO_MENSAGEM_MS * 5); });
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("visagismo personalizado: mostra o pedido e manda a analise com ele para a imagem", async () => {
+    const personalizado = {
+      ...resultado,
+      aplicavel: true,
+      preferencias: { estilo: "formal", barba: "sem", cor_cabelo: "loiro" },
+      personalizacao: "Corte social alinhado, rosto barbeado e loiro mel.",
+    };
+    await renderTela(personalizado);
+    expect(screen.getByText("SEU PEDIDO")).toBeInTheDocument();
+    for (const t of ["Estilo formal", "Sem barba", "Cabelo loiro", "Corte social alinhado, rosto barbeado e loiro mel."]) {
+      expect(screen.getByText(t)).toBeInTheDocument();
+    }
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body).analise.preferencias).toEqual(personalizado.preferencias);
+  });
+
+  it("sem personalizacao nao mostra o pedido", async () => {
+    await renderTela();
+    expect(screen.queryByText("SEU PEDIDO")).not.toBeInTheDocument();
   });
 });

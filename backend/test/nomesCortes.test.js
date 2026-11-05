@@ -127,6 +127,7 @@ test('rota /analisar devolve os nomes em pt-BR (IA simulada)', async () => {
   const rota = require.resolve('../src/routes/visagismo');
   const anteriores = [gemini, privacidade, rota].map((k) => require.cache[k]);
   require.cache[gemini] = { id: gemini, filename: gemini, loaded: true, exports: {
+    ...require('../src/services/gemini'),
     analisarVisagismo: async () => respostaDaIA, montarPromptEdicao: () => '', editarCabeloBarba: async () => Buffer.alloc(0),
   } };
   require.cache[privacidade] = { id: privacidade, filename: privacidade, loaded: true, exports: {
