@@ -31,6 +31,17 @@ const FieldError = ({ msg }: { msg?: string }) =>
 const numero = (v: string) => (v.trim() === "" ? null : Number(v.replace(",", ".")));
 const texto = (v: number | null | undefined) => (v == null ? "" : String(v));
 
+type Componente = { codigo: string; nome: string };
+
+// Tabelas e funcao da migration 20261105000017, ainda fora dos tipos gerados do Supabase
+type Resposta<T> = PromiseLike<{ data: T | null; error: { message: string } | null }>;
+interface ComponentesDb {
+  from(t: "componentes_servico"): { select(c: string): { order(c: string): Resposta<Componente[]> } };
+  from(t: "servico_componentes"): { select(c: string): { eq(c: string, v: string): Resposta<{ componente: string }[]> } };
+  rpc(fn: "definir_componentes_servico", args: { p_servico_id: string; p_componentes: string[] }): Resposta<null>;
+}
+const componentesDb = supabase as unknown as ComponentesDb;
+
 const ServicoFormDialog = ({ open, servico, onClose, onSaved }: Props) => {
   const editando = !!servico;
 
@@ -43,6 +54,10 @@ const ServicoFormDialog = ({ open, servico, onClose, onSaved }: Props) => {
   const [pausa, setPausa] = useState("");
   const [ativoFinal, setAtivoFinal] = useState("");
   const [margem, setMargem] = useState("0");
+  // O que o servico inclui (corte, barba...). E por aqui que o banco impede o
+  // cliente de marcar duas vezes o mesmo componente no mesmo dia.
+  const [catalogo, setCatalogo] = useState<Componente[]>([]);
+  const [componentes, setComponentes] = useState<string[]>([]);
   const [saving, setSaving] = useState(false);
   const [erros, setErros] = useState<Record<string, string>>({});
 
@@ -58,7 +73,23 @@ const ServicoFormDialog = ({ open, servico, onClose, onSaved }: Props) => {
     setAtivoFinal(texto(servico?.ativo_final_min));
     setMargem(texto(servico?.margem_min ?? 0));
     setErros({});
+    setComponentes([]);
+    let ativo = true;
+    Promise.all([
+      componentesDb.from("componentes_servico").select("codigo, nome").order("nome"),
+      servico
+        ? componentesDb.from("servico_componentes").select("componente").eq("servico_id", servico.id)
+        : Promise.resolve({ data: [], error: null }),
+    ]).then(([cat, atuais]) => {
+      if (!ativo) return;
+      setCatalogo(cat.data ?? []);
+      setComponentes((atuais.data ?? []).map((c) => c.componente));
+    });
+    return () => { ativo = false; };
   }, [open, servico]);
+
+  const alternarComponente = (codigo: string) =>
+    setComponentes((atual) => (atual.includes(codigo) ? atual.filter((c) => c !== codigo) : [...atual, codigo]));
 
   const limparErro = (campo: string) => setErros((p) => ({ ...p, [campo]: "" }));
 
@@ -125,6 +156,11 @@ const ServicoFormDialog = ({ open, servico, onClose, onSaved }: Props) => {
         }
       }
 
+      if (catalogo.length) {
+        const { error } = await componentesDb.rpc("definir_componentes_servico", { p_servico_id: id!, p_componentes: componentes });
+        if (error) throw error;
+      }
+
       toast.success(editando ? "Serviço atualizado." : "Serviço criado.");
       onSaved();
       onClose();
@@ -180,6 +216,27 @@ const ServicoFormDialog = ({ open, servico, onClose, onSaved }: Props) => {
               </div>
             )}
           </div>
+
+          {catalogo.length > 0 && (
+            <fieldset className="border border-border p-4">
+              <legend className={`${labelCls} px-1 mb-0`}>O serviço inclui</legend>
+              <div className="flex flex-wrap gap-x-5 gap-y-2 mt-1">
+                {catalogo.map((c) => (
+                  <label key={c.codigo} className="flex items-center gap-2 text-sm text-primary cursor-pointer">
+                    <input
+                      type="checkbox" checked={componentes.includes(c.codigo)}
+                      onChange={() => alternarComponente(c.codigo)} className="accent-primary"
+                    />
+                    {c.nome}
+                  </label>
+                ))}
+              </div>
+              <p className="font-mono text-[10px] text-muted-foreground mt-3">
+                O cliente não pode marcar no mesmo dia dois serviços com um item em comum (ex.: Barba e Corte + Barba).
+                Sem nenhum item marcado, só o próprio serviço não pode se repetir no dia.
+              </p>
+            </fieldset>
+          )}
 
           <label className="flex items-start gap-3 border border-border p-4 cursor-pointer">
             <input

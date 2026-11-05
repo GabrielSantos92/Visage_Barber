@@ -69,3 +69,27 @@ async function buscarOcupados(barbeiroId: string, ini: Date, fim: Date): Promise
     return { inicio, fim: inicio + (a.servicos?.duracao_min ?? 30) * 60000 };
   });
 }
+
+export interface RestricaoDiaria { motivo: string; mensagem: string }
+
+// Funcao da migration 20261105000017, ainda fora dos tipos gerados do Supabase
+interface RegraDiariaDb {
+  rpc(fn: "verificar_regra_diaria", args: { p_servico_id: string; p_data: string }):
+    PromiseLike<{ data: RestricaoDiaria[] | null; error: { code: string } | null }>;
+}
+
+// Limite de 3 agendamentos por dia e servicos com componente repetido no dia,
+// verificados pelo banco (verificar_regra_diaria) para o cliente logado, antes
+// de escolher o horario. A regra de verdade e a do trigger validar_agendamento;
+// null = permitido (ou banco sem a migration 20261105000017).
+export async function verificarRegraDiaria(servicoId: string, data: Date): Promise<RestricaoDiaria | null> {
+  const { data: linhas, error } = await (supabase as unknown as RegraDiariaDb).rpc("verificar_regra_diaria", {
+    p_servico_id: servicoId,
+    p_data: dataLocal(data),
+  });
+  if (error) {
+    if (FUNCAO_AUSENTE.has(error.code)) return null;
+    throw error;
+  }
+  return linhas?.[0] ?? null;
+}

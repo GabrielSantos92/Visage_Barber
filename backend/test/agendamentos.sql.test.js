@@ -5,7 +5,7 @@ const assert = require('node:assert/strict');
 
 const {
   criarBanco, auxiliares, recusa: recusaBanco, as,
-  JOAO, PEDRO, INATIVO, CORTE_30, COMBO_60, SEM_VINCULO, CLIENTE_A, CLIENTE_B,
+  JOAO, PEDRO, INATIVO, CORTE_30, COMBO_60, SEM_VINCULO, BARBA_30, CLIENTE_A, CLIENTE_B, CLIENTE_C,
 } = require('./helpers/bancoAgenda');
 
 // Os casos abaixo cobrem os servicos convencionais (bloco continuo) e rodam com
@@ -63,8 +63,9 @@ test('5. atendimentos consecutivos são permitidos', async () => {
   await limpar();
   await agendar(CLIENTE_A, JOAO, CORTE_30, '14:00');
   await agendar(CLIENTE_B, JOAO, CORTE_30, '13:30');
-  await agendar(CLIENTE_B, JOAO, CORTE_30, '14:30');
-  await agendar(CLIENTE_A, PEDRO, CORTE_30, '14:30');
+  // Servicos diferentes: o mesmo cliente nao repete corte no mesmo dia
+  await agendar(CLIENTE_B, JOAO, BARBA_30, '14:30');
+  await agendar(CLIENTE_A, PEDRO, BARBA_30, '14:30');
   assert.equal(await total(), 4);
 });
 
@@ -130,7 +131,7 @@ test('horarios_ocupados devolve os intervalos do barbeiro e os do próprio clien
   await limpar();
   await agendar(CLIENTE_B, JOAO, COMBO_60, '14:00');   // outro cliente, barbeiro consultado
   await agendar(CLIENTE_A, PEDRO, CORTE_30, '16:00');  // o próprio cliente, outro barbeiro
-  await agendar(CLIENTE_B, PEDRO, CORTE_30, '10:00');  // não diz respeito à consulta
+  await agendar(CLIENTE_C, PEDRO, CORTE_30, '10:00');  // não diz respeito à consulta
   await agendar(CLIENTE_B, JOAO, CORTE_30, '09:00', 'cancelado');
 
   await db.query("SELECT set_config('test.uid', $1, false)", [CLIENTE_A]);

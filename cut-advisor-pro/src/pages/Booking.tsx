@@ -1,14 +1,14 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
-import { Calendar, Clock, User, Scissors, ChevronLeft, ChevronRight, Check, ArrowLeft, Star } from "lucide-react";
+import { Calendar, Clock, User, Scissors, ChevronLeft, ChevronRight, Check, ArrowLeft, Star, AlertCircle } from "lucide-react";
 import { format, addDays, startOfDay, isSameDay, setHours, setMinutes } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "@/components/ui/sonner";
 import Navbar from "@/components/Navbar";
-import { buscarHorariosDisponiveis } from "@/lib/disponibilidade";
+import { buscarHorariosDisponiveis, RestricaoDiaria, verificarRegraDiaria } from "@/lib/disponibilidade";
 import { interpretarErroAgendamento } from "@/lib/horarios";
 import { servicoAgendavel } from "@/lib/etapas";
 import { buscarNotasBarbeiros, formatarNota, NotaBarbeiro } from "@/lib/notasBarbeiros";
@@ -36,6 +36,9 @@ const Booking = () => {
   const [availableSlots, setAvailableSlots] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  // Limite de 3 por dia ou servico repetido no dia: impede avancar da data
+  const [restricao, setRestricao] = useState<RestricaoDiaria | null>(null);
+  const [verificandoRegra, setVerificandoRegra] = useState(false);
 
   // Generate next 14 days (skip Sundays)
   const dates = Array.from({ length: 14 }, (_, i) => addDays(startOfDay(new Date()), i + 1))
@@ -67,6 +70,21 @@ const Booking = () => {
     };
     fetchServicos();
   }, [selectedBarbeiro]);
+
+  // Assim que servico e data estao escolhidos, o banco diz se o cliente ainda
+  // pode agendar esse servico nesse dia (limite diario e servicos repetidos)
+  useEffect(() => {
+    setRestricao(null);
+    if (!selectedDate || !selectedServico) return;
+    let ativo = true;
+    setVerificandoRegra(true);
+    verificarRegraDiaria(selectedServico.id, selectedDate)
+      .then((r) => { if (ativo) setRestricao(r); })
+      // Sem resposta, deixa seguir: o banco valida de novo ao confirmar
+      .catch(() => {})
+      .finally(() => { if (ativo) setVerificandoRegra(false); });
+    return () => { ativo = false; };
+  }, [selectedServico, selectedDate, slotsVersion]);
 
   useEffect(() => {
     if (!selectedBarbeiro || !selectedDate || !selectedServico) return;
@@ -106,7 +124,12 @@ const Booking = () => {
     if (error) {
       const { mensagem, horarioIndisponivel } = interpretarErroAgendamento(error);
       toast.error(mensagem);
-      if (horarioIndisponivel) {
+      // Regra diaria (ex.: outro agendamento feito em outra aba): volta para a data
+      if (error.details === "LIMITE_DIARIO" || error.details === "SERVICO_REPETIDO") {
+        setSelectedTime(null);
+        setStep(2);
+        setSlotsVersion(v => v + 1);
+      } else if (horarioIndisponivel) {
         setSelectedTime(null);
         setStep(3);
         setSlotsVersion(v => v + 1);
@@ -121,7 +144,7 @@ const Booking = () => {
   const canProceed = () => {
     if (step === 0) return !!selectedBarbeiro;
     if (step === 1) return !!selectedServico;
-    if (step === 2) return !!selectedDate;
+    if (step === 2) return !!selectedDate && !verificandoRegra && !restricao;
     if (step === 3) return !!selectedTime;
     return true;
   };
@@ -287,6 +310,12 @@ const Booking = () => {
                     </button>
                   ))}
                 </div>
+                {restricao && (
+                  <div role="alert" className="mt-4 flex items-start gap-2 border border-destructive/40 p-3 text-sm text-destructive">
+                    <AlertCircle className="size-4 mt-0.5 flex-shrink-0" />
+                    <span>{restricao.mensagem}</span>
+                  </div>
+                )}
               </div>
             )}
 

@@ -12,6 +12,8 @@ export const MSG_CONFLITO_BARBEIRO =
   'Esse horário não está mais disponível para este barbeiro. Por favor, escolha outro horário.';
 export const MSG_CONFLITO_CLIENTE =
   'Você já possui um agendamento nesse horário. Escolha outro horário para evitar conflitos.';
+export const MSG_LIMITE_DIARIO =
+  'Você atingiu o limite máximo de 3 agendamentos por dia. Escolha outra data para realizar um novo agendamento.';
 
 // Dois intervalos se sobrepoem quando um comeca antes de o outro terminar.
 // Intervalos consecutivos (um termina quando o outro comeca) nao conflitam.
@@ -54,6 +56,14 @@ interface ErroBanco { code?: string; message?: string; details?: string | null }
 // Traduz a recusa do banco em uma mensagem para o cliente.
 // `horarioIndisponivel` indica que a lista de horarios deve ser recarregada.
 export function interpretarErroAgendamento(error: ErroBanco): { mensagem: string; horarioIndisponivel: boolean } {
+  // Limite de 3 por dia ou servico com componente ja agendado no dia: a
+  // mensagem do banco diz o motivo (ex.: qual componente se repete)
+  if (error.details === 'LIMITE_DIARIO') {
+    return { mensagem: error.message ?? MSG_LIMITE_DIARIO, horarioIndisponivel: false };
+  }
+  if (error.details === 'SERVICO_REPETIDO') {
+    return { mensagem: error.message ?? 'Você já tem esse serviço agendado neste dia.', horarioIndisponivel: false };
+  }
   if (error.details === 'CONFLITO_CLIENTE') {
     return { mensagem: MSG_CONFLITO_CLIENTE, horarioIndisponivel: true };
   }

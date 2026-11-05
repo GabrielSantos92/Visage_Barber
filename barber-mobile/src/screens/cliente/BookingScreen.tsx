@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, FlatList, ScrollView, ActivityIndicator, Alert, Image } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { useFocusEffect, useNavigation, useRoute, RouteProp } from '@react-navigation/native';
@@ -11,7 +11,7 @@ import { F, Theme } from '../../lib/theme';
 import ErroFetch from '../../components/ErroFetch';
 import { ClienteTabParamList } from '../../navigation/ClienteNavigator';
 import { sendPushNotification } from '../../lib/notifications';
-import { buscarHorariosDisponiveis } from '../../lib/disponibilidade';
+import { buscarHorariosDisponiveis, RestricaoDiaria, verificarRegraDiaria } from '../../lib/disponibilidade';
 import { interpretarErroAgendamento } from '../../lib/horarios';
 import { servicoAgendavel } from '../../lib/etapas';
 import { buscarNotasBarbeiros, formatarNota, NotaBarbeiro } from '../../lib/notasBarbeiros';
@@ -41,6 +41,10 @@ export default function BookingScreen() {
   const [loadingBarbeiros, setLoadingBarbeiros] = useState(true);
   const [submitting, setSubmitting]         = useState(false);
   const [erroBarbeiros, setErroBarbeiros]   = useState<string | null>(null);
+  // Limite de 3 por dia ou servico repetido no dia: a data escolhida nao avanca
+  const [restricao, setRestricao]           = useState<RestricaoDiaria | null>(null);
+  const [verificandoData, setVerificandoData] = useState(false);
+  const verificacaoRef = useRef(0);
 
   useEffect(() => { fetchBarbeiros(); }, []);
 
@@ -97,6 +101,21 @@ export default function BookingScreen() {
     setLoading(false);
   }
 
+  // O banco diz se o cliente ainda pode agendar esse servico nesse dia antes de
+  // mostrar os horarios. Sem resposta, deixa seguir: o banco valida ao confirmar.
+  async function escolherData(d: Date) {
+    setSelectedData(d); setSelectedHorario(null); setRestricao(null);
+    if (!selectedServico) return;
+    const pedido = ++verificacaoRef.current;
+    setVerificandoData(true);
+    let r: RestricaoDiaria | null = null;
+    try { r = await verificarRegraDiaria(selectedServico.id, d); } catch {}
+    if (pedido !== verificacaoRef.current) return;
+    setVerificandoData(false);
+    if (r) { setRestricao(r); return; }
+    setStep(3);
+  }
+
   async function confirmar() {
     if (!user || !selectedBarbeiro || !selectedServico || !selectedData || !selectedHorario) return;
     setSubmitting(true);
@@ -111,7 +130,13 @@ export default function BookingScreen() {
     // O banco recusa horarios sobrepostos (do barbeiro ou do proprio cliente)
     if (error) {
       const { mensagem, horarioIndisponivel } = interpretarErroAgendamento(error);
-      if (horarioIndisponivel) {
+      if (error.details === 'LIMITE_DIARIO' || error.details === 'SERVICO_REPETIDO') {
+        // Ex.: outro agendamento feito em outro aparelho: volta para a data
+        Alert.alert('Não foi possível agendar', mensagem);
+        setSelectedHorario(null);
+        setRestricao({ motivo: error.details, mensagem });
+        setStep(2);
+      } else if (horarioIndisponivel) {
         Alert.alert('Horário indisponível', mensagem);
         setSelectedHorario(null); setStep(3);
         fetchHorarios(selectedBarbeiro.id, selectedServico, selectedData);
@@ -217,7 +242,7 @@ export default function BookingScreen() {
             {servicos.length === 0 && <Text style={s.empty}>Nenhum serviço disponível.</Text>}
             {servicos.map((sv, i) => (
               <TouchableOpacity key={sv.id} style={[s.option, i < servicos.length - 1 && s.optionBorder]}
-                onPress={() => { setSelectedServico(sv); setStep(2); }}>
+                onPress={() => { setSelectedServico(sv); setRestricao(null); setStep(2); }}>
                 <View>
                   <Text style={s.optionName}>{sv.nome}</Text>
                   <Text style={s.optionSub}>{sv.duracao_min} min</Text>
@@ -239,7 +264,7 @@ export default function BookingScreen() {
                 const ativo = selectedData?.toDateString() === d.toDateString();
                 return (
                   <TouchableOpacity key={d.toISOString()} style={[s.diaBtn, ativo && s.diaBtnAtivo]}
-                    onPress={() => { setSelectedData(d); setStep(3); }}>
+                    onPress={() => escolherData(d)} disabled={verificandoData}>
                     <Text style={[s.diaSemana, ativo && { color: C.primaryFg }]}>{DIAS_SEMANA[d.getDay()]}</Text>
                     <Text style={[s.diaDia, ativo && { color: C.primaryFg }]}>{d.getDate()}</Text>
                     <Text style={[s.diaMes, ativo && { color: C.primaryFg }]}>{MESES[d.getMonth()]}</Text>
@@ -247,6 +272,13 @@ export default function BookingScreen() {
                 );
               })}
             </View>
+            {verificandoData && <ActivityIndicator color={C.primary} style={{ marginTop: 16 }} />}
+            {!!restricao && !verificandoData && (
+              <View style={s.restricao} accessibilityRole="alert">
+                <Feather name="alert-circle" size={14} color={C.destructive} />
+                <Text style={s.restricaoTexto}>{restricao.mensagem}</Text>
+              </View>
+            )}
             <BackBtn onPress={() => setStep(1)} C={C} />
           </>
         )}
@@ -344,6 +376,8 @@ function makeStyles(C: Theme) {
     ratingTotal:    { fontFamily: F.sans, fontSize: 11, color: C.mutedFg },
     preco:          { fontFamily: F.sansMedium, fontSize: 15, color: C.primary, marginBottom: 2 },
     diasGrid:       { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+    restricao:      { flexDirection: 'row', alignItems: 'flex-start', gap: 8, borderWidth: 1, borderColor: C.destructive, padding: 12, marginTop: 16 },
+    restricaoTexto: { flex: 1, fontFamily: F.sans, fontSize: 13, color: C.destructive, lineHeight: 19 },
     diaBtn:         { borderWidth: 1, borderColor: C.border, padding: 10, alignItems: 'center', width: '22%' },
     diaBtnAtivo:    { backgroundColor: C.primary, borderColor: C.primary },
     diaSemana:      { fontFamily: F.mono, fontSize: 9, color: C.mutedFg, letterSpacing: 1 },

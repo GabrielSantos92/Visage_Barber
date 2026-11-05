@@ -10,6 +10,7 @@ const MIGRATIONS_AGENDA = [
   '20261009000013_barbeiro_sem_cascata_agendamentos.sql',
   '20261009000014_conflito_horarios.sql',
   '20261014000015_agenda_com_pausa.sql',
+  '20261105000017_limite_diario_servicos.sql',
 ];
 
 const JOAO = 'b0000000-0000-4000-8000-000000000001';
@@ -18,6 +19,8 @@ const INATIVO = 'b0000000-0000-4000-8000-000000000003';
 const CORTE_30 = '50000000-0000-4000-8000-000000000001';
 const COMBO_60 = '50000000-0000-4000-8000-000000000002';
 const SEM_VINCULO = '50000000-0000-4000-8000-000000000003';
+const BARBA_30 = '50000000-0000-4000-8000-000000000004';
+const SOBRANCELHA_30 = '50000000-0000-4000-8000-000000000005';
 const CLIENTE_A = 'c0000000-0000-4000-8000-00000000000a';
 const CLIENTE_B = 'c0000000-0000-4000-8000-00000000000b';
 const CLIENTE_C = 'c0000000-0000-4000-8000-00000000000c';
@@ -72,7 +75,8 @@ const ESQUEMA = `
   INSERT INTO public.barbeiros (id, user_id, nome, ativo) VALUES
     ('${JOAO}', '${USUARIO_JOAO}', 'João', true), ('${PEDRO}', NULL, 'Pedro', true), ('${INATIVO}', NULL, 'Inativo', false);
   INSERT INTO public.servicos (id, nome, preco, duracao_min) VALUES
-    ('${CORTE_30}', 'Corte', 40, 30), ('${COMBO_60}', 'Corte + Barba', 70, 60), ('${SEM_VINCULO}', 'Outro', 10, 30);
+    ('${CORTE_30}', 'Corte', 40, 30), ('${COMBO_60}', 'Corte + Barba', 70, 60), ('${SEM_VINCULO}', 'Outro', 10, 30),
+    ('${BARBA_30}', 'Barba completa', 35, 30), ('${SOBRANCELHA_30}', 'Sobrancelha', 20, 30);
   INSERT INTO public.barbeiro_servicos
     SELECT b.id, s.id FROM public.barbeiros b, public.servicos s WHERE s.id <> '${SEM_VINCULO}';
   -- Quarta: 09:00-12:00 e 13:00-18:00 (almoco no meio)
@@ -125,5 +129,5 @@ async function recusa(promessa) {
 
 module.exports = {
   criarBanco, auxiliares, recusa, migration, as, DIA,
-  JOAO, PEDRO, INATIVO, CORTE_30, COMBO_60, SEM_VINCULO, CLIENTE_A, CLIENTE_B, CLIENTE_C, ADMIN, USUARIO_JOAO,
+  JOAO, PEDRO, INATIVO, CORTE_30, COMBO_60, SEM_VINCULO, BARBA_30, SOBRANCELHA_30, CLIENTE_A, CLIENTE_B, CLIENTE_C, ADMIN, USUARIO_JOAO,
 };

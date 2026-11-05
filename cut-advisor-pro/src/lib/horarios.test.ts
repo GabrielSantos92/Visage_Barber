@@ -67,6 +67,15 @@ describe("calcularHorarios", () => {
 });
 
 describe("interpretarErroAgendamento", () => {
+  it("limite diario e servico repetido: mostra o motivo do banco, sem recarregar horarios", () => {
+    const repetido = "Você já tem um agendamento neste dia que inclui barba. Escolha um serviço diferente ou outra data.";
+    expect(interpretarErroAgendamento({ code: "PT400", details: "SERVICO_REPETIDO", message: repetido }))
+      .toEqual({ mensagem: repetido, horarioIndisponivel: false });
+    expect(interpretarErroAgendamento({ code: "PT400", details: "LIMITE_DIARIO", message: "x" }).horarioIndisponivel).toBe(false);
+    expect(interpretarErroAgendamento({ code: "PT400", details: "LIMITE_DIARIO" }).mensagem)
+      .toBe("Você atingiu o limite máximo de 3 agendamentos por dia. Escolha outra data para realizar um novo agendamento.");
+  });
+
   it("serviço com pausa sem tempos configurados mostra a mensagem do banco", () => {
     const msg = "Este serviço ainda não tem os tempos de atendimento configurados.";
     expect(interpretarErroAgendamento({ code: "PT400", details: "SERVICO_SEM_ETAPAS", message: msg }))
