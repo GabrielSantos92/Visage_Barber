@@ -82,6 +82,13 @@ export interface MeuFinanceiro {
   pagamentos: { id: string; semana_inicio: string; valor: number; metodo: string; comprovante: string | null; observacoes: string | null; pago_em: string }[];
 }
 
+// Meu Desempenho (migration 20): origem do percentual em vigor e atendimentos
+// concluidos (pagos ou nao) por dia da semana, de segunda (0) a domingo (6)
+export interface MeuDesempenho {
+  percentual: number | null; percentual_origem: "individual" | "padrao" | null; percentual_padrao: number | null;
+  dias_semana: number[];
+}
+
 // Funcoes da migration, ainda fora dos tipos gerados do Supabase
 type Resposta<T> = PromiseLike<{ data: T | null; error: { message: string } | null }>;
 interface RpcDb { rpc<T>(fn: string, args?: Record<string, unknown>): Resposta<T> }
@@ -113,6 +120,10 @@ export const buscarComissoes = () => rpc<ComissoesConfig>("comissoes_configurada
 export const buscarPagamentosComissao = async (barbeiroId?: string | null) =>
   (await rpc<PagamentoComissao[]>("comissao_pagamentos_lista", { p_barbeiro_id: barbeiroId || null })).map(num);
 export const buscarMeuFinanceiro = (inicio: string, fim: string) => rpc<MeuFinanceiro>("meu_financeiro", { p_inicio: inicio, p_fim: fim });
+export async function buscarMeuDesempenho(inicio: string, fim: string): Promise<MeuDesempenho> {
+  const d = await rpc<MeuDesempenho>("meu_desempenho", { p_inicio: inicio, p_fim: fim });
+  return { ...d, percentual: d.percentual == null ? null : Number(d.percentual), dias_semana: d.dias_semana.map(Number) };
+}
 export const buscarReembolsos = async (f: Filtros) => (await rpc<LinhaReembolso[]>("financeiro_reembolsos", args(f))).map(num);
 export const buscarDuplicidades = async () => (await rpc<LinhaPagamento[]>("financeiro_duplicidades")).map(num);
 export const buscarHistorico = async (pagamentoId: string) =>

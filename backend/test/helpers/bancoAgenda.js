@@ -13,6 +13,7 @@ const MIGRATIONS_AGENDA = [
   '20261105000017_limite_diario_servicos.sql',
   '20261105000018_financeiro.sql',
   '20261105000019_pagamentos_duplicidade_auditoria.sql',
+  '20261109000020_meu_desempenho.sql',
 ];
 
 const JOAO = 'b0000000-0000-4000-8000-000000000001';
