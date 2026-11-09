@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
-import { Calendar, Clock, User, X, ArrowLeft, MessageCircle, Loader2 } from "lucide-react";
+import { Calendar, Clock, User, X, ArrowLeft, MessageCircle, Loader2, Wallet } from "lucide-react";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { supabase } from "@/integrations/supabase/client";
@@ -14,6 +14,7 @@ import {
   AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { linkWhatsAppAgendamento } from "@/lib/whatsapp";
+import { Pagamento, ROTULO_STATUS, buscarPagamentos, pagamentoAtual, pago } from "@/lib/pagamentos";
 
 type Agendamento = {
   id: string;
@@ -45,6 +46,8 @@ const MeusAgendamentos = () => {
   const [naoLidas, setNaoLidas] = useState<Record<string, number>>({});
   const [chat, setChat] = useState<{ barbeiroId: string; nome: string } | null>(null);
   const [telefones, setTelefones] = useState<Record<string, string>>({});
+  // Pagamento que vale para cada agendamento (status proprio, separado do agendamento)
+  const [pagamentos, setPagamentos] = useState<Record<string, Pagamento>>({});
   // Agendamento aguardando confirmacao de cancelamento no Popup
   const [cancelando, setCancelando] = useState<Agendamento | null>(null);
   const [processando, setProcessando] = useState(false);
@@ -61,6 +64,13 @@ const MeusAgendamentos = () => {
         .order("data_hora", { ascending: false });
       if (data) setAgendamentos(data as any);
       setLoading(false);
+
+      try {
+        const lista = await buscarPagamentos((data ?? []).map((a: { id: string }) => a.id));
+        const porAgendamento: Record<string, Pagamento[]> = {};
+        lista.forEach((p) => { (porAgendamento[p.agendamento_id] ??= []).push(p); });
+        setPagamentos(Object.fromEntries(Object.entries(porAgendamento).map(([id, ps]) => [id, pagamentoAtual(ps)!])));
+      } catch { /* sem o modulo financeiro no banco: a lista segue sem pagamentos */ }
 
       // Telefone do barbeiro (cadastrado pelo admin em profiles.telefone), por barbeiro_id
       const { data: tels } = await (supabase as any).rpc("telefones_barbeiros_do_cliente");
@@ -179,6 +189,8 @@ const MeusAgendamentos = () => {
           <div className="space-y-3">
             {agendamentos.map((a) => {
               const st = statusLabels[a.status] || statusLabels.confirmado;
+              const pagamento = pagamentos[a.id];
+              const pagarPendente = a.status !== "cancelado" && !pago(pagamento) && pagamento?.status !== "refunded";
               const isPast = new Date(a.data_hora) < new Date();
               const whatsapp = linkWhatsAppAgendamento({
                 telefone: telefones[a.barbeiro_id],
@@ -200,9 +212,16 @@ const MeusAgendamentos = () => {
                         <User className="size-3" /> {a.barbeiros?.nome}
                       </p>
                     </div>
-                    <span className={`font-mono text-[10px] uppercase px-2 py-0.5 border ${st.color}`}>
-                      {st.label}
-                    </span>
+                    <div className="flex flex-col items-end gap-1">
+                      <span className={`font-mono text-[10px] uppercase px-2 py-0.5 border ${st.color}`}>
+                        {st.label}
+                      </span>
+                      {pagamento && (
+                        <span className={`font-mono text-[9px] uppercase tracking-widest ${pago(pagamento) ? "text-green-500" : "text-muted-foreground"}`}>
+                          {pagamento.metodo === "presencial" && pagamento.status === "pending" ? "Pagar na barbearia" : ROTULO_STATUS[pagamento.status]}
+                        </span>
+                      )}
+                    </div>
                   </div>
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-4 font-mono text-[10px] text-foreground">
@@ -216,6 +235,14 @@ const MeusAgendamentos = () => {
                       </span>
                     </div>
                     <div className="flex items-center gap-4">
+                      {pagarPendente && (
+                        <button
+                          onClick={() => navigate(`/pagamento/${a.id}`)}
+                          className="font-mono text-[10px] uppercase tracking-widest text-accent hover:underline flex items-center gap-1"
+                        >
+                          <Wallet className="size-3" /> {pagamento?.status === "pending" ? "Pagamento" : "Pagar"}
+                        </button>
+                      )}
                       {a.status !== "cancelado" && (
                         <button
                           onClick={() => setChat({ barbeiroId: a.barbeiro_id, nome: a.barbeiros?.nome ?? "Barbeiro" })}

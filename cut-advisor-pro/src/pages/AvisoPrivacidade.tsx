@@ -1,10 +1,12 @@
-import { useNavigate } from "react-router-dom";
+import { useEffect } from "react";
+import { useLocation, useNavigate } from "react-router-dom";
 import { ArrowLeft } from "lucide-react";
 import Navbar from "@/components/Navbar";
-import { CANAL_PRIVACIDADE, VERSAO_AVISO_VISAGISMO } from "@/lib/privacidade";
+import { AVISO_PAGAMENTOS, CANAL_PRIVACIDADE, VERSAO_AVISO_PAGAMENTOS, VERSAO_AVISO_VISAGISMO } from "@/lib/privacidade";
 
-// Aviso de Privacidade da analise de visagismo por foto. So descreve o que o
-// sistema faz de fato (conferido no codigo). Texto sujeito a validacao juridica.
+// Aviso de Privacidade em duas partes, cada uma com a propria versao: analise
+// de visagismo por foto (com concordancia) e pagamentos online. So descreve o
+// que o sistema faz de fato (conferido no codigo). Texto sujeito a validacao juridica.
 const SECOES: { titulo: string; paragrafos: string[]; itens?: string[] }[] = [
   {
     titulo: "1. A quem se aplica",
@@ -70,9 +72,17 @@ const SECOES: { titulo: string; paragrafos: string[]; itens?: string[] }[] = [
   },
 ];
 
+const dataDaVersao = (versao: string) => new Date(`${versao}T12:00:00`).toLocaleDateString("pt-BR");
+
 export default function AvisoPrivacidade() {
   const navigate = useNavigate();
-  const data = new Date(`${VERSAO_AVISO_VISAGISMO}T12:00:00`).toLocaleDateString("pt-BR");
+  const { hash } = useLocation();
+  const data = dataDaVersao(VERSAO_AVISO_VISAGISMO);
+
+  // Aberto a partir da tela de pagamento (/privacidade#pagamentos): vai direto a parte certa
+  useEffect(() => {
+    if (hash) document.getElementById(hash.slice(1))?.scrollIntoView?.();
+  }, [hash]);
 
   return (
     <div className="min-h-screen bg-background">
@@ -86,7 +96,11 @@ export default function AvisoPrivacidade() {
         </button>
         <p className="font-mono text-[10px] text-accent tracking-[0.3em] uppercase mb-3">PRIVACIDADE // LGPD</p>
         <h1 className="text-4xl font-light text-primary tracking-tighter mb-3">Aviso de Privacidade</h1>
-        <p className="font-mono text-[10px] text-muted-foreground uppercase tracking-widest mb-10 border-b border-border pb-8">
+        <p className="text-sm text-foreground mb-6">
+          Este aviso tem duas partes: <a href="#visagismo" className="text-accent hover:underline">análise de visagismo por foto</a> e{" "}
+          <a href="#pagamentos" className="text-accent hover:underline">pagamentos online</a>.
+        </p>
+        <p id="visagismo" className="font-mono text-[10px] text-muted-foreground uppercase tracking-widest mb-10 border-b border-border pb-8">
           Análise de visagismo por foto · Versão de {data}
         </p>
 
@@ -119,6 +133,34 @@ export default function AvisoPrivacidade() {
             </p>
           </section>
         </div>
+
+        <section id="pagamentos" aria-labelledby="titulo-pagamentos" className="mt-16 pt-10 border-t border-border">
+          <p className="font-mono text-[10px] text-accent tracking-[0.3em] uppercase mb-3">Parte 2</p>
+          <h2 id="titulo-pagamentos" className="text-2xl font-light text-primary tracking-tighter mb-2">Pagamentos online</h2>
+          <p className="font-mono text-[10px] text-muted-foreground uppercase tracking-widest mb-8">
+            PIX e cartão pelo Mercado Pago · Versão de {dataDaVersao(VERSAO_AVISO_PAGAMENTOS)}
+          </p>
+          <div className="space-y-8">
+            {AVISO_PAGAMENTOS.map((s) => (
+              <section key={s.titulo}>
+                <h3 className="text-lg font-semibold text-primary mb-3">{s.titulo}</h3>
+                {s.paragrafos.map((p) => (
+                  <p key={p} className="text-sm text-foreground leading-relaxed mb-3">{p}</p>
+                ))}
+                {s.itens && (
+                  <ul className="space-y-2">
+                    {s.itens.map((i) => (
+                      <li key={i} className="flex gap-3 text-sm text-foreground leading-relaxed">
+                        <span aria-hidden className="size-1.5 bg-accent flex-shrink-0 mt-2" />
+                        {i}
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </section>
+            ))}
+          </div>
+        </section>
       </main>
     </div>
   );

@@ -7,6 +7,7 @@ const adminRoutes = require('./routes/admin');
 const authRoutes = require('./routes/auth');
 const visagismoRoutes = require('./routes/visagismo');
 const { router: privacidadeRoutes } = require('./routes/privacidade');
+const { router: pagamentosRoutes } = require('./routes/pagamentos');
 
 const app = express();
 
@@ -24,6 +25,7 @@ app.use('/api/recommendation', recommendationRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/visagismo', visagismoRoutes);
 app.use('/api/privacidade', privacidadeRoutes);
+app.use('/api/pagamentos', pagamentosRoutes);
 
 const PORT = process.env.PORT || 3001;
 app.listen(PORT, () => {

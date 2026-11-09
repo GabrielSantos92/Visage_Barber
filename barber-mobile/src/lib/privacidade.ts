@@ -119,3 +119,82 @@ export const AVISO_COMPLETO: { titulo: string; paragrafos: string[]; itens?: str
     ],
   },
 ];
+
+// ---------------------------------------------------------------
+// Pagamentos online (Mercado Pago): segunda parte do Aviso de Privacidade, com
+// versao propria. Nao depende de concordancia (o tratamento e necessario para
+// cobrar o servico escolhido), por isso nao muda a versao do aviso do
+// visagismo. So descreve o que o sistema faz de fato, conferido no backend
+// (services/mercadoPago.js e services/pagamentos.js). Texto sujeito a
+// validacao juridica.
+// ---------------------------------------------------------------
+export const VERSAO_AVISO_PAGAMENTOS = '2026-11-05';
+
+// Resumo exibido na tela de pagamento, antes de escolher PIX ou cartao
+export const AVISO_PAGAMENTO_RESUMO =
+  'Ao pagar com PIX ou cartão, enviamos ao Mercado Pago o seu e-mail, o serviço e o valor. Os dados do cartão são digitados na página do Mercado Pago e não passam pelo Visage Barber.';
+
+export const AVISO_PAGAMENTOS: { titulo: string; paragrafos: string[]; itens?: string[] }[] = [
+  {
+    titulo: 'Quando se aplica',
+    paragrafos: [
+      'Quando você paga um agendamento com PIX ou cartão de crédito, no site ou no aplicativo. O pagamento é processado pelo Mercado Pago e o valor é recebido na conta da barbearia.',
+      'Se você escolher pagar na barbearia, nenhum dado seu é enviado ao Mercado Pago.',
+    ],
+  },
+  {
+    titulo: 'O que o Visage Barber envia ao Mercado Pago',
+    paragrafos: ['Para gerar a cobrança, enviamos somente:'],
+    itens: [
+      'O e-mail da sua conta no Visage Barber, para identificar quem paga.',
+      'O nome do serviço e o valor do agendamento.',
+      'Códigos internos do pagamento e do agendamento, que não contêm dados pessoais, para relacionar a confirmação do Mercado Pago ao seu agendamento.',
+      'O prazo de validade da cobrança.',
+      'Não enviamos seu nome, telefone, CPF, a data e o horário do atendimento, o barbeiro escolhido nem fotos.',
+    ],
+  },
+  {
+    titulo: 'O que o Mercado Pago recebe diretamente de você',
+    paragrafos: [
+      'No cartão, os dados do cartão (como número, validade, código de segurança e dados do titular) são digitados na página do próprio Mercado Pago. Eles não passam pelo Visage Barber e não são guardados por nós.',
+      'No PIX, você paga pelo aplicativo do seu banco, e as informações da transferência são tratadas pelo seu banco e pelo Mercado Pago.',
+      'O tratamento desses dados pelo Mercado Pago segue a política de privacidade do próprio Mercado Pago.',
+    ],
+  },
+  {
+    titulo: 'O que guardamos',
+    paragrafos: ['Não guardamos os dados do cartão nem os dados de quem pagou informados ao Mercado Pago. Para cada pagamento, guardamos:'],
+    itens: [
+      'A forma de pagamento, o valor, o desconto, a situação (aguardando, pago, recusado, expirado, cancelado ou reembolsado) e as datas.',
+      'As taxas cobradas pelo meio de pagamento.',
+      'Os códigos do pagamento no Mercado Pago e o código PIX (copia e cola e QR Code) ou o link de pagamento.',
+      'Os reembolsos: valor, data, motivo e quem fez a devolução.',
+      'Um histórico das operações de cada pagamento (por exemplo: cobrança criada, pagamento confirmado, reembolso pedido), com a data, a origem e quem fez a operação, para controle financeiro e auditoria.',
+    ],
+  },
+  {
+    titulo: 'Para que usamos e base legal',
+    paragrafos: [
+      'Usamos esses dados para cobrar o agendamento, confirmar o pagamento, fazer reembolsos, calcular a comissão dos barbeiros e manter o controle financeiro da barbearia.',
+      'O tratamento é necessário para executar o serviço que você contratou e para cumprir obrigações legais (art. 7º, incisos V e II, da LGPD). Por isso, ele não depende da concordância pedida no visagismo.',
+    ],
+  },
+  {
+    titulo: 'Quem vê os seus pagamentos',
+    paragrafos: [
+      'No Visage Barber, os seus pagamentos são vistos por você e pelo administrador da barbearia. O barbeiro vê apenas o valor dos serviços que realizou e a comissão dele, sem o seu nome e sem os dados do pagamento.',
+    ],
+  },
+  {
+    titulo: 'Por quanto tempo guardamos',
+    paragrafos: [
+      'Os registros de pagamento não são apagados pelo sistema, porque fazem parte do histórico financeiro da barbearia. O prazo de guarda será definido pela barbearia de acordo com as obrigações legais e fiscais.',
+    ],
+  },
+  {
+    titulo: 'Seus direitos',
+    paragrafos: [
+      'Os direitos previstos na LGPD e o canal de contato descritos na primeira parte deste aviso (itens 8 e 9) também valem para os dados de pagamento.',
+    ],
+  },
+];

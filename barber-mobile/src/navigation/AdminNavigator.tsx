@@ -4,6 +4,7 @@ import { Feather } from '@expo/vector-icons';
 import AdminHomeScreen from '../screens/admin/AdminHomeScreen';
 import UsuariosScreen from '../screens/admin/UsuariosScreen';
 import BarbeariasScreen from '../screens/admin/BarbeariasScreen';
+import FinanceiroAdminScreen from '../screens/admin/FinanceiroAdminScreen';
 import { useTheme } from '../contexts/ThemeContext';
 import { F } from '../lib/theme';
 
@@ -11,6 +12,7 @@ export type AdminTabParamList = {
   AdminHome: undefined;
   Usuarios: undefined;
   Barbearias: undefined;
+  Financeiro: undefined;
 };
 
 const Tab = createBottomTabNavigator<AdminTabParamList>();
@@ -19,12 +21,14 @@ const TAB_ICONS: Record<string, any> = {
   AdminHome:  'bar-chart-2',
   Usuarios:   'users',
   Barbearias: 'scissors',
+  Financeiro: 'dollar-sign',
 };
 
 const TAB_LABELS: Record<string, string> = {
   AdminHome:  'DASHBOARD',
   Usuarios:   'USUÁRIOS',
   Barbearias: 'BARBEIROS',
+  Financeiro: 'FINANCEIRO',
 };
 
 export default function AdminNavigator() {
@@ -57,6 +61,7 @@ export default function AdminNavigator() {
       <Tab.Screen name="AdminHome" component={AdminHomeScreen} />
       <Tab.Screen name="Usuarios" component={UsuariosScreen} />
       <Tab.Screen name="Barbearias" component={BarbeariasScreen} />
+      <Tab.Screen name="Financeiro" component={FinanceiroAdminScreen} />
     </Tab.Navigator>
   );
 }

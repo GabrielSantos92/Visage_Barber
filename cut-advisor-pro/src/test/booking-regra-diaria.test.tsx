@@ -27,7 +27,8 @@ function consulta(tabela: string) {
   };
   const b: any = {
     select: () => b, eq: () => b,
-    insert: (linha: unknown) => banco.insert(linha),
+    // insert(...).select("id").single(): a tela usa o id para abrir o pagamento
+    insert: (linha: unknown) => ({ select: () => ({ single: () => banco.insert(linha) }) }),
     then: (ok: any, falha: any) => Promise.resolve({ data: dados[tabela] ?? [], error: null }).then(ok, falha),
   };
   return b;

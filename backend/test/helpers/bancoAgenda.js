@@ -11,6 +11,8 @@ const MIGRATIONS_AGENDA = [
   '20261009000014_conflito_horarios.sql',
   '20261014000015_agenda_com_pausa.sql',
   '20261105000017_limite_diario_servicos.sql',
+  '20261105000018_financeiro.sql',
+  '20261105000019_pagamentos_duplicidade_auditoria.sql',
 ];
 
 const JOAO = 'b0000000-0000-4000-8000-000000000001';
@@ -44,6 +46,7 @@ const ESQUEMA = `
     AS $$ SELECT nullif(current_setting('test.uid', true), '')::uuid $$;
 
   CREATE TYPE public.app_role AS ENUM ('cliente', 'barbeiro', 'admin');
+  CREATE TABLE public.profiles (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), user_id uuid UNIQUE, nome text);
   CREATE TABLE public.user_roles (user_id uuid NOT NULL, role public.app_role NOT NULL);
   CREATE FUNCTION public.has_role(_user_id uuid, _role public.app_role) RETURNS boolean
     LANGUAGE sql STABLE AS $$ SELECT EXISTS (SELECT 1 FROM public.user_roles WHERE user_id = _user_id AND role = _role) $$;

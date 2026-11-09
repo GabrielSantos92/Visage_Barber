@@ -3,13 +3,14 @@ import { View, Text, StyleSheet, TouchableOpacity, FlatList, ScrollView, Activit
 import { Feather } from '@expo/vector-icons';
 import { useFocusEffect, useNavigation, useRoute, RouteProp } from '@react-navigation/native';
 import { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
+import { StackNavigationProp } from '@react-navigation/stack';
 import { useAuth } from '../../contexts/AuthContext';
 import { supabase } from '../../lib/supabase';
 import { Tables } from '../../types/supabase';
 import { useTheme } from '../../contexts/ThemeContext';
 import { F, Theme } from '../../lib/theme';
 import ErroFetch from '../../components/ErroFetch';
-import { ClienteTabParamList } from '../../navigation/ClienteNavigator';
+import { ClienteStackParamList, ClienteTabParamList } from '../../navigation/ClienteNavigator';
 import { sendPushNotification } from '../../lib/notifications';
 import { buscarHorariosDisponiveis, RestricaoDiaria, verificarRegraDiaria } from '../../lib/disponibilidade';
 import { interpretarErroAgendamento } from '../../lib/horarios';
@@ -121,11 +122,11 @@ export default function BookingScreen() {
     setSubmitting(true);
     const [h, m] = selectedHorario.split(':').map(Number);
     const dataHora = new Date(selectedData); dataHora.setHours(h, m, 0, 0);
-    const { error } = await supabase.from('agendamentos').insert({
+    const { data: novo, error } = await supabase.from('agendamentos').insert({
       cliente_id: user.id, barbeiro_id: selectedBarbeiro.id,
       servico_id: selectedServico.id, data_hora: dataHora.toISOString(),
       status: 'confirmado',
-    });
+    }).select('id').single();
     setSubmitting(false);
     // O banco recusa horarios sobrepostos (do barbeiro ou do proprio cliente)
     if (error) {
@@ -155,7 +156,14 @@ export default function BookingScreen() {
       `${selectedServico.nome} — ${data_fmt} às ${selectedHorario}`,
     );
 
-    Alert.alert('Agendado!', 'Seu horário foi reservado.', [{ text: 'OK', onPress: reset }]);
+    // Agendado: segue para escolher como pagar (PIX, cartao ou na barbearia)
+    Alert.alert('Agendado!', 'Seu horário foi reservado. Agora escolha como pagar.', [{
+      text: 'ESCOLHER PAGAMENTO',
+      onPress: () => {
+        reset();
+        if (novo) navigation.getParent<StackNavigationProp<ClienteStackParamList>>()?.navigate('Pagamento', { agendamentoId: novo.id });
+      },
+    }]);
   }
 
   function reset() {

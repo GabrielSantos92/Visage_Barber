@@ -5,6 +5,7 @@ import { Feather } from '@expo/vector-icons';
 import BarbeiroHomeScreen from '../screens/barbeiro/BarbeiroHomeScreen';
 import AgendaScreen from '../screens/barbeiro/AgendaScreen';
 import ServicosScreen from '../screens/barbeiro/ServicosScreen';
+import FinanceiroScreen from '../screens/barbeiro/FinanceiroScreen';
 import BarbeiroPerfilScreen from '../screens/barbeiro/BarbeiroPerfilScreen';
 import ChatScreen from '../screens/chat/ChatScreen';
 import { usePushToken } from '../hooks/usePushToken';
@@ -15,6 +16,7 @@ export type BarbeiroTabParamList = {
   BarbeiroHome: undefined;
   Agenda: undefined;
   Servicos: undefined;
+  Financeiro: undefined;
   BarbeiroPerfil: undefined;
 };
 
@@ -30,6 +32,7 @@ const TAB_ICONS: Record<string, any> = {
   BarbeiroHome:   'calendar',
   Agenda:         'clock',
   Servicos:       'scissors',
+  Financeiro:     'dollar-sign',
   BarbeiroPerfil: 'user',
 };
 
@@ -37,6 +40,7 @@ const TAB_LABELS: Record<string, string> = {
   BarbeiroHome:   'AGENDA',
   Agenda:         'HORÁRIOS',
   Servicos:       'SERVIÇOS',
+  Financeiro:     'FINANCEIRO',
   BarbeiroPerfil: 'PERFIL',
 };
 
@@ -70,6 +74,7 @@ function BarbeiroTabs() {
       <Tab.Screen name="BarbeiroHome" component={BarbeiroHomeScreen} />
       <Tab.Screen name="Agenda" component={AgendaScreen} />
       <Tab.Screen name="Servicos" component={ServicosScreen} />
+      <Tab.Screen name="Financeiro" component={FinanceiroScreen} />
       <Tab.Screen name="BarbeiroPerfil" component={BarbeiroPerfilScreen} />
     </Tab.Navigator>
   );

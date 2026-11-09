@@ -11,6 +11,7 @@ import { F, Theme } from '../../lib/theme';
 import ErroFetch from '../../components/ErroFetch';
 import ConfirmarCancelamentoModal from '../../components/ConfirmarCancelamentoModal';
 import { linkWhatsAppAgendamento } from '../../lib/whatsapp';
+import { Pagamento, ROTULO_STATUS, buscarPagamentos, pagamentoAtual, pago } from '../../lib/pagamentos';
 
 type Nav = StackNavigationProp<ClienteStackParamList>;
 
@@ -47,6 +48,8 @@ export default function AgendamentosScreen() {
   const [erro, setErro] = useState<string | null>(null);
   const [unreadMap, setUnreadMap] = useState<Record<string, number>>({});
   const [telefones, setTelefones] = useState<Record<string, string>>({});
+  // Pagamento que vale para cada agendamento (status proprio, separado do agendamento)
+  const [pagamentos, setPagamentos] = useState<Record<string, Pagamento>>({});
   // Agendamento aguardando confirmacao de cancelamento no modal
   const [cancelando, setCancelando] = useState<Agendamento | null>(null);
   const [processando, setProcessando] = useState(false);
@@ -106,6 +109,11 @@ export default function AgendamentosScreen() {
       }
       setAgendamentos((data ?? []).map((a) => ({ ...a, avaliado: avaliadosSet.has(a.id) })) as unknown as Agendamento[]);
       setErro(null);
+      try {
+        const porAgendamento: Record<string, Pagamento[]> = {};
+        (await buscarPagamentos(ids)).forEach((p) => { (porAgendamento[p.agendamento_id] ??= []).push(p); });
+        setPagamentos(Object.fromEntries(Object.entries(porAgendamento).map(([id, ps]) => [id, pagamentoAtual(ps)!])));
+      } catch { /* sem o modulo financeiro no banco: a lista segue sem pagamentos */ }
     } catch (e: any) {
       setErro(e.message ?? 'Erro ao carregar agendamentos.');
     }
@@ -173,6 +181,8 @@ export default function AgendamentosScreen() {
         renderItem={({ item }) => {
           const st = STATUS[item.status] ?? { label: item.status.toUpperCase(), color: C.fg };
           const d = new Date(item.data_hora);
+          const pagamento = pagamentos[item.id];
+          const pagarPendente = item.status !== 'cancelado' && !pago(pagamento) && pagamento?.status !== 'refunded';
           const whatsapp = linkWhatsAppAgendamento({
             telefone: telefones[item.barbeiro_id],
             barbeiroNome: item.barbeiros?.nome,
@@ -196,8 +206,19 @@ export default function AgendamentosScreen() {
 
               <Text style={s.barbeiro}>{item.barbeiros?.nome ?? '—'}</Text>
               <Text style={s.servico}>{item.servicos?.nome}  ·  R$ {item.servicos?.preco?.toFixed(2)}</Text>
+              {!!pagamento && (
+                <Text style={[s.pagamentoStatus, { color: pago(pagamento) ? C.success : C.mutedFg }]}>
+                  {pagamento.metodo === 'presencial' && pagamento.status === 'pending' ? 'PAGAR NA BARBEARIA' : ROTULO_STATUS[pagamento.status].toUpperCase()}
+                </Text>
+              )}
 
               <View style={s.actions}>
+                {pagarPendente && (
+                  <TouchableOpacity style={s.actionBtn} onPress={() => navigation.navigate('Pagamento', { agendamentoId: item.id })}>
+                    <Feather name="credit-card" size={12} color={C.accent} />
+                    <Text style={[s.actionText, { color: C.accent }]}>{pagamento?.status === 'pending' ? 'PAGAMENTO' : 'PAGAR'}</Text>
+                  </TouchableOpacity>
+                )}
                 {item.status === 'confirmado' && d > new Date() && (
                   <TouchableOpacity style={s.actionBtn} onPress={() => pedirCancelamento(item)}>
                     <Feather name="x" size={12} color={C.destructive} />
@@ -290,6 +311,7 @@ function makeStyles(C: Theme) {
     cardDivider: { height: 1, backgroundColor: C.border, marginBottom: 12 },
     barbeiro:    { fontFamily: F.sansMedium, fontSize: 16, color: C.primary, marginBottom: 2 },
     servico:     { fontFamily: F.sans, fontSize: 13, color: C.mutedFg },
+    pagamentoStatus: { fontFamily: F.mono, fontSize: 9, letterSpacing: 1.2, marginTop: 6 },
     actions:         { flexDirection: 'row', flexWrap: 'wrap', marginTop: 14, gap: 12 },
     actionBtn:       { flexDirection: 'row', alignItems: 'center', gap: 6 },
     actionText:      { fontFamily: F.mono, fontSize: 10, letterSpacing: 1.5 },

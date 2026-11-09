@@ -6,6 +6,7 @@ import HomeScreen from '../screens/cliente/HomeScreen';
 import BookingScreen from '../screens/cliente/BookingScreen';
 import AgendamentosScreen from '../screens/cliente/AgendamentosScreen';
 import AvaliacaoScreen from '../screens/cliente/AvaliacaoScreen';
+import PagamentoScreen from '../screens/cliente/PagamentoScreen';
 import VisagismoScreen from '../screens/cliente/VisagismoScreen';
 import RecomendacaoScreen from '../screens/cliente/RecomendacaoScreen';
 import PerfilScreen from '../screens/cliente/PerfilScreen';
@@ -30,12 +31,14 @@ export type ClienteTabParamList = {
 export type ClienteStackParamList = {
   ClienteTabs: undefined;
   Avaliacao: { agendamentoId: string; barbeiroId: string };
+  Pagamento: { agendamentoId: string };
   Recomendacao: { formato: string };
   VisagismoFoto: undefined;
   // "salvo" vem do historico: abre a analise ja gravada, sem gerar imagem de novo.
   VisagismoResultado: { resultado: any; fotoUri?: string; fotoBase64?: string; salvo?: AnaliseSalva };
   VisagismoSalvos: undefined;
-  AvisoPrivacidade: undefined;
+  // "pagamentos": abre direto na parte de pagamentos online
+  AvisoPrivacidade: { parte?: 'pagamentos' } | undefined;
   Chat: { outroNome: string; barbeiroId: string; clienteId: string };
 };
 
@@ -106,6 +109,19 @@ export default function ClienteNavigator() {
         options={{
           headerShown: true,
           title: 'AVALIAR SERVIÇO',
+          headerStyle: { backgroundColor: C.bg },
+          headerTintColor: C.primary,
+          headerTitleStyle: { fontFamily: F.mono, fontSize: 11, letterSpacing: 2 },
+          headerShadowVisible: false,
+          headerBackTitle: '',
+        }}
+      />
+      <Stack.Screen
+        name="Pagamento"
+        component={PagamentoScreen}
+        options={{
+          headerShown: true,
+          title: 'PAGAMENTO',
           headerStyle: { backgroundColor: C.bg },
           headerTintColor: C.primary,
           headerTitleStyle: { fontFamily: F.mono, fontSize: 11, letterSpacing: 2 },

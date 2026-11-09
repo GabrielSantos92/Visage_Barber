@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
-import { format, startOfMonth, endOfMonth, startOfDay, endOfDay, isToday } from "date-fns";
+import { format, startOfMonth, startOfDay, endOfDay, isToday } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { TrendingUp, Users, Scissors, Calendar, Clock, CheckCircle2, XCircle, AlertCircle, DollarSign, Award } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
@@ -10,6 +10,8 @@ import { AdminNav } from "@/components/admin/AdminNav";
 import { Navigate } from "react-router-dom";
 import type { Enums } from "@/integrations/supabase/types";
 import { ordenarAgendamentos } from "@/lib/ordemAgendamentos";
+import { buscarMeuFinanceiro, buscarResumo, intervaloDoPeriodo } from "@/lib/financeiro";
+import { formatarReais } from "@/lib/pagamentos";
 
 type Status = Enums<"agendamento_status">;
 
@@ -26,6 +28,8 @@ interface Agendamento {
   data_hora: string;
   status: Status;
   cliente_id?: string;
+  // Preco congelado na reserva (o do servico pode ter mudado depois)
+  preco?: number | null;
   profiles: { nome: string } | null;
   servicos: { nome: string; preco: number } | null;
   barbeiros?: { nome: string } | null;
@@ -50,6 +54,15 @@ async function withClientes(rows: any[] | null): Promise<Agendamento[]> {
   }
   return list.map((a: any) => ({ ...a, profiles: perfis[a.cliente_id] ?? null })) as Agendamento[];
 }
+
+// Receita do mes: servicos concluidos e pagos, pelos lancamentos do financeiro.
+// Se o financeiro nao responder (ex.: migration ainda nao aplicada), nao inventa valor.
+const receitaKpi = (valor: number | null): KPI => ({
+  label: "RECEITA DO MÊS",
+  value: valor == null ? "—" : formatarReais(valor),
+  sub: valor == null ? "financeiro indisponível" : "concluídos e pagos, após descontos e reembolsos",
+  icon: DollarSign,
+});
 
 const fadeUp = (i: number) => ({
   initial: { opacity: 0, y: 20 },
@@ -90,12 +103,11 @@ export default function Dashboard() {
     const now = new Date();
     const todayStart = startOfDay(now).toISOString();
     const todayEnd = endOfDay(now).toISOString();
-    const monthStart = startOfMonth(now).toISOString();
-    const monthEnd = endOfMonth(now).toISOString();
+    const mes = intervaloDoPeriodo("mes", now);
 
     const [
       { count: totalHoje },
-      { data: agendsMes },
+      receitaMes,
       { count: totalClientes },
       { data: barbeirosAtivos },
       { data: recentsData },
@@ -103,19 +115,16 @@ export default function Dashboard() {
     ] = await Promise.all([
       supabase.from("agendamentos").select("*", { count: "exact", head: true })
         .gte("data_hora", todayStart).lte("data_hora", todayEnd),
-      supabase.from("agendamentos").select("servicos(preco), status")
-        .gte("data_hora", monthStart).lte("data_hora", monthEnd),
+      // Mesmo calculo do Financeiro: servicos concluidos e pagos no mes, ja sem
+      // descontos e reembolsos (lancamentos do banco)
+      buscarResumo(mes).then((r) => r.faturamento).catch(() => null),
       supabase.from("profiles").select("*", { count: "exact", head: true }),
       supabase.from("barbeiros").select("id, nome").eq("ativo", true),
       supabase.from("agendamentos")
-        .select("id, data_hora, status, cliente_id, servicos(nome, preco), barbeiros(nome)")
+        .select("id, data_hora, status, cliente_id, preco, servicos(nome, preco), barbeiros(nome)")
         .order("data_hora", { ascending: false }).limit(8),
       supabase.from("agendamentos").select("status, created_at, barbeiro_id"),
     ]);
-
-    const receitaMes = (agendsMes ?? [])
-      .filter(a => a.status === "concluido")
-      .reduce((sum, a) => sum + ((a.servicos as any)?.preco ?? 0), 0);
 
     const counts: Record<Status, number> = { confirmado: 0, concluido: 0, cancelado: 0 };
     (allStatus ?? []).forEach(a => { if (a.status in counts) counts[a.status as Status]++; });
@@ -130,7 +139,7 @@ export default function Dashboard() {
 
     setKpis([
       { label: "AGENDAMENTOS HOJE", value: totalHoje ?? 0, sub: format(now, "dd 'de' MMMM", { locale: ptBR }), icon: Calendar, accent: true },
-      { label: "RECEITA DO MÊS", value: `R$ ${receitaMes.toFixed(2).replace(".", ",")}`, sub: "serviços concluídos", icon: DollarSign },
+      receitaKpi(receitaMes),
       { label: "CLIENTES", value: totalClientes ?? 0, sub: "cadastrados", icon: Users },
       { label: "BARBEIROS ATIVOS", value: barbeirosAtivos?.length ?? 0, sub: "em operação", icon: Scissors },
     ]);
@@ -145,28 +154,23 @@ export default function Dashboard() {
     const now = new Date();
     const todayStart = startOfDay(now).toISOString();
     const todayEnd = endOfDay(now).toISOString();
-    const monthStart = startOfMonth(now).toISOString();
-    const monthEnd = endOfMonth(now).toISOString();
+    const mes = intervaloDoPeriodo("mes", now);
 
     const [
       { data: hoje },
-      { data: mes },
+      receitaMes,
       { data: recentsData },
       { data: allStatus },
     ] = await Promise.all([
       supabase.from("agendamentos").select("id, status, servicos(preco)")
         .eq("barbeiro_id", barbeiroId!).gte("data_hora", todayStart).lte("data_hora", todayEnd),
-      supabase.from("agendamentos").select("status, servicos(preco)")
-        .eq("barbeiro_id", barbeiroId!).gte("data_hora", monthStart).lte("data_hora", monthEnd),
+      // Mesmo calculo do Meu Financeiro: so os servicos dele, concluidos e pagos
+      buscarMeuFinanceiro(mes.inicio, mes.fim).then((r) => Number(r.faturamento)).catch(() => null),
       supabase.from("agendamentos")
-        .select("id, data_hora, status, cliente_id, servicos(nome, preco)")
+        .select("id, data_hora, status, cliente_id, preco, servicos(nome, preco)")
         .eq("barbeiro_id", barbeiroId!).order("data_hora", { ascending: false }).limit(8),
       supabase.from("agendamentos").select("status").eq("barbeiro_id", barbeiroId!),
     ]);
-
-    const receitaMes = (mes ?? [])
-      .filter(a => a.status === "concluido")
-      .reduce((sum, a) => sum + ((a.servicos as any)?.preco ?? 0), 0);
 
     const concluidos = (hoje ?? []).filter(a => a.status === "concluido").length;
     const confirmados = (hoje ?? []).filter(a => a.status === "confirmado").length;
@@ -176,7 +180,7 @@ export default function Dashboard() {
 
     setKpis([
       { label: "ATENDIMENTOS HOJE", value: hoje?.length ?? 0, sub: format(now, "EEEE, dd/MM", { locale: ptBR }), icon: Calendar, accent: true },
-      { label: "RECEITA DO MÊS", value: `R$ ${receitaMes.toFixed(2).replace(".", ",")}`, sub: "serviços concluídos", icon: DollarSign },
+      receitaKpi(receitaMes),
       { label: "A ATENDER HOJE", value: confirmados, sub: "horários marcados", icon: Clock },
       { label: "CONCLUÍDOS HOJE", value: concluidos, sub: "atendimentos finalizados", icon: CheckCircle2 },
     ]);
@@ -307,9 +311,9 @@ export default function Dashboard() {
                           {" · "}
                           {format(dataHora, "HH:mm")}
                         </p>
-                        {(a.servicos as any)?.preco != null && (
+                        {(a.preco ?? a.servicos?.preco) != null && (
                           <p className="font-mono text-[10px] text-foreground/40 mt-0.5">
-                            R$ {Number((a.servicos as any).preco).toFixed(2).replace(".", ",")}
+                            {formatarReais(a.preco ?? a.servicos?.preco)}
                           </p>
                         )}
                       </div>

@@ -24,6 +24,10 @@ import Visagismo from "./pages/Visagismo";
 import VisagismoResultado from "./pages/VisagismoResultado";
 import AvisoPrivacidade from "./pages/AvisoPrivacidade";
 import Dashboard from "./pages/Dashboard";
+import Pagamento from "./pages/Pagamento";
+import BarbeiroFinanceiro from "./pages/BarbeiroFinanceiro";
+import AdminFinanceiro from "./pages/admin/AdminFinanceiro";
+import AdminComissoes from "./pages/admin/AdminComissoes";
 import NotFound from "./pages/NotFound";
 import ProtectedRoute from "./components/ProtectedRoute";
 import ThemeToggleButton from "./components/ThemeToggleButton";
@@ -50,13 +54,17 @@ const App = () => (
             <Route path="/auth/callback" element={<AuthCallback />} />
             <Route path="/agendar" element={<ProtectedRoute><Booking /></ProtectedRoute>} />
             <Route path="/meus-agendamentos" element={<ProtectedRoute><MeusAgendamentos /></ProtectedRoute>} />
+            <Route path="/pagamento/:agendamentoId" element={<ProtectedRoute><Pagamento /></ProtectedRoute>} />
             <Route path="/perfil" element={<ProtectedRoute><Perfil /></ProtectedRoute>} />
             <Route path="/catalogo" element={<Catalogo />} />
             <Route path="/barbeiro/agenda" element={<ProtectedRoute roles={["barbeiro", "admin"]}><BarbeiroAgenda /></ProtectedRoute>} />
             <Route path="/barbeiro/login" element={<BarbeiroLogin />} />
+            <Route path="/barbeiro/financeiro" element={<ProtectedRoute roles={["barbeiro"]}><BarbeiroFinanceiro /></ProtectedRoute>} />
             <Route path="/admin/barbeiros" element={<ProtectedRoute roles={["admin"]}><AdminBarbeiros /></ProtectedRoute>} />
             <Route path="/admin/usuarios" element={<ProtectedRoute roles={["admin"]}><AdminUsuarios /></ProtectedRoute>} />
             <Route path="/admin/servicos" element={<ProtectedRoute roles={["admin"]}><AdminServicos /></ProtectedRoute>} />
+            <Route path="/admin/financeiro" element={<ProtectedRoute roles={["admin"]}><AdminFinanceiro /></ProtectedRoute>} />
+            <Route path="/admin/comissoes" element={<ProtectedRoute roles={["admin"]}><AdminComissoes /></ProtectedRoute>} />
             <Route path="/visagismo" element={<ProtectedRoute><Visagismo /></ProtectedRoute>} />
             <Route path="/visagismo/resultado" element={<ProtectedRoute><VisagismoResultado /></ProtectedRoute>} />
             <Route path="/privacidade" element={<AvisoPrivacidade />} />

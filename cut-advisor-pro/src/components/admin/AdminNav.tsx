@@ -1,14 +1,16 @@
 import { NavLink } from "react-router-dom";
-import { LayoutDashboard, Scissors, Tags, Users } from "lucide-react";
+import { LayoutDashboard, Percent, Scissors, Tags, Users, Wallet } from "lucide-react";
 import Navbar from "@/components/Navbar";
 
-// Mesmas areas das abas do admin mobile (Dashboard, Usuarios e Barbeiros), mais o
-// cadastro de servicos, que so existe na web
+// Mesmas areas das abas do admin mobile (Dashboard, Usuarios, Barbeiros e
+// Financeiro), mais o cadastro de servicos e as comissoes, que so existem na web
 const itens = [
   { to: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
   { to: "/admin/barbeiros", label: "Barbeiros", icon: Scissors },
   { to: "/admin/servicos", label: "Serviços", icon: Tags },
   { to: "/admin/usuarios", label: "Usuários", icon: Users },
+  { to: "/admin/financeiro", label: "Financeiro", icon: Wallet },
+  { to: "/admin/comissoes", label: "Comissões", icon: Percent },
 ];
 
 export const AdminNav = () => (

@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Menu, X, LogOut, User, Calendar, Settings, Scissors, LayoutDashboard } from "lucide-react";
+import { Menu, X, LogOut, User, Calendar, Settings, Scissors, LayoutDashboard, Wallet } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Link } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
@@ -54,6 +54,11 @@ const Navbar = () => {
               {role === "barbeiro" && (
                 <Link to="/barbeiro/agenda" className="text-foreground hover:text-primary transition-colors flex items-center gap-1">
                   <Scissors className="size-3" /> AGENDA
+                </Link>
+              )}
+              {role === "barbeiro" && (
+                <Link to="/barbeiro/financeiro" className="text-foreground hover:text-primary transition-colors flex items-center gap-1">
+                  <Wallet className="size-3" /> FINANCEIRO
                 </Link>
               )}
               <Link to="/meus-agendamentos" className="text-foreground hover:text-primary transition-colors flex items-center gap-1">
@@ -124,6 +129,11 @@ const Navbar = () => {
                   {role === "barbeiro" && (
                     <Link to="/barbeiro/agenda" className="block font-mono text-xs tracking-widest uppercase text-foreground hover:text-primary transition-colors" onClick={() => setOpen(false)}>
                       MINHA AGENDA
+                    </Link>
+                  )}
+                  {role === "barbeiro" && (
+                    <Link to="/barbeiro/financeiro" className="block font-mono text-xs tracking-widest uppercase text-foreground hover:text-primary transition-colors" onClick={() => setOpen(false)}>
+                      MEU FINANCEIRO
                     </Link>
                   )}
                   <Link to="/meus-agendamentos" className="block font-mono text-xs tracking-widest uppercase text-foreground hover:text-primary transition-colors" onClick={() => setOpen(false)}>

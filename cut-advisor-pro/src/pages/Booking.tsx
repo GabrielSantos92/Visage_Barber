@@ -110,13 +110,13 @@ const Booking = () => {
     const [h, m] = selectedTime.split(":").map(Number);
     const dataHora = setMinutes(setHours(selectedDate, h), m);
 
-    const { error } = await supabase.from("agendamentos").insert({
+    const { data: novo, error } = await supabase.from("agendamentos").insert({
       cliente_id: user.id,
       barbeiro_id: selectedBarbeiro.id,
       servico_id: selectedServico.id,
       data_hora: dataHora.toISOString(),
       status: "confirmado",
-    });
+    }).select("id").single();
 
     setSubmitting(false);
 
@@ -137,8 +137,9 @@ const Booking = () => {
       return;
     }
 
-    toast.success("Agendamento realizado com sucesso!");
-    navigate("/meus-agendamentos");
+    // Agendado: segue para escolher como pagar (PIX, cartao ou na barbearia)
+    toast.success("Agendamento realizado! Agora escolha como pagar.");
+    navigate(novo ? `/pagamento/${novo.id}` : "/meus-agendamentos");
   };
 
   const canProceed = () => {
