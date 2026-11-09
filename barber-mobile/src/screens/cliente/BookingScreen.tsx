@@ -46,12 +46,18 @@ export default function BookingScreen() {
   const [restricao, setRestricao]           = useState<RestricaoDiaria | null>(null);
   const [verificandoData, setVerificandoData] = useState(false);
   const verificacaoRef = useRef(0);
+  const scrollRef = useRef<ScrollView>(null);
 
   useEffect(() => { fetchBarbeiros(); }, []);
 
   // A aba continua montada ao trocar de tela: recarrega as notas a cada foco
   // para refletir avaliacoes feitas depois da primeira carga
-  useFocusEffect(useCallback(() => { buscarNotasBarbeiros().then(setNotas); }, []));
+  // Ao sair da aba pela navegacao inferior, o agendamento em andamento recomeca
+  // da primeira etapa, como no site (la a pagina e desmontada ao trocar de rota)
+  useFocusEffect(useCallback(() => {
+    buscarNotasBarbeiros().then(setNotas);
+    return () => reset();
+  }, []));
 
   useEffect(() => {
     const id = route.params?.initialBarbeiroId;
@@ -169,6 +175,10 @@ export default function BookingScreen() {
   function reset() {
     setStep(0); setSelectedBarbeiro(null); setSelectedServico(null);
     setSelectedData(null); setSelectedHorario(null); setHorarios([]);
+    setRestricao(null); setVerificandoData(false);
+    // Descarta a checagem de data ainda em andamento: ela nao pode avancar a etapa depois
+    verificacaoRef.current++;
+    scrollRef.current?.scrollTo({ y: 0, animated: false });
   }
 
   const dias = Array.from({ length: 14 }, (_, i) => {
@@ -201,7 +211,7 @@ export default function BookingScreen() {
       </View>
       <Text style={s.stepLabel}>{STEPS[step]}</Text>
 
-      <ScrollView contentContainerStyle={{ padding: 24, paddingBottom: 40 }}>
+      <ScrollView ref={scrollRef} contentContainerStyle={{ padding: 24, paddingBottom: 40 }}>
 
         {step === 0 && (
           <>
