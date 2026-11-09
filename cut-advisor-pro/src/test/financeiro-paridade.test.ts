@@ -14,6 +14,8 @@ import * as appPag from "../../../barber-mobile/src/lib/pagamentos";
 import * as appFin from "../../../barber-mobile/src/lib/financeiro";
 import * as webPriv from "@/lib/privacidade";
 import * as appPriv from "../../../barber-mobile/src/lib/privacidade";
+import * as webPainel from "@/lib/painelBarbeiro";
+import * as appPainel from "../../../barber-mobile/src/lib/painelBarbeiro";
 
 const raiz = resolve(__dirname, "../../..");
 // Normaliza aspas e as linhas de import, que mudam de proposito entre as plataformas
@@ -26,6 +28,97 @@ describe("financeiro: site e app iguais", () => {
   it("mesmo código nas duas plataformas", () => {
     expect(normalizar("barber-mobile/src/lib/pagamentos.ts")).toBe(normalizar("cut-advisor-pro/src/lib/pagamentos.ts"));
     expect(normalizar("barber-mobile/src/lib/financeiro.ts")).toBe(normalizar("cut-advisor-pro/src/lib/financeiro.ts"));
+    expect(normalizar("barber-mobile/src/lib/painelBarbeiro.ts")).toBe(normalizar("cut-advisor-pro/src/lib/painelBarbeiro.ts"));
+  });
+
+  it("Painel do Barbeiro: mesma visão do dia, mesmas ações e mesmos textos", () => {
+    const agora = new Date(2026, 10, 4, 10, 30); // quarta, 04/11/2026 10:30
+    const as = (dias: number, h: number) => new Date(2026, 10, 4 + dias, h, 0).toISOString();
+    const lista = [
+      { id: "a", data_hora: as(0, 9), status: "concluido" },
+      { id: "b", data_hora: as(0, 14), status: "confirmado" },
+      { id: "c", data_hora: as(0, 16), status: "cancelado" },
+      { id: "d", data_hora: as(2, 9), status: "confirmado" },
+      { id: "e", data_hora: as(1, 11), status: "confirmado" },
+      { id: "f", data_hora: as(1, 12), status: "cancelado" },
+      { id: "g", data_hora: as(-1, 18), status: "concluido" },
+      { id: "h", data_hora: as(-3, 9), status: "cancelado" },
+    ];
+    const web = webPainel.visaoDoDia(lista, agora);
+    expect(appPainel.visaoDoDia(lista, agora)).toEqual(web);
+    expect(web.hoje.map((a) => a.id)).toEqual(["a", "b", "c"]);
+    expect(web.proximos.map((a) => a.id)).toEqual(["e", "d"]);
+    expect(web.historico.map((a) => a.id)).toEqual(["g", "h"]);
+    expect(web.situacao).toEqual({ aAtender: 1, concluidos: 1, cancelados: 1 });
+
+    // Acao oferecida: cancelar antes do horario; falta depois dele ou se ja concluido
+    for (const a of lista) {
+      expect(appPainel.acaoDoAgendamento(a, agora)).toBe(webPainel.acaoDoAgendamento(a, agora));
+      expect(appPainel.quandoDoAgendamento(a.data_hora, agora)).toBe(webPainel.quandoDoAgendamento(a.data_hora, agora));
+    }
+    expect(["a", "b", "c"].map((id) => webPainel.acaoDoAgendamento(lista.find((x) => x.id === id)!, agora))).toEqual(["falta", "cancelar", null]);
+    expect(webPainel.quandoDoAgendamento(as(1, 11), agora)).toBe("Amanhã · 11:00");
+    expect(webPainel.quandoDoAgendamento(as(2, 9), agora)).toBe("sex 06/11 · 09:00");
+
+    // Mesmos periodos (os do financeiro, sem o ano) e mesmo resumo do grafico
+    expect(appPainel.PERIODOS_PAINEL).toEqual(webPainel.PERIODOS_PAINEL);
+    expect(webPainel.PERIODOS_PAINEL.map((p) => p.valor)).toEqual(["hoje", "semana", "mes", "30dias", "personalizado"]);
+    const dias = [2, 0, 5, 0, 5, 1, 0];
+    expect(appPainel.resumoDiasSemana(dias)).toEqual(webPainel.resumoDiasSemana(dias));
+    expect(webPainel.resumoDiasSemana(dias).texto).toBe("13 atendimentos · mais movimento: quarta-feira, sexta-feira");
+
+    // Mesmo percentual exibido: individual, padrao, pendente e indisponivel
+    const des = (percentual: number | null, percentual_origem: "individual" | "padrao" | null) =>
+      ({ percentual, percentual_origem, percentual_padrao: 40, dias_semana: dias });
+    for (const d of [des(60, "individual"), des(40, "padrao"), des(null, null), null]) {
+      expect(appPainel.cartaoPercentual(d)).toEqual(webPainel.cartaoPercentual(d));
+    }
+    expect(webPainel.cartaoPercentual(des(null, null))).toEqual({ valor: "Pendente", nota: "Aguardando configuração do admin", pendente: true });
+
+    expect(appPainel.TEXTOS_PAINEL).toEqual(webPainel.TEXTOS_PAINEL);
+    expect(appPainel.TEXTOS_ACAO).toEqual(webPainel.TEXTOS_ACAO);
+    expect(appPainel.TEXTOS_CANCELAMENTO).toEqual(webPainel.TEXTOS_CANCELAMENTO);
+  });
+
+  it("Agenda do Barbeiro: mesmos modos, mesmo dia, mesma navegação por datas", () => {
+    const agora = new Date(2026, 10, 4, 10, 30); // quarta, 04/11/2026 10:30
+    const as = (dias: number, h: number) => new Date(2026, 10, 4 + dias, h, 0).toISOString();
+    const lista = [
+      { id: "b", data_hora: as(0, 14), status: "confirmado" },
+      { id: "a", data_hora: as(0, 9), status: "concluido" },
+      { id: "d", data_hora: as(2, 9), status: "confirmado" },
+      { id: "e", data_hora: as(1, 11), status: "confirmado" },
+      { id: "g", data_hora: as(-1, 18), status: "concluido" },
+      { id: "h", data_hora: as(-3, 9), status: "cancelado" },
+    ];
+    expect(appPainel.MODOS_AGENDA).toEqual(webPainel.MODOS_AGENDA);
+    expect(webPainel.MODOS_AGENDA.map((m) => m.rotulo)).toEqual(["Por dia", "Próximos", "Histórico"]);
+    expect(appPainel.VAZIO_MODO).toEqual(webPainel.VAZIO_MODO);
+    expect(appPainel.TEXTOS_AGENDA).toEqual(webPainel.TEXTOS_AGENDA);
+
+    // Atendimentos de um dia, em ordem de horario, e a situacao desse dia
+    const dia = webPainel.agendamentosDoDia(lista, agora);
+    expect(appPainel.agendamentosDoDia(lista, agora)).toEqual(dia);
+    expect(dia.map((a) => a.id)).toEqual(["a", "b"]);
+    expect(webPainel.situacaoDe(dia)).toEqual({ aAtender: 1, concluidos: 1, cancelados: 0 });
+    expect(appPainel.situacaoDe(dia)).toEqual(webPainel.situacaoDe(dia));
+
+    // Cada modo da a mesma lista nas duas plataformas
+    for (const modo of ["dia", "proximos", "historico"] as const) {
+      expect(appPainel.listaDoModo(modo, lista, agora)).toEqual(webPainel.listaDoModo(modo, lista, agora));
+    }
+    expect(webPainel.listaDoModo("proximos", lista, agora).map((a) => a.id)).toEqual(["e", "d"]);
+    expect(webPainel.listaDoModo("historico", lista, agora).map((a) => a.id)).toEqual(["g", "h"]);
+
+    // Navegacao por datas: mesmos rotulos e o mesmo intervalo de cada dia
+    for (const n of [-2, -1, 0, 1, 2, 30]) {
+      const d = webPainel.somarDias(agora, n);
+      expect(appPainel.rotuloDoDia(d, agora)).toEqual(webPainel.rotuloDoDia(d, agora));
+      expect(appPainel.inicioDoDia(d).getTime()).toBe(webPainel.inicioDoDia(d).getTime());
+      expect(appPainel.fimDoDia(d).getTime()).toBe(webPainel.fimDoDia(d).getTime());
+    }
+    expect(webPainel.rotuloDoDia(agora, agora)).toEqual({ titulo: "Hoje", data: "04 de novembro de 2026" });
+    expect(webPainel.rotuloDoDia(webPainel.somarDias(agora, 2), agora).titulo).toBe("sexta-feira");
   });
 
   it("mesmas mensagens para cada estado do pagamento", () => {

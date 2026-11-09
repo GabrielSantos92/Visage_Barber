@@ -1,6 +1,7 @@
 // Dashboard (web): o card "Receita do mês" usa o mesmo calculo do Financeiro
 // (lancamentos de servicos concluidos e pagos), e nao mais a soma dos precos
 // dos servicos concluidos. A lista de recentes mostra o preco congelado.
+// (O barbeiro em /dashboard ve o Painel do Barbeiro: painel-barbeiro.test.tsx.)
 import { render, screen, within } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -73,15 +74,5 @@ describe("Dashboard - Receita do mês", () => {
     const receita = await cartao("RECEITA DO MÊS");
     expect(within(receita).getByText("—")).toBeInTheDocument();
     expect(within(receita).getByText("financeiro indisponível")).toBeInTheDocument();
-  });
-
-  it("barbeiro: mostra o faturamento dos próprios serviços pelo Meu Financeiro", async () => {
-    banco.papel = "barbeiro";
-    banco.rpc.mockImplementation(async (fn: string) => ({ data: fn === "meu_financeiro" ? { faturamento: "300.00" } : null, error: null }));
-    render(<MemoryRouter><Dashboard /></MemoryRouter>);
-    const receita = await cartao("RECEITA DO MÊS");
-    expect(texto(receita.textContent)).toContain("R$ 300,00");
-    expect(banco.rpc).toHaveBeenCalledWith("meu_financeiro", { p_inicio: mes.inicio, p_fim: mes.fim });
-    expect(banco.rpc).not.toHaveBeenCalledWith("financeiro_resumo", expect.anything());
   });
 });

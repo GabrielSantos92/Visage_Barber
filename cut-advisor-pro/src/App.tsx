@@ -1,6 +1,6 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { ThemeProvider } from "next-themes";
-import { BrowserRouter, Route, Routes } from "react-router-dom";
+import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -25,7 +25,6 @@ import VisagismoResultado from "./pages/VisagismoResultado";
 import AvisoPrivacidade from "./pages/AvisoPrivacidade";
 import Dashboard from "./pages/Dashboard";
 import Pagamento from "./pages/Pagamento";
-import BarbeiroFinanceiro from "./pages/BarbeiroFinanceiro";
 import AdminFinanceiro from "./pages/admin/AdminFinanceiro";
 import AdminComissoes from "./pages/admin/AdminComissoes";
 import NotFound from "./pages/NotFound";
@@ -59,7 +58,8 @@ const App = () => (
             <Route path="/catalogo" element={<Catalogo />} />
             <Route path="/barbeiro/agenda" element={<ProtectedRoute roles={["barbeiro", "admin"]}><BarbeiroAgenda /></ProtectedRoute>} />
             <Route path="/barbeiro/login" element={<BarbeiroLogin />} />
-            <Route path="/barbeiro/financeiro" element={<ProtectedRoute roles={["barbeiro"]}><BarbeiroFinanceiro /></ProtectedRoute>} />
+            {/* "Meu Financeiro" agora faz parte do Painel do Barbeiro: links antigos vao para o painel */}
+            <Route path="/barbeiro/financeiro" element={<Navigate to="/dashboard" replace />} />
             <Route path="/admin/barbeiros" element={<ProtectedRoute roles={["admin"]}><AdminBarbeiros /></ProtectedRoute>} />
             <Route path="/admin/usuarios" element={<ProtectedRoute roles={["admin"]}><AdminUsuarios /></ProtectedRoute>} />
             <Route path="/admin/servicos" element={<ProtectedRoute roles={["admin"]}><AdminServicos /></ProtectedRoute>} />

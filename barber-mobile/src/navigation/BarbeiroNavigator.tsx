@@ -3,9 +3,9 @@ import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { createStackNavigator } from '@react-navigation/stack';
 import { Feather } from '@expo/vector-icons';
 import BarbeiroHomeScreen from '../screens/barbeiro/BarbeiroHomeScreen';
+import AgendaBarbeiroScreen from '../screens/barbeiro/AgendaBarbeiroScreen';
 import AgendaScreen from '../screens/barbeiro/AgendaScreen';
 import ServicosScreen from '../screens/barbeiro/ServicosScreen';
-import FinanceiroScreen from '../screens/barbeiro/FinanceiroScreen';
 import BarbeiroPerfilScreen from '../screens/barbeiro/BarbeiroPerfilScreen';
 import ChatScreen from '../screens/chat/ChatScreen';
 import { usePushToken } from '../hooks/usePushToken';
@@ -14,9 +14,10 @@ import { F } from '../lib/theme';
 
 export type BarbeiroTabParamList = {
   BarbeiroHome: undefined;
+  // Agenda completa (por dia, proximos, historico). 'Agenda' e a disponibilidade (HORARIOS)
+  Agendamentos: undefined;
   Agenda: undefined;
   Servicos: undefined;
-  Financeiro: undefined;
   BarbeiroPerfil: undefined;
 };
 
@@ -29,18 +30,19 @@ const Tab = createBottomTabNavigator<BarbeiroTabParamList>();
 const Stack = createStackNavigator<BarbeiroStackParamList>();
 
 const TAB_ICONS: Record<string, any> = {
-  BarbeiroHome:   'calendar',
+  BarbeiroHome:   'grid',
+  Agendamentos:   'calendar',
   Agenda:         'clock',
   Servicos:       'scissors',
-  Financeiro:     'dollar-sign',
   BarbeiroPerfil: 'user',
 };
 
 const TAB_LABELS: Record<string, string> = {
-  BarbeiroHome:   'AGENDA',
+  // Painel do Barbeiro: resumo do dia + financeiro (antes, aba Financeiro separada)
+  BarbeiroHome:   'PAINEL',
+  Agendamentos:   'AGENDA',
   Agenda:         'HORÁRIOS',
   Servicos:       'SERVIÇOS',
-  Financeiro:     'FINANCEIRO',
   BarbeiroPerfil: 'PERFIL',
 };
 
@@ -72,9 +74,9 @@ function BarbeiroTabs() {
       })}
     >
       <Tab.Screen name="BarbeiroHome" component={BarbeiroHomeScreen} />
+      <Tab.Screen name="Agendamentos" component={AgendaBarbeiroScreen} />
       <Tab.Screen name="Agenda" component={AgendaScreen} />
       <Tab.Screen name="Servicos" component={ServicosScreen} />
-      <Tab.Screen name="Financeiro" component={FinanceiroScreen} />
       <Tab.Screen name="BarbeiroPerfil" component={BarbeiroPerfilScreen} />
     </Tab.Navigator>
   );

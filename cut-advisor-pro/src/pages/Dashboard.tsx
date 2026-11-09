@@ -9,9 +9,9 @@ import Navbar from "@/components/Navbar";
 import { AdminNav } from "@/components/admin/AdminNav";
 import { Navigate } from "react-router-dom";
 import type { Enums } from "@/integrations/supabase/types";
-import { ordenarAgendamentos } from "@/lib/ordemAgendamentos";
-import { buscarMeuFinanceiro, buscarResumo, intervaloDoPeriodo } from "@/lib/financeiro";
+import { buscarResumo, intervaloDoPeriodo } from "@/lib/financeiro";
 import { formatarReais } from "@/lib/pagamentos";
+import PainelBarbeiro from "@/components/barbeiro/PainelBarbeiro";
 
 type Status = Enums<"agendamento_status">;
 
@@ -70,32 +70,29 @@ const fadeUp = (i: number) => ({
   transition: { duration: 0.4, delay: i * 0.08 },
 });
 
+// /dashboard: o barbeiro ve o Painel do Barbeiro (visao do dia + financeiro,
+// igual a aba Painel do app); o admin, o painel administrativo
 export default function Dashboard() {
-  const { user, role, loading: authLoading } = useAuth();
+  const { role, loading: authLoading } = useAuth();
+  if (authLoading) return null;
+  if (role === "barbeiro") return <PainelBarbeiro />;
+  if (role !== "admin") return <Navigate to="/" replace />;
+  return <PainelAdmin />;
+}
+
+function PainelAdmin() {
+  const { user } = useAuth();
   const [kpis, setKpis] = useState<KPI[]>([]);
   const [recentes, setRecentes] = useState<Agendamento[]>([]);
   const [statusCounts, setStatusCounts] = useState<Record<Status, number>>({ confirmado: 0, concluido: 0, cancelado: 0 });
   const [loading, setLoading] = useState(true);
-  const [barbeiroId, setBarbeiroId] = useState<string | null>(null);
   // Indicadores que o dashboard do admin mobile tambem mostra
   const [destaque, setDestaque] = useState<{ criadosNoMes: number; maisRequisitado: string | null } | null>(null);
 
-  const isAdmin = role === "admin";
-  const isBarbeiro = role === "barbeiro";
-
   useEffect(() => {
-    if (!user || authLoading) return;
-    if (isBarbeiro) {
-      supabase.from("barbeiros").select("id").eq("user_id", user.id).single()
-        .then(({ data }) => { if (data) setBarbeiroId(data.id); });
-    } else if (isAdmin) {
-      loadAdminData();
-    }
-  }, [user, role, authLoading]);
-
-  useEffect(() => {
-    if (isBarbeiro && barbeiroId) loadBarbeiroData();
-  }, [barbeiroId]);
+    if (!user) return;
+    loadAdminData();
+  }, [user]);
 
   async function loadAdminData() {
     setLoading(true);
@@ -148,63 +145,18 @@ export default function Dashboard() {
     setLoading(false);
   }
 
-  async function loadBarbeiroData() {
-    setLoading(true);
-    await supabase.rpc("concluir_agendamentos_passados");
-    const now = new Date();
-    const todayStart = startOfDay(now).toISOString();
-    const todayEnd = endOfDay(now).toISOString();
-    const mes = intervaloDoPeriodo("mes", now);
-
-    const [
-      { data: hoje },
-      receitaMes,
-      { data: recentsData },
-      { data: allStatus },
-    ] = await Promise.all([
-      supabase.from("agendamentos").select("id, status, servicos(preco)")
-        .eq("barbeiro_id", barbeiroId!).gte("data_hora", todayStart).lte("data_hora", todayEnd),
-      // Mesmo calculo do Meu Financeiro: so os servicos dele, concluidos e pagos
-      buscarMeuFinanceiro(mes.inicio, mes.fim).then((r) => Number(r.faturamento)).catch(() => null),
-      supabase.from("agendamentos")
-        .select("id, data_hora, status, cliente_id, preco, servicos(nome, preco)")
-        .eq("barbeiro_id", barbeiroId!).order("data_hora", { ascending: false }).limit(8),
-      supabase.from("agendamentos").select("status").eq("barbeiro_id", barbeiroId!),
-    ]);
-
-    const concluidos = (hoje ?? []).filter(a => a.status === "concluido").length;
-    const confirmados = (hoje ?? []).filter(a => a.status === "confirmado").length;
-
-    const counts: Record<Status, number> = { confirmado: 0, concluido: 0, cancelado: 0 };
-    (allStatus ?? []).forEach(a => { if (a.status in counts) counts[a.status as Status]++; });
-
-    setKpis([
-      { label: "ATENDIMENTOS HOJE", value: hoje?.length ?? 0, sub: format(now, "EEEE, dd/MM", { locale: ptBR }), icon: Calendar, accent: true },
-      receitaKpi(receitaMes),
-      { label: "A ATENDER HOJE", value: confirmados, sub: "horários marcados", icon: Clock },
-      { label: "CONCLUÍDOS HOJE", value: concluidos, sub: "atendimentos finalizados", icon: CheckCircle2 },
-    ]);
-    // Barbeiro: dias mais proximos primeiro e, dentro do dia, horario crescente
-    setRecentes(ordenarAgendamentos(await withClientes(recentsData as any)));
-    setStatusCounts(counts);
-    setLoading(false);
-  }
-
-  if (authLoading) return null;
-  if (!isAdmin && !isBarbeiro) return <Navigate to="/" replace />;
-
   const totalGeral = Object.values(statusCounts).reduce((a, b) => a + b, 0);
 
   return (
     <div className="min-h-screen bg-background">
       <Navbar />
-      {isAdmin && <AdminNav />}
+      <AdminNav />
       <div className="max-w-7xl mx-auto px-6 py-10">
 
         {/* Header */}
         <motion.div {...fadeUp(0)} className="border-b border-border pb-6 mb-10">
           <p className="font-mono text-[10px] text-accent tracking-[0.3em] uppercase mb-2">
-            {isAdmin ? "PAINEL ADMINISTRATIVO" : "PAINEL DO BARBEIRO"}
+            PAINEL ADMINISTRATIVO
           </p>
           <h1 className="text-4xl font-light text-primary tracking-tighter">Dashboard</h1>
         </motion.div>
@@ -239,7 +191,7 @@ export default function Dashboard() {
           </div>
         )}
 
-        {isAdmin && !loading && destaque && (
+        {!loading && destaque && (
           <motion.div {...fadeUp(5)} className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-10">
             <div className="border border-border p-6 flex items-center justify-between gap-4">
               <div>
@@ -300,7 +252,7 @@ export default function Dashboard() {
                         </p>
                         <p className="font-mono text-[10px] text-foreground/50 mt-0.5">
                           {(a.servicos as any)?.nome ?? "—"}
-                          {isAdmin && (a.barbeiros as any)?.nome && (
+                          {(a.barbeiros as any)?.nome && (
                             <span className="text-foreground/30"> · {(a.barbeiros as any).nome}</span>
                           )}
                         </p>

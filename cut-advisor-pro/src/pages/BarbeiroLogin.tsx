@@ -39,7 +39,8 @@ const BarbeiroLogin = () => {
     }
 
     toast.success("Acesso realizado com sucesso!");
-    navigate("/barbeiro/agenda");
+    // O Painel do Barbeiro e a tela principal (visao do dia + financeiro)
+    navigate("/dashboard");
   };
 
   return (

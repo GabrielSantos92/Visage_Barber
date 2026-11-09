@@ -1,193 +1,78 @@
-import { useEffect, useState } from "react";
-import { motion } from "framer-motion";
-import { format, startOfDay, endOfDay } from "date-fns";
-import { ptBR } from "date-fns/locale";
-import { Calendar, Clock, User, ChevronLeft, ChevronRight, MessageCircle, Hourglass, Loader2 } from "lucide-react";
-import { supabase } from "@/integrations/supabase/client";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { Calendar, ChevronLeft, ChevronRight } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "@/components/ui/sonner";
 import Navbar from "@/components/Navbar";
-import ChatDialog from "@/components/ChatDialog";
+import CartaoAgendamento from "@/components/barbeiro/CartaoAgendamento";
+import { useAcoesAgendamento } from "@/components/barbeiro/useAcoesAgendamento";
+import { COR_STATUS } from "@/components/barbeiro/estilos";
 import {
-  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription,
-  AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
-import type { Enums } from "@/integrations/supabase/types";
-import { etapasDoAgendamento, pausaQueContem, ROTULO_ETAPA } from "@/lib/etapas";
-import { exibirTelefone } from "@/lib/telefone";
+  ITENS_SITUACAO, MODOS_AGENDA, TEXTOS_AGENDA, TEXTOS_PAINEL, VAZIO_MODO, buscarAgendaDoBarbeiro, buscarNaoLidas,
+  inicioDoDia, listaDoModo, rotuloDoDia, situacaoDe, somarDias,
+} from "@/lib/painelBarbeiro";
+import type { AgendamentoPainel, ModoAgenda } from "@/lib/painelBarbeiro";
 
-type Status = Enums<"agendamento_status">;
+const SUBTITULO: Record<ModoAgenda, string> = { dia: "DO DIA", proximos: "PRÓXIMOS", historico: "HISTÓRICO" };
 
-type Agendamento = {
-  id: string;
-  data_hora: string;
-  status: Status;
-  observacoes: string | null;
-  cliente_id: string;
-  // Tempos gravados no agendamento (pausa_min nulo = atendimento continuo)
-  duracao_min: number | null;
-  ativo_inicial_min: number | null;
-  pausa_min: number | null;
-  ativo_final_min: number | null;
-  profiles: { nome: string; telefone: string | null } | null;
-  servicos: { nome: string; duracao_min: number; preco: number } | null;
-};
-
-const statusConfig: Record<Status, { label: string; color: string }> = {
-  confirmado: { label: "CONFIRMADO", color: "text-green-500 border-green-500/30" },
-  concluido:  { label: "CONCLUÍDO",  color: "text-primary border-primary/30" },
-  cancelado:  { label: "CANCELADO",  color: "text-destructive border-destructive/30" },
-};
-
+// Agenda do barbeiro: o gerenciamento completo dos agendamentos, igual a aba
+// Agenda do app. Por dia (navegacao por datas), Proximos (lista completa) e
+// Historico, com cancelar, registrar falta e chat em cada atendimento.
+// O financeiro fica so no Painel (/dashboard).
 const BarbeiroAgenda = () => {
   const { user } = useAuth();
-  const [date, setDate] = useState(startOfDay(new Date()));
-  const [agendamentos, setAgendamentos] = useState<Agendamento[]>([]);
+  const userId = user?.id;
+  const [modo, setModo] = useState<ModoAgenda>("dia");
+  const [date, setDate] = useState(() => inicioDoDia(new Date()));
+  const [agendamentos, setAgendamentos] = useState<AgendamentoPainel[]>([]);
   const [barbeiroId, setBarbeiroId] = useState<string | null>(null);
+  const [semVinculo, setSemVinculo] = useState(false);
   const [loading, setLoading] = useState(true);
   const [naoLidas, setNaoLidas] = useState<Record<string, number>>({});
-  const [chat, setChat] = useState<{ clienteId: string; nome: string } | null>(null);
-  // Agendamento aguardando confirmacao de cancelamento no Popup
-  const [cancelando, setCancelando] = useState<Agendamento | null>(null);
-  const [processando, setProcessando] = useState(false);
 
-  // Find barbeiro record linked to this user
+  // Por dia: so o dia escolhido; Proximos e Historico: todos os agendamentos.
+  // A busca conclui antes os horarios que ja terminaram.
   useEffect(() => {
-    if (!user) return;
-    supabase
-      .from("barbeiros")
-      .select("id")
-      .eq("user_id", user.id)
-      .single()
-      .then(({ data }) => {
-        if (data) setBarbeiroId(data.id);
-        else setLoading(false);
-      });
-  }, [user]);
-
-  useEffect(() => {
-    if (!barbeiroId) return;
+    if (!userId) return;
+    let ativo = true;
     setLoading(true);
-
-    const load = async () => {
-      // Conclui automaticamente os agendamentos cujo horario ja terminou
-      await supabase.rpc("concluir_agendamentos_passados");
-      const { data, error } = await supabase
-        .from("agendamentos")
-        .select("id, data_hora, status, observacoes, cliente_id, duracao_min, ativo_inicial_min, pausa_min, ativo_final_min, servicos(nome, duracao_min, preco)")
-        .eq("barbeiro_id", barbeiroId)
-        .gte("data_hora", startOfDay(date).toISOString())
-        .lte("data_hora", endOfDay(date).toISOString())
-        .order("data_hora");
-
-      if (error) {
-        toast.error("Erro ao carregar a agenda");
+    buscarAgendaDoBarbeiro(userId, modo === "dia" ? date : undefined)
+      .then((a) => {
+        if (!ativo) return;
+        setSemVinculo(!a.barbeiroId);
+        setBarbeiroId(a.barbeiroId);
+        setAgendamentos(a.agendamentos);
+      })
+      .catch(() => {
+        if (!ativo) return;
+        toast.error(TEXTOS_AGENDA.erro);
         setAgendamentos([]);
-        setLoading(false);
-        return;
-      }
+      })
+      .finally(() => { if (ativo) setLoading(false); });
+    return () => { ativo = false; };
+  }, [userId, modo, date]);
 
-      // cliente_id referencia auth.users; em profiles a coluna equivalente e user_id
-      // (profiles.id e uma PK propria), por isso os perfis vem em consulta separada.
-      const ids = [...new Set((data ?? []).map((a: any) => a.cliente_id).filter(Boolean))];
-      const perfis: Record<string, { nome: string; telefone: string | null }> = {};
-      if (ids.length > 0) {
-        const { data: profs } = await supabase
-          .from("profiles")
-          .select("user_id, nome, telefone")
-          .in("user_id", ids);
-        (profs ?? []).forEach((pr: any) => { perfis[pr.user_id] = { nome: pr.nome, telefone: pr.telefone }; });
-      }
+  // Mensagens nao lidas por cliente (mesma consulta do Painel do Barbeiro)
+  const carregarNaoLidas = useCallback(async () => {
+    if (!barbeiroId || !userId) return;
+    setNaoLidas(await buscarNaoLidas(barbeiroId, userId));
+  }, [barbeiroId, userId]);
 
-      setAgendamentos(
-        (data ?? []).map((a: any) => ({ ...a, profiles: perfis[a.cliente_id] ?? null })) as Agendamento[]
-      );
-      setLoading(false);
-    };
+  useEffect(() => { carregarNaoLidas(); }, [carregarNaoLidas, date, modo]);
 
-    load();
-  }, [barbeiroId, date]);
+  // Cancelar, registrar falta e chat: as mesmas acoes do Painel do Barbeiro
+  const { pedirCancelamento, abrirChat, dialogos } = useAcoesAgendamento({
+    barbeiroId,
+    // Mostra o status gravado (ou o real, se ja tinha sido cancelado em outro aparelho)
+    onAlterado: (id, status) => {
+      if (status) setAgendamentos((prev) => prev.map((a) => (a.id === id ? { ...a, status } : a)));
+    },
+    onChatFechado: carregarNaoLidas,
+  });
 
-  // Mensagens nao lidas por cliente (conversas/mensagens nao estao nos types gerados)
-  const carregarNaoLidas = async () => {
-    if (!barbeiroId || !user) return;
-    const db = supabase as any;
-    const { data: conversas } = await db
-      .from("conversas")
-      .select("id, cliente_id")
-      .eq("barbeiro_id", barbeiroId);
-    if (!conversas?.length) {
-      setNaoLidas({});
-      return;
-    }
-    const { data: msgs } = await db
-      .from("mensagens")
-      .select("conversa_id")
-      .in("conversa_id", conversas.map((c: any) => c.id))
-      .eq("lida", false)
-      .neq("remetente_id", user.id);
-    const mapa: Record<string, number> = {};
-    (msgs ?? []).forEach((m: any) => {
-      const c = conversas.find((c: any) => c.id === m.conversa_id);
-      if (c) mapa[c.cliente_id] = (mapa[c.cliente_id] ?? 0) + 1;
-    });
-    setNaoLidas(mapa);
-  };
-
-  useEffect(() => { carregarNaoLidas(); }, [barbeiroId, date]);
-
-  const fecharChat = (aberto: boolean) => {
-    if (!aberto) {
-      setChat(null);
-      carregarNaoLidas();
-    }
-  };
-
-  const moveDate = (days: number) => {
-    setDate(d => startOfDay(new Date(d.getTime() + days * 86400000)));
-  };
-
-  // "ok" so quando o banco confirma a alteracao. O .select() revela o caso em
-  // que nada mudou (RLS ou status ja alterado), que nao gera erro.
-  const updateStatus = async (id: string, newStatus: Status): Promise<"ok" | "erro" | "inalterado"> => {
-    const { data, error } = await supabase
-      .from("agendamentos")
-      .update({ status: newStatus })
-      .eq("id", id)
-      .neq("status", newStatus)
-      .select("id");
-
-    if (error) {
-      toast.error("Não foi possível cancelar o agendamento. Verifique sua conexão e tente novamente.");
-      return "erro";
-    }
-    if (!data?.length) {
-      // Mostra o status real (ex.: ja cancelado em outro aparelho)
-      const { data: atual } = await supabase.from("agendamentos").select("status").eq("id", id).maybeSingle();
-      if (atual) setAgendamentos(prev => prev.map(a => a.id === id ? { ...a, status: atual.status } : a));
-      toast.error("Este agendamento não pôde ser cancelado. Ele pode já ter sido cancelado.");
-      return "inalterado";
-    }
-    setAgendamentos(prev => prev.map(a => a.id === id ? { ...a, status: newStatus } : a));
-    return "ok";
-  };
-
-  const ehFalta = (a: Agendamento) => a.status === "concluido" || new Date(a.data_hora) <= new Date();
-
-  const confirmarCancelamento = async () => {
-    if (!cancelando || processando) return;
-    const falta = ehFalta(cancelando);
-    setProcessando(true);
-    const resultado = await updateStatus(cancelando.id, "cancelado");
-    setProcessando(false);
-    // Em erro o Popup fica aberto para tentar de novo ou voltar
-    if (resultado !== "erro") setCancelando(null);
-    if (resultado === "ok") toast.success(falta ? "Falta do cliente registrada." : "Agendamento cancelado com sucesso.");
-  };
-
-  const isToday = format(date, "yyyy-MM-dd") === format(new Date(), "yyyy-MM-dd");
-  const duracaoServico = (a: Agendamento) => a.servicos?.duracao_min;
-  const hora = (d: Date) => format(d, "HH:mm");
+  const lista = useMemo(() => listaDoModo(modo, agendamentos), [modo, agendamentos]);
+  const situacao = situacaoDe(lista);
+  const rotulo = rotuloDoDia(date);
+  const ehHoje = rotulo.titulo === "Hoje";
 
   return (
     <div className="min-h-screen bg-background">
@@ -198,218 +83,103 @@ const BarbeiroAgenda = () => {
             BARBEIRO // AGENDA
           </span>
         </div>
-        <h1 className="text-3xl font-light tracking-tighter text-primary mb-8">
-          AGENDA <span className="font-bold italic">DO DIA</span>
+        <h1 className="text-3xl font-light tracking-tighter text-primary mb-6">
+          AGENDA <span className="font-bold italic">{SUBTITULO[modo]}</span>
         </h1>
 
-        {/* Date navigator */}
-        <div className="flex items-center justify-between border border-border p-4 mb-8">
-          <button
-            onClick={() => moveDate(-1)}
-            className="p-2 hover:text-primary transition-colors"
-          >
-            <ChevronLeft className="size-5" />
-          </button>
-          <div className="text-center">
-            <p className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
-              {isToday ? "HOJE" : format(date, "EEEE", { locale: ptBR }).toUpperCase()}
-            </p>
-            <p className="text-xl font-bold text-primary">
-              {format(date, "dd 'de' MMMM, yyyy", { locale: ptBR })}
-            </p>
-          </div>
-          <button
-            onClick={() => moveDate(1)}
-            className="p-2 hover:text-primary transition-colors"
-          >
-            <ChevronRight className="size-5" />
-          </button>
+        <div role="tablist" aria-label="Modo da agenda" className="grid grid-cols-3 border border-border mb-6">
+          {MODOS_AGENDA.map((m) => (
+            <button
+              key={m.valor}
+              role="tab"
+              aria-selected={modo === m.valor}
+              onClick={() => setModo(m.valor)}
+              className={`py-3 font-mono text-[10px] uppercase tracking-widest transition-colors ${
+                modo === m.valor ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-primary"}`}
+            >
+              {m.rotulo}
+            </button>
+          ))}
         </div>
 
-        {!barbeiroId && !loading ? (
+        {/* Navegacao por datas (modo Por dia) */}
+        {modo === "dia" && (
+          <div className="flex items-center justify-between border border-border p-4 mb-8">
+            <button
+              onClick={() => setDate((d) => somarDias(d, -1))}
+              aria-label={TEXTOS_AGENDA.diaAnterior}
+              className="p-2 hover:text-primary transition-colors"
+            >
+              <ChevronLeft className="size-5" />
+            </button>
+            <div className="text-center">
+              <p className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
+                {rotulo.titulo.toUpperCase()}
+              </p>
+              <p className="text-xl font-bold text-primary">{rotulo.data}</p>
+              {!ehHoje && (
+                <button
+                  onClick={() => setDate(inicioDoDia(new Date()))}
+                  className="mt-1 font-mono text-[10px] uppercase tracking-widest text-accent hover:underline"
+                >
+                  {TEXTOS_AGENDA.irParaHoje}
+                </button>
+              )}
+            </div>
+            <button
+              onClick={() => setDate((d) => somarDias(d, 1))}
+              aria-label={TEXTOS_AGENDA.diaSeguinte}
+              className="p-2 hover:text-primary transition-colors"
+            >
+              <ChevronRight className="size-5" />
+            </button>
+          </div>
+        )}
+
+        {semVinculo && !loading ? (
           <div className="text-center py-16 border border-border">
-            <p className="text-sm text-foreground">
-              Seu usuário não está vinculado a nenhum barbeiro.
-            </p>
-            <p className="font-mono text-[10px] text-muted-foreground mt-2">
-              Peça ao administrador para vincular sua conta.
-            </p>
+            <p className="text-sm text-foreground">{TEXTOS_PAINEL.semVinculo}</p>
           </div>
         ) : loading ? (
           <div className="text-center py-16">
             <span className="font-mono text-xs text-muted-foreground animate-pulse">CARREGANDO...</span>
           </div>
-        ) : agendamentos.length === 0 ? (
+        ) : lista.length === 0 ? (
           <div className="text-center py-16 border border-border">
             <Calendar className="size-8 text-muted-foreground mx-auto mb-4" />
-            <p className="text-sm text-foreground">Nenhum agendamento neste dia.</p>
+            <p className="text-sm text-foreground">{VAZIO_MODO[modo]}</p>
           </div>
         ) : (
           <div className="space-y-4">
-            {/* Summary */}
-            <div className="grid grid-cols-3 gap-3 mb-6">
-              {(["confirmado", "concluido", "cancelado"] as Status[]).map((s) => {
-                const count = agendamentos.filter(a => a.status === s).length;
-                const cfg = statusConfig[s];
-                return (
-                  <div key={s} className="border border-border p-3 text-center">
-                    <p className={`font-mono text-[10px] uppercase tracking-widest ${cfg.color.split(" ")[0]}`}>{cfg.label}</p>
-                    <p className="text-2xl font-bold text-primary mt-1">{count}</p>
+            {/* Resumo do dia escolhido */}
+            {modo === "dia" && (
+              <div className="grid grid-cols-3 gap-3 mb-6" aria-label={TEXTOS_AGENDA.situacao}>
+                {ITENS_SITUACAO.map(({ chave, rotulo: nome, status }) => (
+                  <div key={chave} className="border border-border p-3 text-center" aria-label={`${nome}: ${situacao[chave]}`}>
+                    <p className={`font-mono text-[10px] uppercase tracking-widest ${COR_STATUS[status].split(" ")[0]}`}>{nome}</p>
+                    <p className="text-2xl font-bold text-primary mt-1">{situacao[chave]}</p>
                   </div>
-                );
-              })}
-            </div>
+                ))}
+              </div>
+            )}
 
-            {agendamentos.map((a, i) => {
-              const cfg = statusConfig[a.status];
-              const etapas = etapasDoAgendamento(a, duracaoServico(a));
-              const comPausa = etapas.length > 1;
-              const naPausa = a.status !== "cancelado" ? pausaQueContem(a, agendamentos, duracaoServico) : null;
-              return (
-                <motion.div
-                  key={a.id}
-                  initial={{ opacity: 0, y: 10 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ delay: i * 0.05 }}
-                  className={`border border-border p-5 ${a.status === "cancelado" ? "opacity-50" : ""}`}
-                >
-                  <div className="flex items-start justify-between mb-3">
-                    <div className="flex items-center gap-3">
-                      <div className="size-10 bg-secondary flex items-center justify-center font-bold text-primary text-sm flex-shrink-0">
-                        {a.profiles?.nome?.charAt(0) || "?"}
-                      </div>
-                      <div>
-                        <p className="text-sm font-bold text-primary">{a.profiles?.nome || "—"}</p>
-                        {a.profiles?.telefone && (
-                          <p className="font-mono text-[10px] text-muted-foreground">{exibirTelefone(a.profiles.telefone)}</p>
-                        )}
-                      </div>
-                    </div>
-                    <span className={`font-mono text-[10px] uppercase px-2 py-0.5 border ${cfg.color}`}>
-                      {cfg.label}
-                    </span>
-                  </div>
-
-                  <div className="flex flex-wrap items-center gap-x-6 gap-y-1 font-mono text-[10px] text-foreground mb-4">
-                    <span className="flex items-center gap-1">
-                      <Clock className="size-3" />
-                      {format(new Date(a.data_hora), "HH:mm")}
-                    </span>
-                    <span className="flex items-center gap-1">
-                      <User className="size-3" />
-                      {a.servicos?.nome}
-                    </span>
-                    <span>{a.duracao_min ?? a.servicos?.duracao_min}min</span>
-                    <span className="text-primary font-bold">R$ {Number(a.servicos?.preco).toFixed(2)}</span>
-                  </div>
-
-                  {/* Coloracao e afins: quando o barbeiro esta com o cliente e quando pode atender outro */}
-                  {comPausa && (
-                    <div className="grid grid-cols-3 border border-border mb-4 font-mono text-[10px] uppercase tracking-widest">
-                      {etapas.map((e) => (
-                        <div
-                          key={e.tipo}
-                          className={
-                            e.tipo === "pausa"
-                              ? "p-2 border-x border-dashed border-border text-muted-foreground"
-                              : e.tipo === "finalizacao"
-                              ? "p-2 bg-accent/10 text-primary"
-                              : "p-2 bg-secondary text-primary"
-                          }
-                        >
-                          <p className="text-[9px] text-muted-foreground">{ROTULO_ETAPA[e.tipo]}</p>
-                          <p className="font-bold">{hora(e.inicio)}–{hora(e.fim)}</p>
-                          <p className="text-[9px]">
-                            {e.tipo === "pausa" ? "Livre p/ outro cliente" : e.tipo === "finalizacao" ? `Retornar às ${hora(e.inicio)}` : "Com o cliente"}
-                          </p>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-
-                  {naPausa && (
-                    <p className="flex items-center gap-2 mb-4 font-mono text-[10px] uppercase tracking-widest text-accent">
-                      <Hourglass className="size-3" />
-                      Na pausa de {naPausa.agendamento.profiles?.nome ?? "outro cliente"} · retornar às {hora(naPausa.pausa.fim)}
-                    </p>
-                  )}
-
-                  {/* Concluido acontece sozinho; o barbeiro so cancela ou marca falta */}
-                  {a.status !== "cancelado" && (
-                    <button
-                      onClick={() => setCancelando(a)}
-                      className="px-4 py-2 border border-destructive/30 text-destructive font-mono text-[10px] uppercase tracking-widest hover:bg-destructive hover:text-destructive-foreground transition-colors"
-                    >
-                      {ehFalta(a) ? "CLIENTE FALTOU" : "CANCELAR"}
-                    </button>
-                  )}
-
-                  <button
-                    onClick={() => setChat({ clienteId: a.cliente_id, nome: a.profiles?.nome ?? "Cliente" })}
-                    className="mt-3 inline-flex items-center gap-2 font-mono text-[10px] uppercase tracking-widest text-accent hover:underline"
-                  >
-                    <MessageCircle className="size-3" />
-                    CHAT
-                    {(naoLidas[a.cliente_id] ?? 0) > 0 && (
-                      <span className="min-w-4 px-1 bg-accent text-accent-foreground text-[9px] font-bold leading-4 text-center">
-                        {naoLidas[a.cliente_id]}
-                      </span>
-                    )}
-                  </button>
-                </motion.div>
-              );
-            })}
+            {lista.map((a, i) => (
+              <CartaoAgendamento
+                key={a.id}
+                agendamento={a}
+                todos={agendamentos}
+                indice={i}
+                naoLidas={naoLidas[a.cliente_id] ?? 0}
+                mostrarData={modo !== "dia"}
+                onAcao={pedirCancelamento}
+                onChat={abrirChat}
+              />
+            ))}
           </div>
         )}
       </main>
 
-      {chat && barbeiroId && (
-        <ChatDialog
-          open
-          onOpenChange={fecharChat}
-          barbeiroId={barbeiroId}
-          clienteId={chat.clienteId}
-          outroNome={chat.nome}
-        />
-      )}
-
-      {/* Confirmacao antes de cancelar: nada muda sem o clique em confirmar */}
-      <AlertDialog open={!!cancelando} onOpenChange={(aberto) => { if (!aberto && !processando) setCancelando(null); }}>
-        <AlertDialogContent className="border-border bg-background sm:rounded-none max-w-[calc(100%-2rem)] sm:max-w-md">
-          <AlertDialogHeader>
-            <AlertDialogTitle className="text-primary">
-              {cancelando && ehFalta(cancelando) ? "Registrar falta do cliente?" : "Cancelar agendamento?"}
-            </AlertDialogTitle>
-            <AlertDialogDescription>
-              {cancelando && ehFalta(cancelando)
-                ? "O agendamento será marcado como cancelado porque o cliente não compareceu."
-                : "Tem certeza de que deseja cancelar este agendamento? Essa ação poderá afetar o horário reservado pelo cliente."}
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          {cancelando && (
-            <div className="border border-border px-4 py-3 font-mono text-[10px] uppercase tracking-widest text-foreground">
-              <p className="text-primary">{cancelando.profiles?.nome ?? "Cliente"}</p>
-              <p className="mt-1">
-                {format(new Date(cancelando.data_hora), "dd/MM · HH:mm")}
-                {cancelando.servicos?.nome ? ` · ${cancelando.servicos.nome}` : ""}
-              </p>
-            </div>
-          )}
-          <AlertDialogFooter>
-            <AlertDialogCancel disabled={processando} className="rounded-none font-mono text-[10px] tracking-widest uppercase">
-              Voltar
-            </AlertDialogCancel>
-            <AlertDialogAction
-              disabled={processando}
-              onClick={(e) => { e.preventDefault(); confirmarCancelamento(); }}
-              className="rounded-none bg-destructive text-destructive-foreground hover:bg-destructive/90 font-mono text-[10px] tracking-widest uppercase"
-            >
-              {processando && <Loader2 className="size-3 mr-2 animate-spin" />}
-              {processando ? "Cancelando..." : cancelando && ehFalta(cancelando) ? "Confirmar falta" : "Confirmar cancelamento"}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      {dialogos}
     </div>
   );
 };

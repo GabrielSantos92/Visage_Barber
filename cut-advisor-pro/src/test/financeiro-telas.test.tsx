@@ -1,4 +1,4 @@
-// Telas de comissoes (admin) e "Meu Financeiro" (barbeiro). As regras estao no
+// Tela de comissoes (admin). As regras estao no
 // banco (testadas no backend); aqui se confere o que cada tela pede ao banco e
 // como mostra as respostas e as recusas.
 import { act, fireEvent, render, screen, within } from "@testing-library/react";
@@ -13,7 +13,6 @@ const toast = vi.hoisted(() => ({ success: vi.fn(), error: vi.fn() }));
 vi.mock("@/components/ui/sonner", () => ({ toast }));
 
 import AdminComissoes from "@/pages/admin/AdminComissoes";
-import BarbeiroFinanceiro from "@/pages/BarbeiroFinanceiro";
 
 const SEMANA = dataIso(inicioDaSemana(new Date()));
 const CONFIG = {
@@ -108,47 +107,5 @@ describe("Admin - Comissões", () => {
   });
 });
 
-describe("Barbeiro - Meu Financeiro", () => {
-  const MEU = {
-    percentual: 60, servicos: 2, faturamento: 90, comissao: 54, recebido: 24, comissao_total: 54, recebido_total: 24,
-    lancamentos: [
-      { id: 2, tipo: "reembolso", competencia: "2026-11-05", servico: "Corte", valor_pago: -10, percentual: 60, comissao: -6 },
-      { id: 1, tipo: "servico", competencia: "2026-11-04", servico: "Corte", valor_pago: 40, percentual: 60, comissao: 24 },
-    ],
-    pagamentos: [{ id: "x", semana_inicio: "2026-11-02", valor: 24, metodo: "pix", comprovante: "E1", observacoes: null, pago_em: "2026-11-05T15:00:00Z" }],
-  };
-
-  it("mostra só os dados do próprio barbeiro (uma única consulta: meu_financeiro)", async () => {
-    banco.rpc.mockResolvedValue({ data: MEU, error: null });
-    render(<MemoryRouter><BarbeiroFinanceiro /></MemoryRouter>);
-    const cartao = (rotulo: string) => screen.getByText(rotulo).parentElement!;
-    await screen.findByText("Sua comissão");
-    expect(within(cartao("Sua comissão")).getByText("60%")).toBeInTheDocument();
-    expect(screen.getByText("R$ 90,00")).toBeInTheDocument();
-    expect(screen.getByText("R$ 30,00")).toBeInTheDocument(); // saldo: 54 - 24
-    expect(screen.getByText("Reembolso")).toBeInTheDocument();
-    expect(screen.getByText(/Semana de 02\/11\/2026/)).toBeInTheDocument();
-    expect(new Set(banco.rpc.mock.calls.map(([f]) => f))).toEqual(new Set(["meu_financeiro"]));
-  });
-
-  it("filtro por mês e período personalizado mudam o intervalo pedido", async () => {
-    banco.rpc.mockResolvedValue({ data: MEU, error: null });
-    render(<MemoryRouter><BarbeiroFinanceiro /></MemoryRouter>);
-    await screen.findByText("Sua comissão");
-    await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Este mês" })); });
-    const hoje = new Date();
-    const mes = `${hoje.getFullYear()}-${String(hoje.getMonth() + 1).padStart(2, "0")}-01`;
-    expect(banco.rpc).toHaveBeenLastCalledWith("meu_financeiro", expect.objectContaining({ p_inicio: mes }));
-
-    await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Personalizado" })); });
-    await act(async () => { fireEvent.change(screen.getByLabelText("Data inicial"), { target: { value: "2026-10-01" } }); });
-    await act(async () => { fireEvent.change(screen.getByLabelText("Data final"), { target: { value: "2026-10-31" } }); });
-    expect(banco.rpc).toHaveBeenLastCalledWith("meu_financeiro", { p_inicio: "2026-10-01", p_fim: "2026-10-31" });
-  });
-
-  it("sem acesso (não é barbeiro): mostra a recusa do banco", async () => {
-    banco.rpc.mockResolvedValue({ data: null, error: { message: "Esta área é exclusiva dos barbeiros." } });
-    render(<MemoryRouter><BarbeiroFinanceiro /></MemoryRouter>);
-    expect(await screen.findByRole("alert")).toHaveTextContent("Esta área é exclusiva dos barbeiros.");
-  });
-});
+// "Meu Financeiro" do barbeiro agora faz parte do Painel do Barbeiro:
+// ver painel-barbeiro.test.tsx
