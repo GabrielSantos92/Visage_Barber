@@ -3,6 +3,9 @@ Estado atual do projeto Visage Barber
 Já enviadas ao GitHub (branch main):
 
 Commit	O que entrou
+94b6c67	Painel do Barbeiro (resumo do dia + financeiro) e Agenda separada com os modos Por dia, Próximos e Histórico (site e app)
+ecc7d7a	Meu desempenho do barbeiro: dias com mais cortes e origem do percentual (migration 20)
+12c2bd6	O agendamento no app recomeça do início ao trocar de aba, como no site
 e34f257	Financeiro, comissões e pagamentos online com Mercado Pago (backend, site, app e migrations 18 e 19)
 092b22e	Limite de 3 agendamentos por cliente por dia e bloqueio de serviços com componentes repetidos (banco, site e app)
 8659b29	Visagismo personalizado (formal, despojado, sem barba, loiro etc.) mantendo o rosto original; não gera imagem quando a análise dá "não aplicável" para rosto feminino
@@ -29,15 +32,21 @@ O que já existe:
 Pagamento por PIX e cartão pelo Mercado Pago (cartão pelo Checkout Pro), e registro de pagamento na barbearia.
 Comissão por barbeiro, com um percentual padrão e percentuais individuais.
 Fechamento semanal e registro dos pagamentos feitos aos barbeiros.
-Telas: Financeiro e Comissões para o admin (site); Meu Financeiro para o barbeiro (site e app); tela de pagamento do cliente (site e app); aba Financeiro do admin no app, com visão geral, gráficos, pagamentos (reembolso e duplicidades) e comissões.
+Telas: Financeiro e Comissões para o admin (site); financeiro do barbeiro dentro do Painel do Barbeiro (site e app); tela de pagamento do cliente (site e app); aba Financeiro do admin no app, com visão geral, gráficos, pagamentos (reembolso e duplicidades) e comissões.
 Pagamento em duplicidade (ex.: cliente pagou PIX e cartão) fica registrado e destacado para o admin devolver; nada é devolvido automaticamente.
-O card "Receita do mês" do dashboard usa os lançamentos do financeiro.
+O card "Receita do mês" do painel do admin usa os lançamentos do financeiro.
 O aviso de privacidade informa o envio de dados ao Mercado Pago.
+Painel e Agenda do barbeiro (commits ecc7d7a e 94b6c67), iguais no site e no app:
+
+Painel do Barbeiro (site /dashboard, aba PAINEL do app): a tela principal do barbeiro. Resumo do dia (situação e atendimentos de hoje, com cancelar, registrar falta e chat) e o botão Abrir agenda; Meu desempenho (faturamento gerado, minha comissão, meu percentual), com os filtros Hoje, Esta semana, Este mês, Últimos 30 dias e Personalizado; gráfico de dias com mais cortes; comissões e recebimentos. O financeiro do barbeiro fica só aqui.
+Agenda (site /barbeiro/agenda, aba AGENDA do app): o gerenciamento completo dos agendamentos. Modos Por dia (navegação por datas), Próximos (lista completa) e Histórico, com cancelar, registrar falta e chat com as mensagens não lidas. Não mostra nada do financeiro.
+"Meu Financeiro" deixou de ser uma tela separada: o endereço antigo /barbeiro/financeiro leva ao Painel. O login do barbeiro abre o Painel.
 Para concluir falta:
 
-rodar as migrations 18 e 19 (e a 17, se ainda não rodou) no Supabase;
+rodar as migrations 18, 19 e 20 (e a 17, se ainda não rodou) no Supabase;
 confirmar a origem do token do Mercado Pago e atualizar a URL do webhook;
-testar no sandbox e em um celular.
+testar no sandbox e em um celular;
+conferir o Painel e a Agenda do app em um celular (o app não tem testes automatizados de tela).
 3. Regras de negócio definidas
 Agendamento:
 
@@ -61,6 +70,13 @@ Mudar o percentual não recalcula o que já foi lançado. Sem percentual configu
 Reembolso estorna a comissão de forma proporcional. Atendimento cancelado depois de concluído é estornado.
 A semana vai de segunda a domingo, no horário de Brasília.
 O pagamento ao barbeiro pode ser parcial, mas nunca acima do saldo. O sistema só registra o pagamento; não transfere dinheiro.
+Painel e Agenda:
+
+Faturamento e comissão do Painel vêm só dos lançamentos oficiais (atendimentos concluídos e pagos, com descontos, reembolsos e estornos). Pagamento em duplicidade não entra.
+O gráfico de dias com mais cortes conta os atendimentos concluídos, pagos ou não, de segunda a domingo, no horário de Brasília. Não é um valor financeiro.
+O percentual exibido é o individual; sem ele, o padrão da barbearia; sem nenhum dos dois, aparece como pendente.
+Cancelar e registrar falta seguem a mesma regra e a mesma confirmação no Painel e na Agenda: "Cliente faltou" aparece depois do horário ou quando o atendimento já foi concluído; cancelado não tem ação. Registrar falta num atendimento concluído e pago gera o estorno da comissão.
+Cada barbeiro só vê os próprios dados: as funções do banco identificam o barbeiro pelo login.
 4. Estrutura do banco (Supabase)
 Tabelas que já existiam e foram usadas: agendamentos, servicos, barbeiros, profiles, user_roles.
 
@@ -79,14 +95,17 @@ lancamentos_financeiros	Fotografia financeira de cada serviço, mais os ajustes
 pagamentos_comissao	Pagamentos feitos aos barbeiros
 Migration 19 (20261105000019_pagamentos_duplicidade_auditoria.sql): pagamentos em duplicidade, cancelamento de cobranças no Mercado Pago e histórico auditável. Roda depois da 18.
 
+Migration 20 (20261109000020_meu_desempenho.sql): função meu_desempenho, só de leitura (atendimentos concluídos por dia da semana e origem do percentual). Roda depois da 19.
+
 Proteções (18 e 19): gatilho que bloqueia alterações nos registros financeiros, índices únicos contra duplicidade, permissões por usuário (RLS) e funções SQL para cada operação (iniciar pagamento, aplicar estado, registrar pagamento na barbearia, reembolso, configurar comissão, pagar comissão, resumos e fechamento semanal).
 5. Arquitetura
 Monorepo C:\vb: backend (Express), cut-advisor-pro (site React/Vite), barber-mobile (app Expo 57) e supabase/migrations.
 Backend: usa a chave de serviço do Supabase e a API REST do Mercado Pago, sem SDK. As rotas novas ficam em /api/pagamentos: criar, sincronizar, reembolsar, cancelar cobranças abertas e webhook.
 Site e app: leem os dados direto do Supabase, sempre limitados pelas permissões do banco. As bibliotecas de pagamento e financeiro são iguais nas duas plataformas, e um teste confere isso.
-Testes: o backend roda as migrations reais em um banco embutido (PGlite); o site usa Vitest com Testing Library.
+Painel e Agenda do barbeiro: consultas, regras de cancelamento e falta, textos e períodos ficam em lib/painelBarbeiro.ts, igual no site e no app (o teste de paridade confere). Componentes: cut-advisor-pro/src/components/barbeiro/ e barber-mobile/src/components/barbeiro/.
+Testes: o backend roda as migrations reais em um banco embutido (PGlite); o site usa Vitest com Testing Library; o app não tem testes automatizados (é validado com tsc e com o pacote do Expo).
 6. Situação no GitHub
-Tudo foi enviado para a main no commit e34f257 (51 arquivos), depois de passar nos testes: 159 no backend e 206 no site.
+Tudo foi enviado para a main. Último commit de código: 94b6c67, depois de passar nos testes: 170 no backend e 228 no site.
 Ficou fora do Git: docs/Respostas-Questionario-TCC.docx e os arquivos .env.
 7. Problemas conhecidos
 Mercado Pago: nunca testado no sandbox real.
@@ -98,11 +117,14 @@ Avisos de lint antigos: 9 em MeusAgendamentos.tsx e 1 em Booking.tsx.
 Tipos do Supabase: não foram regenerados. As tabelas e funções novas são acessadas com tipos escritos à mão.
 Notificações push: continuam sem funcionar.
 Reembolsos: a taxa no reembolso é registrada como zero. A devolução de um pagamento em duplicidade é feita manualmente pelo admin.
+Sem a migration 20, o gráfico de dias com mais cortes mostra um erro; o resto do Painel funciona.
+No app, a aba HORÁRIOS (disponibilidade) ainda tem o título "Minha Agenda", o que pode confundir com a aba AGENDA.
 8. Próximas tarefas
-Rodar as migrations 17 (se pendente), 18 e 19, nessa ordem, no SQL Editor do Supabase.
+Rodar as migrations 17 (se pendente), 18, 19 e 20, nessa ordem, no SQL Editor do Supabase.
 Na conta Seller Test User, criar uma aplicação e usar o Access Token e a assinatura secreta dela em MERCADOPAGO_ACCESS_TOKEN e MERCADOPAGO_WEBHOOK_SECRET.
 Subir o backend e o túnel (cloudflared tunnel --url http://localhost:3001) e atualizar MERCADOPAGO_NOTIFICATION_URL e o webhook no painel (evento "Pagamentos", em /api/pagamentos/webhook).
 Testar o cartão com o Buyer Test User numa janela anônima: cartão 5031 4332 1540 6351, CVV 123, validade 11/30, CPF 12345678909. O nome do titular define o resultado: APRO aprova, OTHE recusa, CONT fica pendente.
 Testar o PIX: gerar o QR Code e ver a expiração. No sandbox, a aprovação costuma não ser possível; ela só se valida em produção, com uma cobrança pequena.
 Configurar em Admin → Comissões o percentual padrão e o de cada barbeiro.
-Gerar um novo build pelo EAS, porque o expo-clipboard entrou no app, e testar em um celular.
+Gerar um novo build pelo EAS (entraram o expo-clipboard, o Painel e a Agenda) e testar em um celular.
+Testar o Painel e a Agenda no site e no celular: resumo do dia, cancelar e registrar falta, chat, filtros e gráfico no Painel; Por dia (setas e voltar para hoje), Próximos e Histórico na Agenda.
