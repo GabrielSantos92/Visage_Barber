@@ -8,6 +8,7 @@ const authRoutes = require('./routes/auth');
 const visagismoRoutes = require('./routes/visagismo');
 const { router: privacidadeRoutes } = require('./routes/privacidade');
 const { router: pagamentosRoutes } = require('./routes/pagamentos');
+const { router: notificacoesRoutes, iniciarNotificacoes } = require('./routes/notificacoes');
 
 const app = express();
 
@@ -26,8 +27,11 @@ app.use('/api/admin', adminRoutes);
 app.use('/api/visagismo', visagismoRoutes);
 app.use('/api/privacidade', privacidadeRoutes);
 app.use('/api/pagamentos', pagamentosRoutes);
+app.use('/api/notificacoes', notificacoesRoutes);
 
 const PORT = process.env.PORT || 3001;
 app.listen(PORT, () => {
   console.log(`BarberPro API rodando na porta ${PORT}`);
+  // Le a fila de notificacoes ao subir e enquanto estiver acordado (so se ativadas)
+  iniciarNotificacoes();
 });

@@ -1,5 +1,7 @@
 // Postgres embutido (PGlite) com o esquema minimo equivalente ao do Supabase e
 // as migrations de agendamento aplicadas, para testar as regras direto no banco.
+// As de notificacao entram junto: assim todos os testes rodam com os triggers
+// de aviso ativos, como no banco real.
 const fs = require('node:fs');
 const path = require('node:path');
 
@@ -14,6 +16,8 @@ const MIGRATIONS_AGENDA = [
   '20261105000018_financeiro.sql',
   '20261105000019_pagamentos_duplicidade_auditoria.sql',
   '20261109000020_meu_desempenho.sql',
+  '20261109000021_notificacoes.sql',
+  '20261109000022_notificacoes_eventos.sql',
 ];
 
 const JOAO = 'b0000000-0000-4000-8000-000000000001';
@@ -70,9 +74,22 @@ const ESQUEMA = `
     barbeiro_id uuid NOT NULL REFERENCES public.barbeiros(id) ON DELETE CASCADE,
     servico_id uuid NOT NULL REFERENCES public.servicos(id) ON DELETE CASCADE,
     data_hora timestamptz NOT NULL,
-    status public.agendamento_status NOT NULL DEFAULT 'confirmado');
+    status public.agendamento_status NOT NULL DEFAULT 'confirmado',
+    created_at timestamptz NOT NULL DEFAULT now());
   CREATE UNIQUE INDEX agendamentos_horario_unico
     ON public.agendamentos (barbeiro_id, data_hora) WHERE status <> 'cancelado';
+  -- Chat (no Supabase tambem foi criado fora das migrations)
+  CREATE TABLE public.conversas (
+    id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    cliente_id uuid NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+    barbeiro_id uuid NOT NULL REFERENCES public.barbeiros(id) ON DELETE CASCADE);
+  CREATE TABLE public.mensagens (
+    id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    conversa_id uuid NOT NULL REFERENCES public.conversas(id) ON DELETE CASCADE,
+    remetente_id uuid NOT NULL,
+    conteudo text NOT NULL,
+    lida boolean NOT NULL DEFAULT false,
+    created_at timestamptz NOT NULL DEFAULT now());
 
   INSERT INTO auth.users VALUES ('${CLIENTE_A}'), ('${CLIENTE_B}'), ('${CLIENTE_C}'), ('${ADMIN}'), ('${USUARIO_JOAO}');
   INSERT INTO public.user_roles VALUES ('${ADMIN}', 'admin'), ('${USUARIO_JOAO}', 'barbeiro');
@@ -88,15 +105,16 @@ const ESQUEMA = `
     SELECT b.id, 3, p.i::time, p.f::time FROM public.barbeiros b, (VALUES ('09:00','12:00'), ('13:00','18:00')) p(i, f);
 `;
 
-// `antesDasMigrations` roda SQL sobre o esquema antigo (ex.: agendamentos legados)
-async function criarBanco({ antesDasMigrations = '' } = {}) {
+// `antesDasMigrations` roda SQL sobre o esquema antigo (ex.: agendamentos legados);
+// `migracoes` troca a lista aplicada (ex.: para testar uma migration isolada)
+async function criarBanco({ antesDasMigrations = '', migracoes = MIGRATIONS_AGENDA } = {}) {
   const { PGlite } = await import('@electric-sql/pglite');
   const db = new PGlite();
   await db.exec(ESQUEMA);
   if (antesDasMigrations) await db.exec(antesDasMigrations);
-  for (const nome of MIGRATIONS_AGENDA) await db.exec(migration(nome));
+  for (const nome of migracoes) await db.exec(migration(nome));
   // As migrations precisam poder ser executadas de novo
-  for (const nome of MIGRATIONS_AGENDA) await db.exec(migration(nome));
+  for (const nome of migracoes) await db.exec(migration(nome));
   return db;
 }
 
@@ -132,6 +150,6 @@ async function recusa(promessa) {
 }
 
 module.exports = {
-  criarBanco, auxiliares, recusa, migration, as, DIA,
+  criarBanco, auxiliares, recusa, migration, as, DIA, MIGRATIONS_AGENDA,
   JOAO, PEDRO, INATIVO, CORTE_30, COMBO_60, SEM_VINCULO, BARBA_30, SOBRANCELHA_30, CLIENTE_A, CLIENTE_B, CLIENTE_C, ADMIN, USUARIO_JOAO,
 };
