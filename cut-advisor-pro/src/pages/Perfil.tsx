@@ -9,11 +9,14 @@ import Navbar from "@/components/Navbar";
 import TelefoneInput from "@/components/TelefoneInput";
 import { telefoneParaCampo, telefoneParaSalvar, validarTelefone } from "@/lib/telefone";
 import PrivacidadePerfil from "@/components/PrivacidadePerfil";
+import WhatsappPerfil from "@/components/WhatsappPerfil";
 
 const Perfil = () => {
   const navigate = useNavigate();
   const { user, role } = useAuth();
   const [form, setForm] = useState({ nome: "", telefone: "" });
+  // Telefone como esta salvo no cadastro (o WhatsApp usa o salvo, nao o digitado)
+  const [telefoneSalvo, setTelefoneSalvo] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -26,7 +29,10 @@ const Perfil = () => {
       .eq("user_id", user.id)
       .single()
       .then(({ data }) => {
-        if (data) setForm({ nome: data.nome || "", telefone: telefoneParaCampo(data.telefone) });
+        if (data) {
+          setForm({ nome: data.nome || "", telefone: telefoneParaCampo(data.telefone) });
+          setTelefoneSalvo(data.telefone ?? null);
+        }
         setLoading(false);
       });
   }, [user]);
@@ -56,6 +62,7 @@ const Perfil = () => {
       return;
     }
 
+    setTelefoneSalvo(telefoneParaSalvar(form.telefone) || null);
     toast.success("Perfil atualizado com sucesso!");
   };
 
@@ -188,6 +195,7 @@ const Perfil = () => {
         )}
 
         <PrivacidadePerfil />
+        {!loading && <WhatsappPerfil telefone={telefoneSalvo} />}
       </main>
     </div>
   );

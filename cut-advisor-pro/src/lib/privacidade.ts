@@ -123,3 +123,84 @@ export const AVISO_PAGAMENTOS: { titulo: string; paragrafos: string[]; itens?: s
     ],
   },
 ];
+
+// ---------------------------------------------------------------
+// WhatsApp: confirmacao de presenca 2 horas antes do atendimento. Depende da
+// concordancia do titular, dada no Perfil, e pode ser desfeita la ou
+// respondendo PARAR. A versao deve ser igual a
+// FINALIDADES.whatsapp_avisos.versaoAviso em backend/src/services/consentimento.js
+// (e a da outra plataforma). So descreve o que o sistema faz de fato (migration
+// 20261113000025 e backend/src/services/confirmacaoPresenca.js). Texto sujeito
+// a validacao juridica.
+// ---------------------------------------------------------------
+export const FINALIDADE_WHATSAPP = "whatsapp_avisos";
+export const VERSAO_AVISO_WHATSAPP = "2026-11-13";
+
+const URL_WHATSAPP = `/api/privacidade/consentimentos/${FINALIDADE_WHATSAPP}`;
+
+export const buscarConsentimentoWhatsapp = () => apiGet<SituacaoConsentimento>(URL_WHATSAPP);
+
+export const concederConsentimentoWhatsapp = () =>
+  apiPost<SituacaoConsentimento>(URL_WHATSAPP, { versao: VERSAO_AVISO_WHATSAPP, origem: "web" });
+
+export const revogarConsentimentoWhatsapp = () =>
+  apiPost<SituacaoConsentimento>(`${URL_WHATSAPP}/revogar`, { origem: "web" });
+
+// So celular brasileiro (DDD + 9 digitos) recebe WhatsApp pelo numero do cadastro
+export const celularParaWhatsapp = (telefone: string | null | undefined) =>
+  /^[1-9][1-9]9\d{8}$/.test((telefone ?? "").replace(/\D/g, "").replace(/^0+/, "").replace(/^55(?=\d{11}$)/, ""));
+
+// Resumo exibido no Perfil, junto da opcao de ativar
+export const AVISO_WHATSAPP_RESUMO =
+  "Duas horas antes de cada atendimento, enviamos uma mensagem ao celular do seu cadastro perguntando se você confirma a presença. Você responde Sim ou Não. Responder Não não cancela o agendamento.";
+
+export const AVISO_WHATSAPP_CONCORDANCIA =
+  "Autorizo o Visage Barber a enviar mensagens sobre os meus agendamentos para o celular do meu cadastro pelo WhatsApp, conforme o Aviso de Privacidade.";
+
+export const AVISO_WHATSAPP: { titulo: string; paragrafos: string[]; itens?: string[] }[] = [
+  {
+    titulo: "Quando se aplica",
+    paragrafos: [
+      "Só depois que você ativa a opção “Mensagens pelo WhatsApp” no seu Perfil. Sem essa autorização, nenhuma mensagem é enviada.",
+      "Cerca de duas horas antes de cada atendimento confirmado, enviamos uma mensagem ao celular do seu cadastro perguntando se você confirma a presença. Quem agenda com menos de duas horas de antecedência não recebe a mensagem.",
+    ],
+  },
+  {
+    titulo: "O que a mensagem leva e quem a envia",
+    paragrafos: ["O envio é feito pela WhatsApp Business Platform, serviço oficial da Meta. Para isso, a Meta recebe:"],
+    itens: [
+      "O número do celular do seu cadastro.",
+      "O texto da mensagem: seu primeiro nome, o serviço, o primeiro nome do barbeiro, a data e o horário.",
+      "Não enviamos valores, pagamentos, fotos nem mensagens do chat.",
+    ],
+  },
+  {
+    titulo: "A sua resposta",
+    paragrafos: [
+      "Sua resposta (Sim ou Não) é registrada e mostrada ao barbeiro do atendimento. Responder Não não cancela o agendamento: o horário continua reservado até que você ou a barbearia o cancele.",
+      "Se você não responder, o agendamento continua valendo e o barbeiro vê “Sem resposta”.",
+    ],
+  },
+  {
+    titulo: "O que guardamos",
+    paragrafos: ["Para cada mensagem, guardamos:"],
+    itens: [
+      "A situação do envio (enviada, entregue, lida ou com falha) e as datas.",
+      "O código da mensagem na Meta e o número pelo qual ela foi entregue.",
+      "A sua resposta e quando ela chegou.",
+      "O registro da sua autorização e, se houver, da revogação.",
+    ],
+  },
+  {
+    titulo: "Como parar de receber",
+    paragrafos: [
+      "Desative a opção no seu Perfil, ou responda PARAR a qualquer mensagem. Nos dois casos, nenhuma nova mensagem é enviada; para voltar a receber, ative de novo no Perfil.",
+    ],
+  },
+  {
+    titulo: "Barbeiros",
+    paragrafos: [
+      "O barbeiro que ativa a opção recebe pelo WhatsApp um aviso quando um cliente informa que não virá, com o primeiro nome do cliente, o serviço, a data e o horário.",
+    ],
+  },
+];

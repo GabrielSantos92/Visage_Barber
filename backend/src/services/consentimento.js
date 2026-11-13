@@ -13,6 +13,9 @@ const FINALIDADES = {
   // Versao do Aviso de Privacidade apresentado. Ao mudar o texto do aviso (web e
   // mobile), atualize aqui: quem concordou com a versao antiga precisa concordar de novo.
   visagismo_foto: { versaoAviso: '2026-11-04' },
+  // Avisos e confirmacao de presenca pelo WhatsApp (migration 20261113000025).
+  // A versao e a do texto mostrado no perfil (web e mobile: lib/privacidade.ts).
+  whatsapp_avisos: { versaoAviso: '2026-11-13' },
 };
 
 const ORIGENS = ['web', 'mobile'];

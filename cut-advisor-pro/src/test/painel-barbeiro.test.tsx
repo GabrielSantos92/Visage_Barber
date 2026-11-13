@@ -200,7 +200,11 @@ describe("Painel do Barbeiro - B, C e D (financeiro)", () => {
     expect(screen.getByText(/Semana de 02\/11\/2026/)).toBeInTheDocument();
 
     // Nenhuma funcao do admin; financeiro so pelas funcoes do proprio barbeiro
-    expect(new Set(banco.rpc.mock.calls.map(([f]) => f))).toEqual(new Set(["concluir_agendamentos_passados", "meu_financeiro", "meu_desempenho"]));
+    expect(new Set(banco.rpc.mock.calls.map(([f]) => f))).toEqual(new Set([
+      "concluir_agendamentos_passados", "meu_financeiro", "meu_desempenho",
+      // Situacao da confirmacao de presenca (WhatsApp), so dos proprios atendimentos
+      "presenca_dos_agendamentos",
+    ]));
   });
 
   it("concluído e ainda não pago: conta no gráfico, mas não no faturamento", async () => {

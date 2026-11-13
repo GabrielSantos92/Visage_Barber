@@ -8,6 +8,7 @@ import { F, Theme } from '../../lib/theme';
 import TelefoneInput from '../../components/TelefoneInput';
 import { telefoneParaCampo, telefoneParaSalvar, validarTelefone } from '../../lib/telefone';
 import PrivacidadePerfil from '../../components/PrivacidadePerfil';
+import WhatsappPerfil from '../../components/WhatsappPerfil';
 import { useNavigation } from '@react-navigation/native';
 import { StackNavigationProp } from '@react-navigation/stack';
 import { ClienteStackParamList } from '../../navigation/ClienteNavigator';
@@ -20,6 +21,8 @@ export default function PerfilScreen() {
   const navigation = useNavigation<StackNavigationProp<ClienteStackParamList>>();
   const [nome, setNome]         = useState('');
   const [telefone, setTelefone] = useState('');
+  // Telefone como esta salvo no cadastro (o WhatsApp usa o salvo, nao o digitado)
+  const [telefoneSalvo, setTelefoneSalvo] = useState<string | null>(null);
   const [formatoRosto, setFormatoRosto] = useState('');
   const [loading, setLoading]   = useState(true);
   const [saving, setSaving]     = useState(false);
@@ -31,6 +34,7 @@ export default function PerfilScreen() {
     const { data } = await supabase.from('profiles').select('*').eq('user_id', user.id).single();
     setNome(data?.nome ?? '');
     setTelefone(telefoneParaCampo(data?.telefone));
+    setTelefoneSalvo(data?.telefone ?? null);
     setFormatoRosto(data?.formato_rosto ?? '');
     setLoading(false);
   }
@@ -45,7 +49,10 @@ export default function PerfilScreen() {
       .eq('user_id', user.id);
     setSaving(false);
     if (error) Alert.alert('Erro', error.message);
-    else Alert.alert('Salvo!', 'Perfil atualizado.');
+    else {
+      setTelefoneSalvo(telefoneParaSalvar(telefone) || null);
+      Alert.alert('Salvo!', 'Perfil atualizado.');
+    }
   }
 
   if (loading) return <ActivityIndicator style={{ flex: 1, backgroundColor: C.bg }} color={C.accent} />;
@@ -95,6 +102,7 @@ export default function PerfilScreen() {
         </TouchableOpacity>
 
         <PrivacidadePerfil onConsultarAviso={() => navigation.navigate('AvisoPrivacidade')} />
+        <WhatsappPerfil telefone={telefoneSalvo} onConsultarAviso={() => navigation.navigate('AvisoPrivacidade')} />
 
         <TouchableOpacity style={s.btnSecondary} onPress={signOut}>
           <Feather name="log-out" size={14} color={C.mutedFg} />

@@ -1,4 +1,7 @@
-// Notificacoes push (ver services/notificacoes.js e services/expoPush.js).
+// Avisos: fila do banco lida pelo backend. Dois canais, cada um com a sua chave
+// (services/notificacoesConfig.js): push pela Expo (services/notificacoes.js e
+// services/expoPush.js; cancelado, fica desligado) e WhatsApp
+// (services/confirmacaoPresenca.js; o webhook fica em routes/whatsapp.js).
 //
 //   POST /api/notificacoes/processar  chamada pelo banco (pg_net) quando ha aviso
 //        na fila. Exige o cabecalho X-Notificacoes-Segredo, igual a
@@ -7,8 +10,9 @@
 //   POST /api/notificacoes/teste      { dispositivo_id? } usuario logado: envia um
 //        aviso de teste aos proprios aparelhos. Nao grava nada na fila.
 //
-// Desligado (NOTIFICACOES_ATIVAS diferente de "true"): as duas rotas respondem
-// 503 e nada e enviado. Sem segredo valido, a rota do banco fica fechada.
+// Com os dois canais desligados, as duas rotas respondem 503 e nada e enviado.
+// /processar le a fila de cada canal ligado; /teste e so do push. Sem segredo
+// valido, a rota do banco fica fechada.
 
 const crypto = require('node:crypto');
 const express = require('express');
@@ -17,7 +21,9 @@ const { criarLimitador } = require('../services/limiteTaxa');
 const { criarExpoPush } = require('../services/expoPush');
 const { criarServicoNotificacoes, NotificacaoErro } = require('../services/notificacoes');
 
-const SEGREDO_MINIMO = 32;
+const { lerConfiguracao, SEGREDO_MINIMO } = require('../services/notificacoesConfig');
+const { servico: servicoWhatsappReal, configuracao: configuracaoWhatsapp } = require('./whatsapp');
+
 const segredoConfigurado = (segredo) => typeof segredo === 'string' && segredo.length >= SEGREDO_MINIMO;
 
 // Comparacao em tempo constante (o hash iguala os tamanhos)
@@ -32,7 +38,11 @@ function criarRotasNotificacoes({
   servico,
   verificarToken,
   segredo,
+  // Algum canal ligado. pushAtivo: o canal push (por padrao, o mesmo valor)
   ativo,
+  pushAtivo = ativo,
+  // Servico do canal WhatsApp, quando ligado
+  servicoWhatsapp = null,
   // Chamadas autenticadas (so o banco tem o segredo): uma conta so, sem IP
   limiteProcessar = criarLimitador({ max: 120, janelaMs: 60 * 1000 }),
   // Tentativas sem segredo ou com segredo errado, por IP. Nao afeta as autenticadas.
@@ -44,6 +54,11 @@ function criarRotasNotificacoes({
 
   function exigirAtivo(_req, res, next) {
     if (!ativo) return res.status(503).json({ error: 'Notificações desativadas no servidor.', code: 'DESATIVADO' });
+    next();
+  }
+
+  function exigirPush(_req, res, next) {
+    if (!pushAtivo) return res.status(503).json({ error: 'Notificações desativadas no servidor.', code: 'DESATIVADO' });
     next();
   }
 
@@ -81,11 +96,12 @@ function criarRotasNotificacoes({
     if (!limiteProcessar.consumir('autenticado')) {
       return res.status(429).json({ error: 'Muitas chamadas. Tente de novo em instantes.', code: 'LIMITE' });
     }
-    servico.solicitarProcessamento().catch((e) => log.error('[notificacoes] falha no processamento:', e.message));
+    if (pushAtivo) servico.solicitarProcessamento().catch((e) => log.error('[notificacoes] falha no processamento:', e.message));
+    if (servicoWhatsapp) servicoWhatsapp.solicitarProcessamento().catch((e) => log.error('[whatsapp] falha no processamento:', e.message));
     res.status(202).json({ recebido: true });
   });
 
-  router.post('/teste', exigirAtivo, autenticar, async (req, res) => {
+  router.post('/teste', exigirPush, autenticar, async (req, res) => {
     if (!limiteTeste.consumir(`usuario:${req.usuario.id}`)) {
       return res.status(429).json({ error: 'Muitos testes seguidos. Tente de novo em alguns minutos.', code: 'LIMITE' });
     }
@@ -139,7 +155,10 @@ const segundos = (valor, padrao) => {
   return Number.isFinite(n) && n > 0 ? n : padrao;
 };
 
-const ativo = process.env.NOTIFICACOES_ATIVAS === 'true';
+const configuracao = lerConfiguracao();
+const pushAtivo = configuracao.push.ativo;
+const whatsappAtivo = configuracaoWhatsapp.whatsapp.ativo;
+const ativo = pushAtivo || whatsappAtivo;
 const servico = criarServicoNotificacoes({
   chamar: chamarSupabase,
   expo: criarExpoPush({
@@ -149,22 +168,41 @@ const servico = criarServicoNotificacoes({
   buscarDispositivos,
 });
 
-const router = criarRotasNotificacoes({ servico, verificarToken, segredo: process.env.NOTIFICACOES_SEGREDO, ativo });
+const router = criarRotasNotificacoes({
+  servico, verificarToken, segredo: process.env.NOTIFICACOES_SEGREDO, ativo, pushAtivo,
+  servicoWhatsapp: whatsappAtivo ? servicoWhatsappReal : null,
+});
 
-// Chamado pelo app.js depois de subir o servidor
+// Chamado pelo app.js depois de subir o servidor. So nomes de variaveis vao
+// para o log, nunca valores.
 function iniciarNotificacoes() {
+  if (configuracao.chaveAntiga) {
+    console.warn('[notificacoes] NOTIFICACOES_ATIVAS esta configurada: essa chave antiga nao deve existir. '
+      + 'Enquanto ela existir, nenhum canal liga. Remova a variavel.');
+  }
+  for (const [nome, canal] of [['WhatsApp', configuracao.whatsapp], ['push', configuracao.push]]) {
+    if (canal.pedido && !canal.ativo && !configuracao.chaveAntiga) {
+      console.warn(`[notificacoes] ${nome} pedido, mas desligado: falta ${canal.faltando.join(', ')}.`);
+    }
+  }
   if (!ativo) {
-    console.log('[notificacoes] desligadas (NOTIFICACOES_ATIVAS diferente de "true"): nada sera enviado.');
+    console.log('[notificacoes] desligadas (nenhum canal ativado): nada sera enviado.');
     return;
   }
   if (!segredoConfigurado(process.env.NOTIFICACOES_SEGREDO)) {
     console.warn(`[notificacoes] NOTIFICACOES_SEGREDO ausente ou com menos de ${SEGREDO_MINIMO} caracteres: `
       + 'o banco nao consegue acordar o backend; a fila so e lida enquanto o servidor estiver acordado.');
   }
-  if (!process.env.EXPO_ACCESS_TOKEN) {
-    console.warn('[notificacoes] EXPO_ACCESS_TOKEN ausente: se a seguranca de push estiver ligada na Expo, os envios serao recusados.');
+  const intervaloMs = segundos(process.env.NOTIFICACOES_INTERVALO_SEGUNDOS, 20) * 1000;
+  if (pushAtivo) {
+    console.log('[notificacoes] push ligado.');
+    servico.iniciar(intervaloMs);
   }
-  servico.iniciar(segundos(process.env.NOTIFICACOES_INTERVALO_SEGUNDOS, 20) * 1000);
+  if (whatsappAtivo) {
+    const piloto = configuracao.whatsapp.piloto.length;
+    console.log(`[notificacoes] WhatsApp ligado${piloto ? ` (piloto: ${piloto} usuario(s))` : ''}.`);
+    servicoWhatsappReal.iniciar(intervaloMs);
+  }
 }
 
 module.exports = { router, iniciarNotificacoes, criarRotasNotificacoes, segredoConfere, SEGREDO_MINIMO };

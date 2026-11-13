@@ -1,11 +1,11 @@
 import { motion } from "framer-motion";
-import { Clock, User, MessageCircle, Hourglass } from "lucide-react";
+import { Clock, User, MessageCircle, MessageSquare, Hourglass } from "lucide-react";
 import { etapasDoAgendamento, pausaQueContem, ROTULO_ETAPA } from "@/lib/etapas";
 import { exibirTelefone } from "@/lib/telefone";
 import { formatarReais } from "@/lib/pagamentos";
 import {
   ROTULO_STATUS_AGENDAMENTO, TEXTOS_ACAO, TEXTOS_CANCELAMENTO, acaoDoAgendamento, duracaoDoAgendamento,
-  horaDoAgendamento, precoDoAgendamento, quandoDoAgendamento,
+  horaDoAgendamento, precoDoAgendamento, presencaDoAgendamento, quandoDoAgendamento,
 } from "@/lib/painelBarbeiro";
 import type { AgendamentoPainel } from "@/lib/painelBarbeiro";
 import { COR_STATUS } from "./estilos";
@@ -34,6 +34,7 @@ export default function CartaoAgendamento({ agendamento: a, todos, indice = 0, n
   const acao = acaoDoAgendamento(a);
   const preco = precoDoAgendamento(a);
   const duracao = duracaoDoAgendamento(a);
+  const presenca = presencaDoAgendamento(a);
 
   return (
     <motion.div
@@ -100,6 +101,19 @@ export default function CartaoAgendamento({ agendamento: a, todos, indice = 0, n
         <p className="flex items-center gap-2 mb-4 font-mono text-[10px] uppercase tracking-widest text-accent">
           <Hourglass className="size-3" />
           Na pausa de {naPausa.agendamento.profiles?.nome ?? "outro cliente"} · retornar às {hora(naPausa.pausa.fim)}
+        </p>
+      )}
+
+      {/* Resposta do cliente ao pedido de confirmacao de presenca (WhatsApp) */}
+      {presenca && (
+        <p
+          data-testid="presenca"
+          className={`flex items-center gap-2 mb-4 font-mono text-[10px] uppercase tracking-widest ${
+            presenca.tom === "alerta" ? "text-destructive" : presenca.tom === "ok" ? "text-primary" : "text-muted-foreground"
+          }`}
+        >
+          <MessageSquare className="size-3" />
+          {presenca.texto}
         </p>
       )}
 

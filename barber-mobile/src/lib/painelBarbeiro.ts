@@ -12,6 +12,9 @@ import type { MeuDesempenho, MeuFinanceiro } from './financeiro';
 
 export type StatusAgendamento = 'confirmado' | 'concluido' | 'cancelado';
 
+// Resposta do cliente ao pedido de confirmacao de presenca pelo WhatsApp
+export type SituacaoPresenca = 'confirmada' | 'recusada' | 'sem_resposta' | 'pendente' | 'nao_enviada';
+
 export interface AgendamentoPainel {
   id: string;
   data_hora: string;
@@ -26,6 +29,8 @@ export interface AgendamentoPainel {
   ativo_final_min: number | null;
   profiles: { nome: string; telefone?: string | null } | null;
   servicos: { nome: string; preco: number; duracao_min: number } | null;
+  // Ausente: nenhum pedido de confirmacao (ou banco sem a migration do WhatsApp)
+  presenca?: SituacaoPresenca | null;
 }
 
 // ---------------------------------------------------------------
@@ -47,7 +52,7 @@ interface Consulta<L> extends PromiseLike<{ data: L[] | null; error: Erro | null
 }
 interface Banco {
   from<L>(tabela: string): Consulta<L>;
-  rpc(fn: string): PromiseLike<{ error: Erro | null }>;
+  rpc<L = unknown>(fn: string, args?: Record<string, unknown>): PromiseLike<{ data?: L[] | null; error: Erro | null }>;
 }
 const banco = () => supabase as unknown as Banco;
 
@@ -71,7 +76,7 @@ export async function buscarAgendaDoBarbeiro(userId: string, dia?: Date): Promis
   if (dia) consulta = consulta.gte('data_hora', inicioDoDia(dia).toISOString()).lte('data_hora', fimDoDia(dia).toISOString());
   const { data, error } = await consulta.order('data_hora', { ascending: true });
   if (error) throw new Error(error.message);
-  return { barbeiroId: barbeiro.id, agendamentos: await comClientes(data ?? []) };
+  return { barbeiroId: barbeiro.id, agendamentos: await comPresenca(await comClientes(data ?? [])) };
 }
 
 // cliente_id aponta para auth.users; em profiles a coluna equivalente e user_id
@@ -84,6 +89,23 @@ async function comClientes(lista: AgendamentoPainel[]): Promise<AgendamentoPaine
     (data ?? []).forEach((p) => { clientes[p.user_id] = { nome: p.nome, telefone: p.telefone ?? null }; });
   }
   return lista.map((a) => ({ ...a, profiles: clientes[a.cliente_id] ?? null }));
+}
+
+// Situacao da confirmacao de presenca dos atendimentos confirmados. Opcional:
+// se a funcao nao existir no banco ou falhar, a agenda segue igual.
+async function comPresenca(lista: AgendamentoPainel[]): Promise<AgendamentoPainel[]> {
+  const ids = lista.filter((a) => a.status === 'confirmado').map((a) => a.id);
+  if (ids.length === 0) return lista;
+  try {
+    const { data, error } = await banco().rpc<{ agendamento_id: string; situacao: SituacaoPresenca }>(
+      'presenca_dos_agendamentos', { p_ids: ids });
+    if (error || !Array.isArray(data)) return lista;
+    const mapa: Record<string, SituacaoPresenca> = {};
+    data.forEach((p) => { mapa[p.agendamento_id] = p.situacao; });
+    return lista.map((a) => (mapa[a.id] ? { ...a, presenca: mapa[a.id] } : a));
+  } catch {
+    return lista;
+  }
 }
 
 // Mensagens nao lidas de cada cliente (selo no botao de chat)
@@ -173,6 +195,22 @@ export const ROTULO_STATUS_AGENDAMENTO: Record<StatusAgendamento, string> = {
   concluido: 'Concluído',
   cancelado: 'Cancelado',
 };
+
+// Confirmacao de presenca pelo WhatsApp, no cartao do atendimento. Responder
+// 'nao' nao cancela: o barbeiro decide se libera o horario.
+export type TomPresenca = 'ok' | 'alerta' | 'neutro';
+export const ROTULO_PRESENCA: Record<'confirmada' | 'recusada' | 'sem_resposta', string> = {
+  confirmada: 'Presença confirmada pelo WhatsApp',
+  recusada: 'Cliente avisou que não virá',
+  sem_resposta: 'Sem resposta no WhatsApp',
+};
+export function presencaDoAgendamento(a: { status: string; presenca?: SituacaoPresenca | null }): { texto: string; tom: TomPresenca } | null {
+  if (a.status !== 'confirmado') return null;
+  if (a.presenca === 'confirmada') return { texto: ROTULO_PRESENCA.confirmada, tom: 'ok' };
+  if (a.presenca === 'recusada') return { texto: ROTULO_PRESENCA.recusada, tom: 'alerta' };
+  if (a.presenca === 'sem_resposta') return { texto: ROTULO_PRESENCA.sem_resposta, tom: 'neutro' };
+  return null;
+}
 
 export interface SituacaoDoDia { aAtender: number; concluidos: number; cancelados: number }
 

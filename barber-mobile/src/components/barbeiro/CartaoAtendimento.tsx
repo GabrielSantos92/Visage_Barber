@@ -7,7 +7,7 @@ import { formatarReais } from '../../lib/pagamentos';
 import { exibirTelefone } from '../../lib/telefone';
 import {
   AgendamentoPainel, ROTULO_STATUS_AGENDAMENTO, StatusAgendamento, TEXTOS_ACAO, TEXTOS_CANCELAMENTO, acaoDoAgendamento,
-  duracaoDoAgendamento, horaDoAgendamento, precoDoAgendamento, quandoDoAgendamento,
+  duracaoDoAgendamento, horaDoAgendamento, precoDoAgendamento, presencaDoAgendamento, quandoDoAgendamento,
 } from '../../lib/painelBarbeiro';
 
 interface Props {
@@ -36,6 +36,8 @@ export default function CartaoAtendimento({ item, todos, naoLidas, mostrarData, 
   const acao = acaoDoAgendamento(item);
   const preco = precoDoAgendamento(item);
   const duracao = duracaoDoAgendamento(item);
+  const presenca = presencaDoAgendamento(item);
+  const corPresenca = presenca?.tom === 'alerta' ? C.destructive : presenca?.tom === 'ok' ? C.primary : C.mutedFg;
 
   return (
     <View style={[s.card, item.status === 'cancelado' && { opacity: 0.6 }]}>
@@ -73,6 +75,13 @@ export default function CartaoAtendimento({ item, todos, naoLidas, mostrarData, 
           <Text style={[s.acaoText, { color: C.accent, flex: 1 }]}>
             NA PAUSA DE {(naPausa.agendamento.profiles?.nome ?? 'OUTRO CLIENTE').toUpperCase()} · RETORNAR ÀS {hora(naPausa.pausa.fim)}
           </Text>
+        </View>
+      )}
+      {/* Resposta do cliente ao pedido de confirmacao de presenca (WhatsApp) */}
+      {presenca && (
+        <View style={s.naPausa}>
+          <Feather name="message-square" size={11} color={corPresenca} />
+          <Text style={[s.acaoText, { flex: 1, color: corPresenca }]}>{presenca.texto.toUpperCase()}</Text>
         </View>
       )}
       {/* Concluido acontece sozinho; o barbeiro so cancela ou registra a falta */}

@@ -20,6 +20,13 @@ const MIGRATIONS_AGENDA = [
   '20261109000022_notificacoes_eventos.sql',
 ];
 
+// Com a confirmacao de presenca pelo WhatsApp (consentimentos + migration 25)
+const MIGRATIONS_WHATSAPP = [
+  ...MIGRATIONS_AGENDA,
+  '20261104000016_consentimentos.sql',
+  '20261113000025_whatsapp_confirmacao_presenca.sql',
+];
+
 const JOAO = 'b0000000-0000-4000-8000-000000000001';
 const PEDRO = 'b0000000-0000-4000-8000-000000000002';
 const INATIVO = 'b0000000-0000-4000-8000-000000000003';
@@ -51,7 +58,7 @@ const ESQUEMA = `
     AS $$ SELECT nullif(current_setting('test.uid', true), '')::uuid $$;
 
   CREATE TYPE public.app_role AS ENUM ('cliente', 'barbeiro', 'admin');
-  CREATE TABLE public.profiles (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), user_id uuid UNIQUE, nome text);
+  CREATE TABLE public.profiles (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), user_id uuid UNIQUE, nome text, telefone text);
   CREATE TABLE public.user_roles (user_id uuid NOT NULL, role public.app_role NOT NULL);
   CREATE FUNCTION public.has_role(_user_id uuid, _role public.app_role) RETURNS boolean
     LANGUAGE sql STABLE AS $$ SELECT EXISTS (SELECT 1 FROM public.user_roles WHERE user_id = _user_id AND role = _role) $$;
@@ -150,6 +157,6 @@ async function recusa(promessa) {
 }
 
 module.exports = {
-  criarBanco, auxiliares, recusa, migration, as, DIA, MIGRATIONS_AGENDA,
+  criarBanco, auxiliares, recusa, migration, as, DIA, MIGRATIONS_AGENDA, MIGRATIONS_WHATSAPP,
   JOAO, PEDRO, INATIVO, CORTE_30, COMBO_60, SEM_VINCULO, BARBA_30, SOBRANCELHA_30, CLIENTE_A, CLIENTE_B, CLIENTE_C, ADMIN, USUARIO_JOAO,
 };

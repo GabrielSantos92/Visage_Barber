@@ -3,7 +3,9 @@ import { View, Text, StyleSheet, ScrollView } from 'react-native';
 import { RouteProp, useRoute } from '@react-navigation/native';
 import { useTheme } from '../../contexts/ThemeContext';
 import { F, Theme } from '../../lib/theme';
-import { AVISO_COMPLETO, AVISO_PAGAMENTOS, VERSAO_AVISO_PAGAMENTOS, VERSAO_AVISO_VISAGISMO } from '../../lib/privacidade';
+import {
+  AVISO_COMPLETO, AVISO_PAGAMENTOS, AVISO_WHATSAPP, VERSAO_AVISO_PAGAMENTOS, VERSAO_AVISO_VISAGISMO, VERSAO_AVISO_WHATSAPP,
+} from '../../lib/privacidade';
 import { ClienteStackParamList } from '../../navigation/ClienteNavigator';
 
 type Secao = { titulo: string; paragrafos: string[]; itens?: string[] };
@@ -41,7 +43,7 @@ export default function AvisoPrivacidadeScreen() {
     <ScrollView ref={rolagem} style={s.screen} contentContainerStyle={s.conteudo}>
       <Text style={s.label}>PRIVACIDADE // LGPD</Text>
       <Text style={s.titulo}>Aviso de Privacidade</Text>
-      <Text style={s.paragrafo}>Este aviso tem duas partes: análise de visagismo por foto e pagamentos online.</Text>
+      <Text style={s.paragrafo}>Este aviso tem três partes: análise de visagismo por foto, pagamentos online e mensagens pelo WhatsApp.</Text>
       <Text style={s.versao}>ANÁLISE DE VISAGISMO POR FOTO · VERSÃO DE {dataDaVersao(VERSAO_AVISO_VISAGISMO)}</Text>
 
       {AVISO_COMPLETO.map(renderSecao)}
@@ -51,6 +53,13 @@ export default function AvisoPrivacidadeScreen() {
         <Text style={[s.titulo, { fontSize: 22 }]} accessibilityRole="header">Pagamentos online</Text>
         <Text style={s.versao}>PIX E CARTÃO PELO MERCADO PAGO · VERSÃO DE {dataDaVersao(VERSAO_AVISO_PAGAMENTOS)}</Text>
         {AVISO_PAGAMENTOS.map(renderSecao)}
+      </View>
+
+      <View style={s.parte}>
+        <Text style={s.label}>PARTE 3</Text>
+        <Text style={[s.titulo, { fontSize: 22 }]} accessibilityRole="header">Mensagens pelo WhatsApp</Text>
+        <Text style={s.versao}>CONFIRMAÇÃO DE PRESENÇA · VERSÃO DE {dataDaVersao(VERSAO_AVISO_WHATSAPP)}</Text>
+        {AVISO_WHATSAPP.map(renderSecao)}
       </View>
     </ScrollView>
   );
