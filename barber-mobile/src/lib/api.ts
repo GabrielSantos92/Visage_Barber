@@ -33,21 +33,36 @@ export class ApiError extends Error {
   }
 }
 
+// A requisicao nem chegou ao servidor: aparelho sem internet ou rede instavel
+export class ErroConexao extends Error {
+  constructor() {
+    super('Sem conexão com a internet. Verifique sua rede e tente novamente.');
+  }
+}
+
 async function request<T>(method: 'GET' | 'POST' | 'DELETE', path: string, body?: unknown, signal?: AbortSignal): Promise<T> {
   const url = `${BASE_URL}${path}`;
   console.log('[API]', method, url);
   // As rotas /api/admin exigem o token da sessao
   const { data } = await supabase.auth.getSession();
   const token = data.session?.access_token;
-  const res = await fetch(url, {
-    method,
-    headers: {
-      'Content-Type': 'application/json',
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-    },
-    body: body === undefined ? undefined : JSON.stringify(body),
-    signal,
-  });
+  let res: Response;
+  try {
+    res = await fetch(url, {
+      method,
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      body: body === undefined ? undefined : JSON.stringify(body),
+      signal,
+    });
+  } catch (e) {
+    // Cancelada por quem chamou (saiu da tela, tempo limite): segue como esta
+    if (signal?.aborted) throw e;
+    // O fetch so falha assim quando nao chega ao servidor ("Network request failed")
+    throw new ErroConexao();
+  }
   if (!res.ok) {
     const errBody = await res.json().catch(() => ({}));
     throw new ApiError(errBody.error ?? `HTTP ${res.status}`, res.status, errBody.code);

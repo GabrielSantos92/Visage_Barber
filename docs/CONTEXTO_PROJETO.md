@@ -1,11 +1,11 @@
 Estado atual do projeto Visage Barber
-Atualizado em 13/11/2026.
+Atualizado em 15/11/2026 (pagamentos: teste com PIX e cartão funcionando no sandbox, seção 10; notificações pausadas, seção 9.16).
 
 0. Regras obrigatórias (valem para qualquer conversa)
 Sem autorização explícita do usuário: não executar SQL no Supabase, não aplicar migrations, não fazer commit, push nem deploy e não gravar a URL do backend no Supabase (notificacao_config.url_backend).
 Não alterar o Render nem a Meta. Não criar nem modificar variáveis de ambiente (Render, Environment Groups, Secret Files, .env local).
 Nunca configurar NOTIFICACOES_ATIVAS em lugar nenhum, nem com o valor false: Render, Environment Groups, Secret Files, .env, testes, piloto e rollbacks. No código do commit 83d45a6, "true" liga o envio pela Expo, e um rollback no Render restaura as variáveis do deploy de destino.
-Não ativar push nem WhatsApp. No código de 13/11 (ainda sem commit), cada canal tem a sua chave (NOTIFICACOES_WHATSAPP_ATIVO e NOTIFICACOES_PUSH_ATIVO) e NOTIFICACOES_ATIVAS preenchida faz nenhum canal ligar; nenhuma dessas variáveis deve ser criada sem autorização.
+Não ativar push nem WhatsApp. No código de 13/11 (commit fbda840, no GitHub e no ar no Render desde 14/11, desligado), cada canal tem a sua chave (NOTIFICACOES_WHATSAPP_ATIVO e NOTIFICACOES_PUSH_ATIVO) e NOTIFICACOES_ATIVAS preenchida faz nenhum canal ligar; nenhuma dessas variáveis deve ser criada sem autorização.
 Antes de rodar qualquer migration, mostrar o conteúdo, as dependências e a ordem. Usar só contas de teste. Parar ao fim de cada etapa e relatar arquivos, testes e resultados.
 Nunca ler nem mostrar valores de segredos; só os nomes das variáveis. Ler o valor decifrado do Vault, mesmo só para conferir o formato (devolvendo verdadeiro ou falso), exige autorização explícita.
 Nunca consultar os cabeçalhos de net.http_request_queue (nem SELECT *): com a migration 24 antiga aplicada em produção, eles levam o segredo.
@@ -14,6 +14,9 @@ O trabalho atual das notificações (migration 24 revisada, auditorias, consulta
 Já enviadas ao GitHub (branch main):
 
 Commit	O que entrou
+3e04eb0	15/11: PIX pela API de Orders do Mercado Pago (a API de Payments recusa as credenciais de teste); no Render (seção 10)
+2b9e248	15/11: e-mail do pagador de teste no PIX (MERCADOPAGO_EMAIL_PAGADOR_TESTE); no Render (seção 10)
+fbda840	Enviado ao GitHub e publicado no Render em 14/11 (desligado): confirmação de presença pelo WhatsApp 2 horas antes (migration 25, backend, site e app), desligada (seção 9.15)
 83d45a6	Notificações push: banco (migrations 21 a 23) e backend, desligados. O canal foi trocado pelo WhatsApp em 11/11 (seção 9)
 94b6c67	Painel do Barbeiro (resumo do dia + financeiro) e Agenda separada com os modos Por dia, Próximos e Histórico (site e app)
 ecc7d7a	Meu desempenho do barbeiro: dias com mais cortes e origem do percentual (migration 20)
@@ -31,13 +34,14 @@ tradução dos textos do site;
 pop-up de confirmação ao cancelar (cliente igual ao do barbeiro);
 consentimento LGPD no visagismo, pedido de novo a cada acesso;
 máscara de telefone.
+Mensagem de falta de internet (15/11/2026, testado pelo usuário no celular): quando a requisição nem chega ao servidor, aparece "Sem conexão com a internet. Verifique sua rede e tente novamente." no lugar do erro técnico ("Network request failed"). No app, a troca fica em barber-mobile/src/lib/api.ts (classe ErroConexao), vale para todas as telas que mostram o erro do backend; na análise do visagismo o alerta tem o título "Sem conexão", e a geração da imagem de referência mostra a mesma mensagem. Requisições canceladas (sair da tela, tempo limite) não são afetadas. No site (cut-advisor-pro/src/lib/api.ts), a mensagem antiga "Verifique se o backend está em execução" só aparece em desenvolvimento com a rede ligada. O app não distingue falta de internet de servidor fora do ar: nos dois casos mostra a mensagem de conexão.
 Documentos do TCC (fora do repositório, sem alterar o anexo original):
 
 C:\Users\lucas\AppData\Local\Temp\claude\c--vb\a22df9f6-501e-4e13-b565-316963dfbb8e\scratchpad\Divergencias-TCC-Visage-Barber.pdf
 C:\Users\lucas\AppData\Local\Temp\claude\c--vb\a22df9f6-501e-4e13-b565-316963dfbb8e\scratchpad\Levantamento-TCC-Visage-Barber.docx
 docs/Respostas-Questionario-TCC.docx (na pasta do projeto, mas fora do Git de propósito)
 2. Funcionalidades em desenvolvimento
-Sistema financeiro, comissões e pagamentos online. O código e os testes estão prontos e já estão no GitHub (commit e34f257), mas a integração com o Mercado Pago ainda não foi validada no sandbox.
+Sistema financeiro, comissões e pagamentos online. Código no GitHub (e34f257, corrigido em 2b9e248 e 3e04eb0) e no Render. Em 15/11, no APK e com a conta de TESTE do Mercado Pago, o PIX gera o QR Code e o cartão abre a página do Mercado Pago. Ainda não recebe dinheiro de verdade: o que falta está na seção 10.
 
 O que já existe:
 
@@ -55,11 +59,9 @@ Agenda (site /barbeiro/agenda, aba AGENDA do app): o gerenciamento completo dos 
 "Meu Financeiro" deixou de ser uma tela separada: o endereço antigo /barbeiro/financeiro leva ao Painel. O login do barbeiro abre o Painel.
 Para concluir falta:
 
-rodar as migrations 18, 19 e 20 (e a 17, se ainda não rodou) no Supabase;
-confirmar a origem do token do Mercado Pago e atualizar a URL do webhook;
-testar no sandbox e em um celular;
+pagamentos: ver a seção 10 (aprovação no teste e passagem para produção);
 conferir o Painel e a Agenda do app em um celular (o app não tem testes automatizados de tela).
-Notificações: o canal mudou de push para WhatsApp (decisão do grupo em 11/11/2026). O push não será ativado, e a etapa do app (registro do aparelho, Firebase, FCM) foi cancelada. Em 13/11 a confirmação de presença pelo WhatsApp foi implementada no projeto (seção 9.15), ainda sem commit, sem deploy e sem nada aplicado no Supabase; a migration 24 revisada e a auditoria continuam em revisão. Em 12/11 o usuário aplicou em produção a migration 24 ANTIGA, criou o segredo no Vault e configurou a URL do backend (seção 9.11). O diagnóstico de 12/11 está na seção 9.14. Estado completo na seção 9.
+PAUSADO EM 14/11/2026 por decisão do usuário: o trabalho de notificações está parado até o grupo decidir o caminho (seção 9.16). Não retomar sem pedido explícito. Notificações: o canal mudou de push para WhatsApp (decisão do grupo em 11/11/2026). O push não será ativado, e a etapa do app (registro do aparelho, Firebase, FCM) foi cancelada. Em 13/11 a confirmação de presença pelo WhatsApp foi implementada no projeto (seção 9.15): está no GitHub (commit fbda840) e no ar no Render desde 14/11, desligada; a migration 25 foi aplicada no Supabase pelo usuário em 13/11 (conferida, 24 verificações OK); a migration 24 revisada e a auditoria continuam em revisão. Em 12/11 o usuário aplicou em produção a migration 24 ANTIGA, criou o segredo no Vault e configurou a URL do backend (seção 9.11). O diagnóstico de 12/11 está na seção 9.14. Estado completo na seção 9.
 3. Regras de negócio definidas
 Agendamento:
 
@@ -125,7 +127,7 @@ Migration 23 (20261109000023_remover_push_token_antigo.sql): removeu as colunas 
 
 Migration 24 (20261109000024_notificacoes_segredo.sql): o arquivo do repositório (commit 83d45a6) é a versão ANTIGA, que manda um segredo fixo no cabeçalho X-Notificacoes-Segredo. Foi executada em produção pelo usuário em 12/11 (seção 9.11; ainda não confirmado por consulta). A versão revisada (assinatura HMAC e proteção contra repetição) está só no scratchpad, aguardando aprovação (seções 9.3 e 9.11). Depois de aplicar a revisada, nunca rodar de novo a antiga: isso desfaria a revisada.
 
-Migration 25 (20261113000025_whatsapp_confirmacao_presenca.sql): confirmação de presença pelo WhatsApp 2 horas antes. Criada em 13/11, sem commit e NÃO executada no Supabase (seção 9.15). Exige a 16 (consentimentos), a 21 e a 22.
+Migration 25 (20261113000025_whatsapp_confirmacao_presenca.sql): confirmação de presença pelo WhatsApp 2 horas antes. Criada em 13/11, no commit fbda840 (no GitHub desde 14/11). APLICADA no Supabase (projeto ecngjhpnycirhisghazy) pelo usuário em 13/11/2026, com a conferência posterior aprovada nas 24 verificações (seção 9.15). Exige a 16 (consentimentos), a 21 e a 22.
 
 Verificações somente leitura: supabase/verificacoes/notificacoes_pre_requisitos.sql e notificacoes_auditoria.sql (no Git; as linhas 197 a 201 da notificacoes_auditoria.sql reconhecem a 24 pelo cabeçalho antigo e, depois da revisada, dirão erradamente que a 24 não foi aplicada; hoje, com a 24 antiga e a URL configurada, ela dá OK para "envia o segredo" e para a URL (linha 181), enquanto a auditoria revisada dá PROBLEMA na C.7 e ATENÇÃO na D.14 para o mesmo estado: vale a leitura da revisada); supabase/verificacoes/notificacoes_pre_ativacao.sql (fora do Git, versão antiga e nunca executada; a revisada está no scratchpad, seção 9.7); confirmar_dono.sql (scratchpad, seções 9.12 e 9.13).
 
@@ -139,18 +141,19 @@ Notificações (backend), código do commit 83d45a6, feito para push pela Expo e
 Rotas: POST /api/notificacoes/processar é chamada pelo banco com o cabeçalho X-Notificacoes-Segredo (comparado em tempo constante; sem segredo configurado, a rota fica fechada), responde 202 e só faz o backend ler a fila; quem chama não escolhe destinatário nem texto. Esse cabeçalho é o formato antigo: será trocado pela verificação da assinatura HMAC, ainda não implementada (seção 9.4). Com o backend desligado, a rota responde 503 antes de olhar o cabeçalho (exigirAtivo vem primeiro: routes/notificacoes.js:45-48 e 68); ela é montada em app.js:30. POST /api/notificacoes/teste é para o usuário logado: envia um aviso de teste aos próprios aparelhos, sem gravar nada na fila e sem devolver tokens. Limites: em /processar, o segredo é conferido antes de qualquer limite; as chamadas autenticadas (só o banco tem o segredo) têm um limite próprio de 120 por minuto, e as tentativas sem segredo ou com segredo errado têm outro, de 20 por minuto por IP, que nunca bloqueia as chamadas do banco. /teste: 3 testes a cada 10 minutos por usuário. No Render, TRUST_PROXY=1 faz o Express usar o IP real que o proxy do Render acrescenta ao X-Forwarded-For; o IP só freia tentativas inválidas, nunca autentica.
 Fila: o backend reserva os avisos no banco (sem duplicar, mesmo com dois servidores), envia pela Expo e grava o resultado por aparelho. Falha temporária volta para a fila com espera (30 s, 2, 8 e 32 minutos; desiste na 5ª). DeviceNotRegistered desativa o aparelho. Se o envio der certo e a gravação falhar, o resultado fica guardado e o aviso não é reenviado. Os recibos são conferidos depois de 15 minutos. "Enviada" no banco quer dizer aceita pela Expo; a entrega é confirmada pelo recibo. Enquanto o servidor está acordado, a fila também é lida a cada 20 segundos.
 Variáveis do backend no código do 83d45a6: NOTIFICACOES_ATIVAS (NUNCA configurar: "true" liga o envio pela Expo; ver a seção 0), NOTIFICACOES_SEGREDO (mínimo de 32 caracteres; o mesmo valor vai para o Vault; já configurada no Render, e em 12/11 o usuário conferiu por SHA-256 que é igual à do Vault), EXPO_ACCESS_TOKEN (nunca será configurado), NOTIFICACOES_INTERVALO_SEGUNDOS (padrão 20) e NOTIFICACOES_TIMEOUT_SEGUNDOS (padrão 10). As variáveis planejadas para o WhatsApp ainda não existem no código (seção 9.2).
-WhatsApp (código de 13/11, sem commit, desligado; seção 9.15): services/whatsapp.js (cliente da Cloud API e assinatura do webhook), services/confirmacaoPresenca.js (envio e respostas), services/notificacoesConfig.js (chaves por canal) e routes/whatsapp.js (webhook em /api/whatsapp/webhook).
+WhatsApp (código de 13/11, commit fbda840, no ar no Render desde 14/11, desligado; seção 9.15): services/whatsapp.js (cliente da Cloud API e assinatura do webhook), services/confirmacaoPresenca.js (envio e respostas), services/notificacoesConfig.js (chaves por canal) e routes/whatsapp.js (webhook em /api/whatsapp/webhook).
 Testes: o backend roda as migrations reais em um banco embutido (PGlite) e testa as notificações com uma Expo falsa e uma Meta falsa (nenhum envio real); o site usa Vitest com Testing Library; o app não tem testes automatizados (é validado com tsc e com o pacote do Expo).
 6. Situação no GitHub
-Tudo foi enviado para a main. Último commit: 83d45a6 (notificações push, banco e backend desligados). Com ele, o backend tem 245 testes, todos passando (registrado em 10/11). Antes, o commit 94b6c67 (Painel e Agenda) passou com 170 testes no backend e 228 no site.
+Local (15/11, ainda sem push): commit "fix: mensagem de falta de internet" (api.ts do app e do site, telas do visagismo no app e este arquivo); site 235 testes, todos passando; app no tsc só com o erro antigo do ThemeContext.
+No GitHub (origin/main), o último commit é o 3e04eb0 ("fix: PIX pela API de Orders do Mercado Pago", 15/11), antes dele o 2b9e248 (15/11) e o fbda840 ("feat: implementa confirmação de presença via WhatsApp", 27 arquivos, 14/11), todos enviados com autorização do usuário; a main local está igual. Com o 3e04eb0: backend 295 testes, todos passando (site não mudou). Antes de enviar, em 14/11: backend 289 testes e site 235, todos passando. Com o 83d45a6, o backend tinha 245 testes, todos passando (registrado em 10/11). Antes, o commit 94b6c67 (Painel e Agenda) passou com 170 testes no backend e 228 no site.
 Ficou fora do Git de propósito: docs/Respostas-Questionario-TCC.docx e os arquivos .env.
-Alterações locais ainda sem commit: barber-mobile/app.json (android.versionCode 2, usado no build do APK de 10/11), supabase/verificacoes/notificacoes_pre_ativacao.sql (auditoria antiga, nunca executada), este docs/CONTEXTO_PROJETO.md e toda a implementação da confirmação de presença pelo WhatsApp de 13/11 (lista de arquivos na seção 9.15). Com ela, em 13/11: backend 289 testes e site 235, todos passando; o app passa no tsc só com o erro antigo do ThemeContext.
+Alterações locais ainda sem commit: barber-mobile/app.json (android.versionCode 2, usado no build do APK de 10/11), supabase/verificacoes/notificacoes_pre_ativacao.sql (auditoria antiga, nunca executada, fora do Git) e as atualizações deste docs/CONTEXTO_PROJETO.md feitas depois do commit fbda840. Com o commit fbda840, em 13/11: backend 289 testes e site 235, todos passando; o app passa no tsc só com o erro antigo do ThemeContext.
 A migration 24 revisada, a auditoria revisada e a consulta de dono (confirmar_dono.sql) não estão no projeto: estão nos scratchpads (seções 9.10 e 9.13).
 7. Problemas conhecidos
-Mercado Pago: nunca testado no sandbox real.
-As variáveis do backend/.env já foram preenchidas (06/11). O token começa com APP_USR-, e falta confirmar se é da conta vendedora de teste. Se for da conta real da barbearia, cobra dinheiro de verdade.
-As contas de teste já foram criadas no painel: Buyer Test User, Conta de Teste (outro comprador) e Seller Test User.
-O webhook usa um túnel temporário do Cloudflare (trycloudflare.com). A URL muda a cada reinício do cloudflared e precisa ser atualizada no .env e no painel.
+Mercado Pago: só em ambiente de teste; a aprovação do PIX e do cartão ainda não foi vista no app (seção 10).
+Taxa do PIX registrada como zero: o pedido da API de Orders não informa a taxa do Mercado Pago.
+Cartão: sem URL pública de retorno (PAGAMENTO_RETORNO_URL não existe no Render; localhost não é aceito). Depois de pagar, o cliente volta ao app sozinho; o app confere ao voltar e a cada 30 s.
+backend/.env local: MERCADOPAGO_NOTIFICATION_URL ainda aponta para o túnel temporário (trycloudflare.com) e PAGAMENTO_RETORNO_URL para localhost; só importa para testar o backend local.
 Checagem de tipos do app: acusa um erro em src/contexts/ThemeContext.tsx que já existia antes destas mudanças.
 Avisos de lint antigos: 9 em MeusAgendamentos.tsx e 1 em Booking.tsx.
 Tipos do Supabase: não foram regenerados. As tabelas e funções novas são acessadas com tipos escritos à mão.
@@ -161,11 +164,7 @@ Sem a migration 20, o gráfico de dias com mais cortes mostra um erro; o resto d
 No app, a aba HORÁRIOS (disponibilidade) ainda tem o título "Minha Agenda", o que pode confundir com a aba AGENDA.
 APK de 10/11 (build EAS 238b6929, preview, versionCode 2, commit 83d45a6): não tem notificações, e o link do artefato expira em 24/11/2026.
 8. Próximas tarefas
-Rodar as migrations 17 (se pendente), 18, 19 e 20, nessa ordem, no SQL Editor do Supabase.
-Na conta Seller Test User, criar uma aplicação e usar o Access Token e a assinatura secreta dela em MERCADOPAGO_ACCESS_TOKEN e MERCADOPAGO_WEBHOOK_SECRET.
-Subir o backend e o túnel (cloudflared tunnel --url http://localhost:3001) e atualizar MERCADOPAGO_NOTIFICATION_URL e o webhook no painel (evento "Pagamentos", em /api/pagamentos/webhook).
-Testar o cartão com o Buyer Test User numa janela anônima: cartão 5031 4332 1540 6351, CVV 123, validade 11/30, CPF 12345678909. O nome do titular define o resultado: APRO aprova, OTHE recusa, CONT fica pendente.
-Testar o PIX: gerar o QR Code e ver a expiração. No sandbox, a aprovação costuma não ser possível; ela só se valida em produção, com uma cobrança pequena.
+Pagamentos: PAUSADO em 15/11 pelo usuário, na fase de teste. Ao retomar, seguir a seção 10.
 Configurar em Admin → Comissões o percentual padrão e o de cada barbeiro.
 Testar num celular o APK de 10/11 (já gerado pelo EAS, com o expo-clipboard, o Painel e a Agenda).
 Testar o Painel e a Agenda no site e no celular: resumo do dia, cancelar e registrar falta, chat, filtros e gráfico no Painel; Por dia (setas e voltar para hoje), Próximos e Histórico na Agenda.
@@ -273,8 +272,8 @@ Aguardando validação:
 Revisão do usuário da 5ª rodada (migration 24 e auditoria) e das propostas de 12/11 (9.12). Nada foi aprovado ainda.
 No Supabase, só com autorização: as consultas da 9.11; confirmar que o SQL Editor manda o arquivo inteiro numa mensagem só (se a transação ficar abortada depois de um erro, rodar ROLLBACK); versão do PostgreSQL e o papel postgres, que lá não é superusuário; pg_net e Vault reais com o novo search_path (na primeira chamada real do piloto); se a migration 22 aplicada é igual à do repositório (se não for, a C.7 dá ATENÇÃO); statement_timeout da service_role; event triggers que mexam em tabelas novas; PostgREST e o pooler não foram testados.
 No painel: os schemas expostos na Data API (devem ser só public e graphql_public) e os logs do Render.
-Em 13/11: confirmação de presença pelo WhatsApp implementada no projeto (migration 25, backend, site e app), testada só localmente, sem commit, sem deploy e sem nada aplicado no Supabase (9.15).
-Próximo passo exato: o usuário revisa a implementação de 13/11 (9.15) e autoriza o commit; em paralelo, prepara a conta da Meta e manda os dois templates para aprovação (textos na 9.15). Depois, na ordem e cada um com autorização: executar a migration 25 no Supabase, deploy do backend ainda desligado, cadastrar as variáveis no Render, cadastrar o webhook na Meta e ligar NOTIFICACOES_WHATSAPP_ATIVO com o piloto. A Consulta A (9.11) continua pendente de execução pelo usuário. Nada é aplicado sem aprovação.
+Em 13/11: confirmação de presença pelo WhatsApp implementada no projeto (migration 25, backend, site e app), testada só localmente e gravada no commit fbda840. Migration 25 aplicada no Supabase em 13/11 (conferida, 24 verificações OK). Em 14/11: push do fbda840 e deploy automático no Render; o backend em produção roda o fbda840 com o WhatsApp desligado (9.15).
+PAUSADO EM 14/11/2026 por decisão do usuário: o trabalho de notificações está parado até o grupo decidir o caminho (seção 9.16). Não retomar sem pedido explícito. Quando for retomado: aguardar a autorização do usuário para a próxima etapa. Na ordem, e cada uma com autorização própria (uma não vale para a seguinte): (1) feito em 13/11: migration 25 aplicada e conferida; (2) feito em 14/11: push do fbda840 e deploy do backend com o WhatsApp desligado (falta o usuário olhar no log do Render a linha "[notificacoes] desligadas"); (3) cadastrar as variáveis no Render; (4) cadastrar o webhook na Meta; (5) piloto com contas de teste. Em paralelo, o usuário cadastra os dois templates na Meta (textos prontos na 9.15; não há registro de que tenham sido cadastrados ou aprovados). A Consulta A (9.11) continua pendente de execução pelo usuário. Nada é aplicado sem aprovação.
 9.10 Arquivos no scratchpad (sessão 37f24b98)
 
 Pasta: C:\Users\lucas\AppData\Local\Temp\claude\e37e3206a826157a\37f24b98-e2c3-404a-a528-d252b047d9e7\scratchpad\
@@ -558,7 +557,17 @@ Perguntas em aberto para o usuário:
 3. Já existe portfólio empresarial na Meta e um número para a Visage, ou começamos pelo número de teste?
 4. Onde o estado do lembrete deve aparecer: no cartão do agendamento para o barbeiro, numa tela do admin, ou só no banco por enquanto?
 5. O lembrete de push de 30 minutos que hoje é gravado e vence sem envio pode ser desligado na migration 25?
-9.15 Confirmação de presença pelo WhatsApp: implementação de 13/11 (sem commit; nada aplicado em produção)
+9.15 Confirmação de presença pelo WhatsApp: implementação de 13/11 (commit fbda840 no GitHub e no Render desde 14/11, desligado; migration 25 aplicada)
+
+Git: commit local fbda840 (fbda8404c1765bfe84596a4ddbd8b5ea9064afd1, "feat: implementa confirmação de presença via WhatsApp", 27 arquivos). Commit local em 13/11; push em 14/11, com autorização do usuário ("pode decidir o que é mais fácil e dar seguimento"). Ficaram fora do commit, de propósito: barber-mobile/app.json, supabase/verificacoes/notificacoes_pre_ativacao.sql e docs/Respostas-Questionario-TCC.docx.
+
+Aplicação no Supabase (13/11/2026, pelo usuário, no SQL Editor do projeto ecngjhpnycirhisghazy):
+- Migration 20261113000025_whatsapp_confirmacao_presenca.sql aplicada com sucesso (a mesma do commit fbda840).
+- Conferência posterior (migration25_depois.sql, somente leitura, scratchpad da sessão 71318a8b) concluída: 24 verificações, todas OK.
+- As três tabelas novas (confirmacoes_presenca, whatsapp_mensagens e whatsapp_eventos) existem, com RLS ligado, sem policies e sem acesso direto do app ou do site.
+- Confirmados: as colunas notificacoes.canal e agendamentos.horario_definido_em; as restrições (tipos e canal da fila, finalidade whatsapp_avisos e revogação pelo WhatsApp); as 14 funções e suas permissões (só presenca_dos_agendamentos liberada para usuários logados; as do backend para a service_role; nenhuma para anon ou PUBLIC); os gatilhos agendamento_horario_definido e invalidar_confirmacao_presenca, ativos; e reservar_notificacoes e rotina_notificacoes iguais às da migration 25.
+- Lembrete de push de 30 minutos preservado (enfileirar_lembretes igual à da migration 22).
+- WhatsApp continua desligado. Contagens no momento da conferência: 0 pedidos de confirmação, 0 tentativas de envio, 0 avisos do canal whatsapp, 0 autorizações para o WhatsApp e 9 avisos do canal push (já existentes).
 
 Decisão do usuário (13/11): 2 horas antes do atendimento o cliente recebe uma mensagem com os dados do agendamento e a pergunta de presença; responde SIM ou NÃO. SIM registra presença confirmada. NÃO registra que não virá e avisa o barbeiro, mas NÃO cancela o agendamento (isso muda a decisão da 9.1, em que NÃO cancelava). Sem resposta: o agendamento continua e o barbeiro vê "Sem resposta". Esta entrega substitui o lembrete simples da 9.14; o lembrete de 30 minutos da 9.1 não foi feito.
 
@@ -601,16 +610,16 @@ Testes de 13/11 (só locais; nenhum envio real, nenhuma chamada à Meta, nada no
 - app: tsc só com o erro antigo de ThemeContext.tsx; as telas do app não têm teste automatizado.
 Não testado: Cloud API real, formato real do webhook da Meta, PostgREST e Supabase reais com a migration 25, e as telas num celular.
 
-Templates a criar na Meta (categoria utilidade, idioma pt_BR; os nomes vão nas variáveis):
+Templates a criar na Meta (categoria utilidade, idioma pt_BR; os nomes vão nas variáveis). Os textos foram preparados e entregues ao usuário em 13/11; não há registro de que tenham sido cadastrados nem aprovados pela Meta:
 - Regras da Meta conferidas em 13/11 (página de revisão de templates): o texto não pode começar nem terminar com variável; variáveis demais para o tamanho do texto causam recusa; nomes só com minúsculas, números e sublinhado; toda variável precisa de um exemplo; resposta rápida tem até 25 caracteres; rodapé até 60. O código envia os valores por posição, então os templates precisam usar variáveis numeradas ({{1}}, {{2}}...), não nomeadas, e não podem ter cabeçalho com variável.
 - Confirmação (nome sugerido confirmacao_presenca, em WHATSAPP_TEMPLATE_CONFIRMACAO). Corpo: "Olá, {{1}}! Aqui é a Visage Barber. Você tem um horário marcado: {{2}} com {{3}}, no dia {{4}}, às {{5}}. Você confirma a sua presença? Responda tocando em um dos botões abaixo." Variáveis: 1 primeiro nome do cliente, 2 serviço, 3 primeiro nome do barbeiro, 4 data (20/11), 5 hora (14h30 ou 14h). Dois botões de resposta rápida, nesta ordem: "Sim" e "Não" (o código preenche os identificadores VB_SIM:<pedido> e VB_NAO:<pedido> no envio, pelas posições 0 e 1). Rodapé opcional e fixo: "Responda PARAR para não receber mais mensagens."
 - Aviso ao barbeiro (nome sugerido presenca_negada, em WHATSAPP_TEMPLATE_PRESENCA_NEGADA; opcional), sem botões. Corpo: "Aviso da Visage Barber: {{1}} informou que não poderá comparecer ao atendimento de {{2}} marcado para o dia {{3}}, às {{4}}. O horário continua reservado na sua agenda. Se quiser liberá-lo, cancele o agendamento pelo aplicativo." Variáveis: 1 primeiro nome do cliente, 2 serviço, 3 data, 4 hora. A primeira redação deste template (de 13/11, mais cedo) começava com uma variável e seria recusada; esta é a que vale.
 
-O que falta fora do código (cada item com autorização):
-1. Revisão do usuário e commit.
-2. Meta: portfólio empresarial, app com o produto WhatsApp, número (começar pelo de teste), usuário do sistema com token permanente e os templates aprovados.
-3. Supabase: executar a migration 25 (mostrar conteúdo, dependências e ordem antes; a 16, a 21 e a 22 precisam estar aplicadas).
-4. Deploy do backend ainda desligado; conferir no log "[notificacoes] desligadas".
+O que falta fora do código (cada item com autorização própria):
+1. Feito: revisão e commit fbda840 (13/11) e push para o GitHub (14/11).
+2. Meta (com o usuário): portfólio empresarial, app com o produto WhatsApp, número (começar pelo de teste), usuário do sistema com token permanente e o cadastro e a aprovação dos dois templates.
+3. Feito em 13/11/2026: migration 25 aplicada pelo usuário no projeto ecngjhpnycirhisghazy e conferida (24 verificações OK; detalhes no início desta seção).
+4. Feito em 14/11: deploy automático do Render depois do push. Conferido de fora às 10:33: GET /api/whatsapp/webhook passou de 404 (código antigo) para 503 {"code":"DESATIVADO"} ("WhatsApp desativado no servidor") e POST /api/notificacoes/processar sem segredo dá 503 ("Notificações desativadas no servidor"). Falta o usuário conferir no log do Render a linha "[notificacoes] desligadas (nenhum canal ativado)". O site e o app NÃO foram publicados: ainda não mostram a autorização do WhatsApp, então nenhum cliente consegue autorizar.
 5. Render: criar as variáveis WHATSAPP_ e, por último, NOTIFICACOES_WHATSAPP_ATIVO=true, com WHATSAPP_PILOTO_USUARIOS preenchida. Nunca NOTIFICACOES_ATIVAS.
 6. Meta: cadastrar o webhook https://visage-backend-vnfg.onrender.com/api/whatsapp/webhook com o token de verificação e assinar o campo messages.
 7. Piloto com contas de teste; depois, publicar o site e gerar um APK novo com as telas.
@@ -621,3 +630,58 @@ Limites conhecidos:
 - Texto "sim" ou "não" sem responder a uma mensagem específica só vale com um pedido aberto.
 - Enquanto existirem avisos de push pendentes (os lembretes de 30 minutos), o banco continua acordando o backend a cada minuto.
 - Os textos do aviso de privacidade e da concordância precisam de validação jurídica.
+
+9.16 Pausa das notificações (14/11/2026) e decisão pendente
+
+O usuário pediu para pausar as notificações até decidir o caminho. Nada mais foi feito depois disso.
+
+Estado no momento da pausa:
+- Git: commit fbda840 enviado ao GitHub em 14/11 (origin/main = fbda840). Render: deploy automático do fbda840, com o WhatsApp DESLIGADO (conferido: GET /api/whatsapp/webhook = 503 DESATIVADO; POST /api/notificacoes/processar = 503). Nenhuma variável WHATSAPP_ nem NOTIFICACOES_WHATSAPP_ATIVO foi criada no Render. Site e app NÃO publicados com a autorização do WhatsApp: nenhum cliente consegue autorizar, então o banco não gera pedidos de confirmação.
+- Supabase: migration 25 aplicada em 13/11 (seção 9.15). Nada mudou em 14/11.
+- Meta (feito pelo usuário em 14/11): portfólio empresarial novo "Visage Barber" (o portfólio antigo "lucas santos" não apareceu como opção na criação do app); app "Visage Barber" (ID 999105285955188), caso de uso "Conectar-se com clientes pelo WhatsApp", não publicado; número de teste +1 555 192-3776 (Phone Number ID 1384902264713537; conta do WhatsApp/WABA 1888338745684520). NÃO feitos: App secret anotado, usuário do sistema e token permanente, templates, forma de pagamento, webhook.
+- Teste do hello_world pelo painel para um celular brasileiro: aceito pela Meta, mas FALHOU na entrega com o erro 130497 ("Business account is restricted from messaging users in this country"). O número de teste americano (+1) não envia para o Brasil: para o piloto é preciso um número brasileiro (+55) na mesma conta do WhatsApp. O status mostrou o wa_id SEM o 9 (553285094953) e o campo user_id (BSUID), como previsto em whatsapp_chave_numero.
+- Aviso do painel da Meta: com o app não publicado, só chegam ao webhook os testes enviados pelo painel. Provavelmente será preciso publicar o app (URL da política de privacidade, ícone e categoria) antes do piloto; não confirmado.
+
+Caminhos discutidos (decisão do grupo pendente):
+A) Manter o plano atual (automático, número oficial único da Visage): usar um chip pré-pago (o usuário tem um chip Claro nunca usado). Passos já entregues ao usuário: ativar o chip com CPF e recarga, sem instalar o WhatsApp nele; adicionar o número na Etapa 2 do app (nome "Visage Barber", categoria Beleza, spa e salão, SMS, PIN de 6 dígitos); cadastrar cartão no WhatsApp Manager; repetir o hello_world escolhendo o número novo. Depois: App secret, token permanente (usuário do sistema no portfólio Visage Barber), templates (textos na 9.15), variáveis no Render, webhook e piloto. O código já está pronto.
+B) Usar o número pessoal do usuário: só tirando-o do WhatsApp (apagar a conta) durante o projeto; ele não poderia ser o cliente de teste. A coexistência (mesmo número no app e na API) exige o WhatsApp Business e um parceiro da Meta; descartada.
+C) Mensagem pelo número de cada barbeiro: envio automático não é viável (API oficial exigiria tirar cada número do WhatsApp; bibliotecas não oficiais violam os termos e arriscam banimento). Alternativa viável proposta: "1 toque" — o cartão da Agenda mostra "Lembrar pelo WhatsApp" perto de 2 h antes, abre o WhatsApp do barbeiro com a mensagem pronta (link wa.me) e o barbeiro marca à mão "Confirmou" ou "Não vem". Sem Meta e sem custo; exige mudança no site e no app (não planejada em detalhe nem implementada).
+A e C podem conviver.
+
+Ao retomar: perguntar qual caminho o grupo escolheu; se for A, continuar pela ativação do chip e pela Parte 2 (cadastro do número). Todas as regras da seção 0 continuam valendo.
+
+10. Pagamentos com Mercado Pago: estado em 15/11/2026 (PAUSADO na fase de teste)
+O usuário parou aqui em 15/11 e talvez volte para colocar os pagamentos para funcionar de verdade. Nada recebe dinheiro real hoje.
+
+10.1 O que funciona (conferido pelo usuário no APK de 10/11, que usa o backend do Render)
+Cartão: "Pagar com cartão" abre a página do Mercado Pago (Checkout Pro).
+PIX: "Gerar PIX" mostra o QR Code, o copia e cola e o contador. Antes do 3e04eb0 dava "Não foi possível gerar a cobrança agora".
+Na barbearia: funciona desde antes.
+
+10.2 Configuração atual
+Conta do Mercado Pago: o token é de uma conta vendedora DE TESTE (TESTUSER2036874569945359638, tag test_user; conferido em 15/11 pela API /users/me com o token do backend/.env; o usuário diz ter colado o mesmo no Render). O QR Code não vale na rede PIX real e o cartão só aceita cartões de teste.
+Variáveis no Render (criadas pelo usuário em 14 e 15/11; só os nomes): MERCADOPAGO_ACCESS_TOKEN, MERCADOPAGO_WEBHOOK_SECRET, MERCADOPAGO_NOTIFICATION_URL (https://visage-backend-vnfg.onrender.com/api/pagamentos/webhook), MERCADOPAGO_AMBIENTE=teste, PAGAMENTO_PIX_MINUTOS=35, MERCADOPAGO_EMAIL_PAGADOR_TESTE (e-mail do comprador de teste). PAGAMENTO_RETORNO_URL não foi criada de propósito.
+Banco: as migrations 18 e 19 estão em produção (o cartão grava a cobrança; sem elas daria erro). A 20 não foi conferida.
+
+10.3 O que foi descoberto (14 e 15/11)
+Sem MERCADOPAGO_ACCESS_TOKEN no Render, o app mostrava "O pagamento online ainda não está disponível".
+PIX pela API antiga (POST /v1/payments) responde 401 "Unauthorized use of live credentials" com as credenciais de teste das contas novas, mesmo com pagador @testuser.com. Pela API de Orders (POST /v1/orders) gera o QR Code. Teste feito pelo usuário em 15/11 com um script do scratchpad (teste-pix.js, R$ 1,00, cancelado no fim).
+Por isso o 3e04eb0 passou o PIX inteiro para a API de Orders: criar, consultar ("Já paguei"), cancelar, reembolsar e webhook do tipo "order". O cartão continua no Checkout Pro e na API de Payments. provedor_pagamento_id do PIX guarda o id do pedido (ORD...). Arquivos: backend/src/services/mercadoPago.js e pagamentos.js.
+Outros ajustes do 3e04eb0: validade do QR Code com no mínimo 30 minutos (limite do Mercado Pago) e o prazo devolvido por ele; o motivo real da falha do provedor fica em pagamentos.detalhe; notificação simulada do painel (id inexistente) responde 200.
+Pagamentos com credenciais de teste podem não disparar webhook (documentação do Mercado Pago): no teste, a confirmação depende do "Já paguei" e da consulta a cada 30 s.
+O prefixo APP_USR- não diz se o token é de teste: as credenciais de teste atuais também começam assim. Só GET /users/me responde.
+
+10.4 Para terminar o teste (sem dinheiro real)
+1. Painel do Mercado Pago → Suas integrações → aplicação → Webhooks: ligar também o evento "Order (Mercado Pago)" (PIX), além de "Pagamentos" (cartão), com a URL do Render. Não confirmado se o usuário já fez.
+2. Cartão até a aprovação: janela anônima, logado com o comprador de teste, cartão de teste do painel (a página atual lista, por exemplo, Mastercard 5480 8328 0103 3311, CVV 123, validade 11/30), titular APRO (aprova), OTHE (recusa) ou CONT (pendente), CPF 12345678909. Voltar ao app: deve mostrar "Pagamento aprovado".
+3. PIX até a aprovação (opcional, não implementado): segundo a documentação da API de Orders, em teste um PIX com payer.first_name "APRO" é aprovado sozinho depois de um tempo. Seria um ajuste pequeno, só em ambiente de teste, para conferir a aprovação, o webhook "order" e a comissão. Proposto ao usuário em 15/11, sem resposta.
+4. Configurar em Admin → Comissões o percentual padrão e o de cada barbeiro.
+
+10.5 Para receber dinheiro de verdade (produção)
+1. Conta real do Mercado Pago da barbearia, verificada e com chave Pix cadastrada (sem chave, o PIX não gera QR Code).
+2. Credenciais de produção da aplicação nessa conta (o Mercado Pago pode pedir dados para ativar).
+3. Render: trocar MERCADOPAGO_ACCESS_TOKEN pelo de produção, MERCADOPAGO_AMBIENTE para "producao" (qualquer valor diferente de "teste" usa o link normal do Checkout Pro) e apagar MERCADOPAGO_EMAIL_PAGADOR_TESTE.
+4. Webhook no "Modo produtivo" do painel (eventos "Pagamentos" e "Order"), com a nova assinatura secreta em MERCADOPAGO_WEBHOOK_SECRET.
+5. Primeiro teste real pequeno (R$ 1 a R$ 5) de cada forma e reembolso pelo admin. A aprovação real do PIX pela API de Orders nunca foi vista: conferir o estado "processed" no app e no financeiro.
+6. Recomendado antes: retorno do cartão por deep link no app (expo-web-browser e o scheme visagebarber do app.json; exige APK novo) ou uma URL pública do site em PAGAMENTO_RETORNO_URL.
+7. Lembrar: o dinheiro cai na conta dona do token; o prazo de liberação é definido pelo Mercado Pago (forma de pagamento e plano da conta). A taxa do PIX fica zero no financeiro.

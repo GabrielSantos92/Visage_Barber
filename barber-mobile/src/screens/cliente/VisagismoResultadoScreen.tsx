@@ -13,7 +13,7 @@ import { ClienteStackParamList } from '../../navigation/ClienteNavigator';
 import { useAuth } from '../../contexts/AuthContext';
 import { useTheme } from '../../contexts/ThemeContext';
 import { F, Theme } from '../../lib/theme';
-import { api, ApiError } from '../../lib/api';
+import { api, ApiError, ErroConexao } from '../../lib/api';
 import {
   AnaliseSalva, BarbeiroChat, salvarAnalise, excluirAnalise, enviarAnaliseNoChat,
 } from '../../lib/visagismoSalvos';
@@ -192,7 +192,9 @@ export default function VisagismoResultadoScreen() {
       }
       setErroMsg(estourouTempo
         ? 'A geração demorou mais que o esperado.'
-        : 'Não foi possível gerar a imagem agora.');
+        : e instanceof ErroConexao
+          ? e.message
+          : 'Não foi possível gerar a imagem agora.');
       setStatus('erro');
     } finally {
       clearTimeout(timeout);

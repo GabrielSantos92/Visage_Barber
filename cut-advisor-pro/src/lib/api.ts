@@ -25,7 +25,11 @@ async function request<T>(method: "GET" | "POST" | "DELETE", path: string, body?
       body: body === undefined ? undefined : JSON.stringify(body),
     });
   } catch {
-    throw new Error("Não foi possível conectar ao servidor. Verifique se o backend está em execução.");
+    // Em desenvolvimento, com rede, o mais provavel e o backend local parado
+    if (import.meta.env.DEV && navigator.onLine) {
+      throw new Error("Não foi possível conectar ao servidor. Verifique se o backend está em execução.");
+    }
+    throw new Error("Sem conexão com a internet. Verifique sua rede e tente novamente.");
   }
 
   const json = await res.json().catch(() => ({}));

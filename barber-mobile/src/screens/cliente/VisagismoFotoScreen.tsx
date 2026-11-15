@@ -11,7 +11,7 @@ import { StackNavigationProp } from '@react-navigation/stack';
 import { ClienteStackParamList } from '../../navigation/ClienteNavigator';
 import { useTheme } from '../../contexts/ThemeContext';
 import { F, Theme } from '../../lib/theme';
-import { api, ApiError } from '../../lib/api';
+import { api, ApiError, ErroConexao } from '../../lib/api';
 import AvisoPrivacidadeVisagismo from '../../components/AvisoPrivacidadeVisagismo';
 import PersonalizacaoVisagismo from '../../components/PersonalizacaoVisagismo';
 import { Preferencias, preferenciasParaEnvio, semMudanca } from '../../lib/personalizacaoVisagismo';
@@ -106,7 +106,7 @@ export default function VisagismoFotoScreen() {
         setFotoUri(null);
         setConsentimento('pendente');
       }
-      Alert.alert('Erro', e.message ?? 'Não foi possível analisar a foto.');
+      Alert.alert(e instanceof ErroConexao ? 'Sem conexão' : 'Erro', e.message ?? 'Não foi possível analisar a foto.');
     }
     setLoading(false);
   }
