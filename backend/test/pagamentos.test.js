@@ -8,7 +8,7 @@ const { once } = require('node:events');
 const express = require('express');
 
 const { criarBanco, auxiliares, JOAO, CORTE_30, BARBA_30, CLIENTE_A, CLIENTE_B, ADMIN } = require('./helpers/bancoAgenda');
-const { criarMercadoPago, validarAssinatura, estadoDoMercadoPago } = require('../src/services/mercadoPago');
+const { criarMercadoPago, validarAssinatura, estadoDoMercadoPago, estadoDoPedido } = require('../src/services/mercadoPago');
 const { criarServicoPagamentos } = require('../src/services/pagamentos');
 
 const SEGREDO = 'segredo-de-teste';
@@ -23,11 +23,14 @@ const USUARIOS = {
 // ---------------------------------------------------------------
 function criarMpFalso() {
   const pagamentos = new Map();
+  // PIX: pedidos da API de Orders
+  const pedidos = new Map();
   const chamadas = [];
   let seq = 1000;
   let fora = false;
   let cancelamentoFalha = false;
   const resposta = (status, dados) => ({ ok: status < 400, status, json: async () => dados });
+  const erroPedido = (status, code) => resposta(status, { errors: [{ code, message: code }] });
 
   async function fetchFalso(url, init = {}) {
     const u = new URL(url);
@@ -36,6 +39,52 @@ function criarMpFalso() {
     chamadas.push({ metodo, caminho: u.pathname, busca: u.search, corpo, headers: init.headers });
     if (fora) return resposta(500, { message: 'indisponivel' });
 
+    if (metodo === 'POST' && u.pathname === '/v1/orders') {
+      const chave = init.headers['X-Idempotency-Key'];
+      if ([...pedidos.values()].some((o) => o._chave === chave)) return erroPedido(409, 'idempotency_key_already_used');
+      const id = `ORD${++seq}`;
+      const pag = corpo.transactions.payments[0];
+      const minutos = Number(/^PT(\d+)M$/.exec(pag.expiration_time)?.[1] ?? 1440);
+      const o = {
+        id, _chave: chave, type: 'online', status: 'action_required', status_detail: 'waiting_transfer',
+        total_amount: corpo.total_amount, external_reference: corpo.external_reference,
+        transactions: {
+          payments: [{
+            id: `PAY${seq}`, amount: pag.amount, status: 'action_required', status_detail: 'waiting_transfer',
+            date_of_expiration: new Date(Date.now() + minutos * 60000).toISOString(),
+            payment_method: { id: 'pix', type: 'bank_transfer', qr_code: `00020126PIX${seq}`, qr_code_base64: 'iVBORw0KGgo=' },
+          }],
+          refunds: [],
+        },
+      };
+      pedidos.set(id, o);
+      return resposta(201, o);
+    }
+    const pedido = /^\/v1\/orders\/([^/]+)(?:\/(cancel|refund))?$/.exec(u.pathname);
+    if (pedido) {
+      const o = pedidos.get(pedido[1]);
+      if (!o) return erroPedido(404, 'order_not_found');
+      if (metodo === 'POST' && pedido[2] === 'cancel') {
+        if (cancelamentoFalha) return resposta(500, { message: 'falha ao cancelar' });
+        if (o.status === 'canceled') return erroPedido(409, 'order_already_canceled');
+        // Como a API real: so cancela pedido em aberto
+        if (!['action_required', 'created'].includes(o.status)) return erroPedido(409, 'cannot_cancel_order');
+        Object.assign(o, { status: 'canceled', status_detail: 'canceled_transaction' });
+      }
+      if (metodo === 'POST' && pedido[2] === 'refund') {
+        const pago = o.transactions.payments[0];
+        const total = Number(o.total_amount);
+        const jaDevolvido = o.transactions.refunds.reduce((s, r) => s + Number(r.amount), 0);
+        if (corpo && corpo.transactions[0].id !== pago.id) return erroPedido(404, 'transaction_not_found');
+        const valor = corpo ? Number(corpo.transactions[0].amount) : total - jaDevolvido;
+        o.transactions.refunds.push({ id: `REF${++seq}`, transaction_id: pago.id, amount: valor.toFixed(2), status: 'processed' });
+        Object.assign(o, jaDevolvido + valor >= total
+          ? { status: 'refunded', status_detail: 'refunded' }
+          : { status: 'processed', status_detail: 'partially_refunded' });
+        return resposta(201, o);
+      }
+      return resposta(200, o);
+    }
     if (metodo === 'POST' && u.pathname === '/v1/payments') {
       const chave = init.headers['X-Idempotency-Key'];
       const repetido = [...pagamentos.values()].find((p) => p._chave === chave);
@@ -86,10 +135,20 @@ function criarMpFalso() {
   }
 
   return {
-    fetch: fetchFalso, pagamentos, chamadas,
+    fetch: fetchFalso, pagamentos, pedidos, chamadas,
     ficarFora: (v) => { fora = v; },
     falharCancelamento: (v) => { cancelamentoFalha = v; },
-    // O cliente paga (PIX) ou o Mercado Pago muda o estado
+    // O cliente paga o PIX
+    pagarPix(id) {
+      const o = pedidos.get(String(id));
+      Object.assign(o, { status: 'processed', status_detail: 'accredited', last_updated_date: new Date().toISOString() });
+      Object.assign(o.transactions.payments[0], { status: 'processed', status_detail: 'accredited' });
+    },
+    // O Mercado Pago muda o estado do pedido (ex.: PIX expirado)
+    mudarPedido(id, status, detalhe) {
+      Object.assign(pedidos.get(String(id)), { status, status_detail: detalhe });
+    },
+    // O Mercado Pago muda o estado de um pagamento da API de Payments (cartao)
     mudar(id, status, extra = {}) {
       Object.assign(pagamentos.get(String(id)), { status, ...(status === 'approved' ? { date_approved: new Date().toISOString() } : {}), ...extra });
     },
@@ -166,9 +225,10 @@ async function post(caminho, corpo = {}, { token, headers = {} } = {}) {
   return { status: r.status, corpo: await r.json() };
 }
 
-// Notificacao como o Mercado Pago envia
+// Notificacao como o Mercado Pago envia: "order" para o PIX (pedido), "payment" para o cartao
 function webhook(dataId, { chave = `n-${++notificacao}`, requestId = `req-${notificacao}`, assinatura } = {}) {
-  return post(`/webhook?data.id=${dataId}&type=payment`, { id: chave, type: 'payment', action: 'payment.updated', data: { id: String(dataId) } }, {
+  const tipo = String(dataId).startsWith('ORD') ? 'order' : 'payment';
+  return post(`/webhook?data.id=${dataId}&type=${tipo}`, { id: chave, type: tipo, action: `${tipo}.updated`, data: { id: String(dataId) } }, {
     headers: { 'x-request-id': requestId, 'x-signature': assinatura ?? assinar(dataId, requestId) },
   });
 }
@@ -213,22 +273,32 @@ test('1. PIX: valor do banco (ignora o do app), QR Code, webhook assinado aprova
   assert.equal(r.corpo.pix_qr_base64, 'iVBORw0KGgo=');
   assert.ok(r.corpo.expira_em);
 
-  const criacao = mp.chamadas.find((c) => c.metodo === 'POST' && c.caminho === '/v1/payments');
-  assert.equal(criacao.corpo.transaction_amount, 40);
-  assert.equal(criacao.corpo.payment_method_id, 'pix');
+  // PIX pela API de Orders (a de Payments recusa as credenciais de teste)
+  assert.equal(mp.chamadas.filter((c) => c.caminho === '/v1/payments').length, 0);
+  const criacao = mp.chamadas.find((c) => c.metodo === 'POST' && c.caminho === '/v1/orders');
+  assert.equal(criacao.corpo.total_amount, '40.00');
+  assert.equal(criacao.corpo.processing_mode, 'automatic');
+  assert.deepEqual(criacao.corpo.transactions.payments[0].payment_method, { id: 'pix', type: 'bank_transfer' });
+  assert.equal(criacao.corpo.transactions.payments[0].amount, '40.00');
+  assert.equal(criacao.corpo.transactions.payments[0].expiration_time, 'PT30M');
   assert.equal(criacao.corpo.payer.email, 'ana@teste.com');
   assert.equal(criacao.corpo.external_reference, r.corpo.id);
   assert.equal(criacao.headers['X-Idempotency-Key'], r.corpo.id);
   assert.equal(criacao.headers.Authorization, 'Bearer TEST-token');
+  // O prazo mostrado e o que o Mercado Pago devolveu
+  const mpId = (await pagamento(r.corpo.id)).provedor_pagamento_id;
+  assert.match(mpId, /^ORD/);
+  assert.equal(new Date(r.corpo.expira_em).getTime(),
+    new Date(mp.pedidos.get(mpId).transactions.payments[0].date_of_expiration).getTime());
 
   // O app dizer que pagou nao muda nada: so o provedor
-  const mpId = (await pagamento(r.corpo.id)).provedor_pagamento_id;
-  mp.mudar(mpId, 'approved', { fee_details: [{ type: 'mercadopago_fee', amount: 0.4 }] });
+  mp.pagarPix(mpId);
   const w = await webhook(mpId);
   assert.equal(w.status, 200);
   assert.equal(w.corpo.situacao, 'processado');
   const p = await pagamento(r.corpo.id);
-  assert.deepEqual([p.status, Number(p.taxa)], ['approved', 0.4]);
+  // O pedido nao informa a taxa do PIX: fica zero
+  assert.deepEqual([p.status, Number(p.taxa)], ['approved', 0]);
 
   await concluir(id);
   assert.deepEqual(await lancamentos(id), [['servico', 40, 24]]);
@@ -239,7 +309,7 @@ test('6. webhook repetido não duplica; assinatura inválida é recusada e não 
   await concluir(id);
   const r = await post('/', { agendamento_id: id, metodo: 'pix' }, { token: 'token-a' });
   const mpId = (await pagamento(r.corpo.id)).provedor_pagamento_id;
-  mp.mudar(mpId, 'approved');
+  mp.pagarPix(mpId);
 
   const falsa = await webhook(mpId, { assinatura: `ts=${Date.now()},v1=${'0'.repeat(64)}` });
   assert.equal(falsa.status, 401);
@@ -297,7 +367,7 @@ test('5. recusado pelo provedor não gera receita nem comissão', async () => {
   await concluir(id);
   const r = await post('/', { agendamento_id: id, metodo: 'pix' }, { token: 'token-a' });
   const mpId = (await pagamento(r.corpo.id)).provedor_pagamento_id;
-  mp.mudar(mpId, 'cancelled', { status_detail: 'expired' });
+  mp.mudarPedido(mpId, 'canceled', 'expired');
   await webhook(mpId);
   const p = await pagamento(r.corpo.id);
   assert.deepEqual([p.status, p.aprovado_em], ['expired', null]);
@@ -327,11 +397,12 @@ test('trocar de PIX para cartão cancela o PIX no provedor; o PIX em aberto é r
   const pix = await post('/', { agendamento_id: id, metodo: 'pix' }, { token: 'token-a' });
   const denovo = await post('/', { agendamento_id: id, metodo: 'pix' }, { token: 'token-a' });
   assert.equal(denovo.corpo.id, pix.corpo.id);
-  assert.equal(mp.chamadas.filter((c) => c.caminho === '/v1/payments').length, 1);
+  assert.equal(mp.chamadas.filter((c) => c.caminho === '/v1/orders').length, 1);
 
   const mpId = (await pagamento(pix.corpo.id)).provedor_pagamento_id;
   await post('/', { agendamento_id: id, metodo: 'cartao' }, { token: 'token-a' });
-  assert.ok(mp.chamadas.some((c) => c.metodo === 'PUT' && c.caminho === `/v1/payments/${mpId}` && c.corpo.status === 'cancelled'));
+  assert.ok(mp.chamadas.some((c) => c.metodo === 'POST' && c.caminho === `/v1/orders/${mpId}/cancel`));
+  assert.equal(mp.pedidos.get(mpId).status, 'canceled');
   const cancelado = await pagamento(pix.corpo.id);
   assert.deepEqual([cancelado.status, cancelado.cancelamento_provedor], ['canceled', 'confirmado']);
 });
@@ -341,7 +412,7 @@ test('10. reembolso online: só o admin; parcial ajusta a comissão', async () =
   await concluir(id);
   const r = await post('/', { agendamento_id: id, metodo: 'pix' }, { token: 'token-a' });
   const mpId = (await pagamento(r.corpo.id)).provedor_pagamento_id;
-  mp.mudar(mpId, 'approved');
+  mp.pagarPix(mpId);
   await webhook(mpId);
 
   assert.equal((await post(`/${r.corpo.id}/reembolsar`, { valor: 10 }, { token: 'token-a' })).status, 403);
@@ -349,8 +420,8 @@ test('10. reembolso online: só o admin; parcial ajusta a comissão', async () =
   const parcial = await post(`/${r.corpo.id}/reembolsar`, { valor: 10 }, { token: 'token-admin' });
   assert.equal(parcial.status, 200);
   assert.deepEqual([parcial.corpo.status, parcial.corpo.valor_reembolsado], ['partially_refunded', 10]);
-  const pedido = mp.chamadas.find((c) => c.caminho === `/v1/payments/${mpId}/refunds`);
-  assert.equal(pedido.corpo.amount, 10);
+  const pedido = mp.chamadas.find((c) => c.caminho === `/v1/orders/${mpId}/refund`);
+  assert.deepEqual(pedido.corpo, { transactions: [{ id: mp.pedidos.get(mpId).transactions.payments[0].id, amount: '10.00' }] });
   assert.ok(pedido.headers['X-Idempotency-Key']);
   assert.deepEqual(await lancamentos(id), [['servico', 40, 24], ['reembolso', -10, -6]]);
 
@@ -430,7 +501,7 @@ test('duplicidade: o cancelamento do PIX falhou, o cliente pagou PIX e cartão �
 
   // Paga o cartao e tambem o PIX que continuou aberto no Mercado Pago
   await webhook(mp.tentativaCartao(cartao.corpo.id, 40, 'approved'));
-  mp.mudar(mpPix, 'approved');
+  mp.pagarPix(mpPix);
   await webhook(mpPix);
   const dup = await pagamento(pix.corpo.id);
   assert.deepEqual([dup.status, dup.duplicidade_de], ['approved', cartao.corpo.id]);
@@ -439,14 +510,14 @@ test('duplicidade: o cancelamento do PIX falhou, o cliente pagou PIX e cartão �
   // Reembolsar o cartao (que quitou o atendimento) antes da duplicidade: recusado
   const errado = await post(`/${cartao.corpo.id}/reembolsar`, {}, { token: 'token-admin' });
   assert.deepEqual([errado.status, errado.corpo.code], [409, 'DUPLICIDADE_PENDENTE']);
-  assert.equal(mp.chamadas.filter((c) => c.caminho.endsWith('/refunds')).length, 0);
+  assert.equal(mp.chamadas.filter((c) => /\/refunds?$/.test(c.caminho)).length, 0);
 
   // Devolve a duplicidade, com motivo: total, sem mexer na comissao
   const devolvida = await post(`/${pix.corpo.id}/reembolsar`, { motivo: '  Pagou duas vezes  ' }, { token: 'token-admin' });
   assert.equal(devolvida.status, 200);
   assert.deepEqual([devolvida.corpo.status, devolvida.corpo.valor_reembolsado], ['refunded', 40]);
-  const pedido = mp.chamadas.find((c) => c.caminho === `/v1/payments/${mpPix}/refunds`);
-  assert.deepEqual(pedido.corpo, {});
+  const pedido = mp.chamadas.find((c) => c.caminho === `/v1/orders/${mpPix}/refund`);
+  assert.equal(pedido.corpo, undefined); // reembolso total: sem corpo
   assert.deepEqual(await lancamentos(id), [['servico', 40, 24]]);
   const [rb] = (await db.query('SELECT motivo, registrado_por FROM public.pagamento_reembolsos WHERE pagamento_id = $1', [pix.corpo.id])).rows;
   assert.deepEqual([rb.motivo, rb.registrado_por], ['Pagou duas vezes', ADMIN]);
@@ -463,7 +534,7 @@ test('trocar de meio com o PIX já pago: não gera a segunda cobrança', async (
   const id = await agendar(CLIENTE_A, JOAO, CORTE_30, '09:00');
   const pix = await post('/', { agendamento_id: id, metodo: 'pix' }, { token: 'token-a' });
   // O cliente pagou o PIX e, antes da confirmacao chegar, tentou trocar para cartao
-  mp.mudar((await pagamento(pix.corpo.id)).provedor_pagamento_id, 'approved');
+  mp.pagarPix((await pagamento(pix.corpo.id)).provedor_pagamento_id);
   const cartao = await post('/', { agendamento_id: id, metodo: 'cartao' }, { token: 'token-a' });
   assert.deepEqual([cartao.status, cartao.corpo.code], [409, 'JA_PAGO']);
   assert.equal(mp.chamadas.filter((c) => c.caminho === '/checkout/preferences').length, 0);
@@ -500,7 +571,7 @@ test('pagamento na barbearia: o PIX em aberto é cancelado no Mercado Pago pela 
   assert.equal((await post('/cobrancas-abertas/cancelar', { agendamento_id: id }, { token: 'token-a' })).status, 403);
   const r = await post('/cobrancas-abertas/cancelar', { agendamento_id: id }, { token: 'token-admin' });
   assert.deepEqual([r.status, r.corpo], [200, { canceladas: 1, falharam: 0 }]);
-  assert.ok(mp.chamadas.some((c) => c.metodo === 'PUT' && c.caminho === `/v1/payments/${mpPix}` && c.corpo.status === 'cancelled'));
+  assert.ok(mp.chamadas.some((c) => c.metodo === 'POST' && c.caminho === `/v1/orders/${mpPix}/cancel`));
   assert.equal((await pagamento(pix.corpo.id)).cancelamento_provedor, 'confirmado');
   // Nada mais em aberto
   assert.deepEqual((await post('/cobrancas-abertas/cancelar', {}, { token: 'token-admin' })).corpo, { canceladas: 0, falharam: 0 });
@@ -509,7 +580,7 @@ test('pagamento na barbearia: o PIX em aberto é cancelado no Mercado Pago pela 
 test('pagamento na barbearia depois de o PIX já ter sido pago: a duplicidade aparece na hora', async () => {
   const id = await agendar(CLIENTE_A, JOAO, CORTE_30, '09:00');
   const pix = await post('/', { agendamento_id: id, metodo: 'pix' }, { token: 'token-a' });
-  mp.mudar((await pagamento(pix.corpo.id)).provedor_pagamento_id, 'approved'); // a notificacao ainda nao chegou
+  mp.pagarPix((await pagamento(pix.corpo.id)).provedor_pagamento_id); // a notificacao ainda nao chegou
   const { pagamento: presencial } = await comoAdmin(() => chamarPglite('registrar_pagamento_presencial', { p_agendamento_id: id, p_forma: 'dinheiro', p_desconto: 0, p_taxa: 0 }));
 
   const r = await post('/cobrancas-abertas/cancelar', { agendamento_id: id }, { token: 'token-admin' });
@@ -525,7 +596,7 @@ test('reembolso que o Mercado Pago não confirma: nada muda e a falha fica no hi
   const id = await agendar(CLIENTE_A, JOAO, CORTE_30, '09:00');
   const pix = await post('/', { agendamento_id: id, metodo: 'pix' }, { token: 'token-a' });
   const mpPix = (await pagamento(pix.corpo.id)).provedor_pagamento_id;
-  mp.mudar(mpPix, 'approved');
+  mp.pagarPix(mpPix);
   await webhook(mpPix);
 
   mp.ficarFora(true);
@@ -539,5 +610,88 @@ test('reembolso que o Mercado Pago não confirma: nada muda e a falha fica no hi
     [['reembolso_solicitado', ADMIN, 'atraso'], ['reembolso_falhou', ADMIN, 'indisponivel']]);
   // Valor invalido nem chega ao provedor
   assert.equal((await post(`/${pix.corpo.id}/reembolsar`, { valor: 'abc' }, { token: 'token-admin' })).status, 400);
-  assert.equal(mp.chamadas.filter((c) => c.caminho.endsWith('/refunds')).length, 1);
+  // O reembolso parcial do PIX consulta o pedido antes; com o provedor fora, nem chega a pedir
+  assert.equal(mp.chamadas.filter((c) => /\/refunds?$/.test(c.caminho)).length, 0);
+});
+
+// ---------------------------------------------------------------
+// PIX pela API de Orders
+// ---------------------------------------------------------------
+test('estados do pedido (PIX) viram os estados do sistema', () => {
+  const base = { id: 'ORD1', total_amount: '40.00', transactions: { payments: [{ id: 'PAY1' }], refunds: [] } };
+  const e = (o) => estadoDoPedido({ ...base, ...o });
+  assert.deepEqual([e({ status: 'action_required' }).status, e({ status: 'created' }).status, e({ status: 'processing' }).status],
+    ['pending', 'pending', 'pending']);
+  const pago = e({ status: 'processed', status_detail: 'accredited', last_updated_date: '2026-11-15T10:00:00Z' });
+  assert.deepEqual([pago.status, pago.valor, pago.taxa, pago.aprovado_em, pago.provedor_pagamento_id],
+    ['approved', 40, null, '2026-11-15T10:00:00Z', 'ORD1']);
+  const parcial = e({ status: 'processed', status_detail: 'partially_refunded',
+    transactions: { payments: [], refunds: [{ id: 'R1', amount: '10.00', status: 'processed' }, { id: 'R2', amount: '5.00', status: 'failed' }] } });
+  assert.deepEqual([parcial.status, parcial.valor_reembolsado, parcial.reembolsos], ['partially_refunded', 10, [{ id: 'R1', valor: 10, data: null }]]);
+  assert.deepEqual([e({ status: 'refunded' }).status, e({ status: 'refunded' }).valor_reembolsado], ['refunded', 40]);
+  assert.equal(e({ status: 'canceled', status_detail: 'expired' }).status, 'expired');
+  assert.equal(e({ status: 'canceled', status_detail: 'canceled_transaction' }).status, 'canceled');
+  assert.equal(e({ status: 'failed', status_detail: 'expired' }).status, 'expired');
+  assert.equal(e({ status: 'failed' }).status, 'rejected');
+  assert.equal(e({ status: 'expired' }).aprovado_em, null);
+  const chargeback = e({ status: 'charged_back' });
+  assert.deepEqual([chargeback.status, chargeback.valor_reembolsado, chargeback.reembolsos.length], ['refunded', 40, 1]);
+});
+
+test('PIX: "Já paguei" consulta o pedido; a validade respeita o mínimo de 30 minutos do Mercado Pago', async () => {
+  const servico = criarServicoPagamentos({
+    chamar: chamarPglite, mp: criarMercadoPago({ accessToken: 'TEST-token', fetch: mp.fetch }), config: { minutosPix: 10 },
+  });
+  const id = await agendar(CLIENTE_A, JOAO, CORTE_30, '09:00');
+  const criado = await servico.criar({ usuario: { id: CLIENTE_A, email: 'ana@teste.com' }, agendamentoId: id, metodo: 'pix' });
+  assert.equal(mp.chamadas.find((c) => c.caminho === '/v1/orders').corpo.transactions.payments[0].expiration_time, 'PT30M');
+
+  const mpId = (await pagamento(criado.id)).provedor_pagamento_id;
+  mp.pagarPix(mpId);
+  const s = await servico.sincronizar({ usuario: { id: CLIENTE_A }, pagamentoId: criado.id });
+  assert.equal(s.status, 'approved');
+  assert.ok(mp.chamadas.some((c) => c.metodo === 'GET' && c.caminho === `/v1/orders/${mpId}`));
+});
+
+test('PIX: e-mail do pagador de teste substitui o do cliente só quando configurado', async () => {
+  const servico = criarServicoPagamentos({
+    chamar: chamarPglite, mp: criarMercadoPago({ accessToken: 'TEST-token', fetch: mp.fetch }),
+    config: { emailPagadorTeste: 'test_user_1@testuser.com' },
+  });
+  const id = await agendar(CLIENTE_A, JOAO, CORTE_30, '09:00');
+  await servico.criar({ usuario: { id: CLIENTE_A, email: 'ana@teste.com' }, agendamentoId: id, metodo: 'pix' });
+  assert.equal(mp.chamadas.find((c) => c.caminho === '/v1/orders').corpo.payer.email, 'test_user_1@testuser.com');
+});
+
+test('PIX: a falha do Mercado Pago fica registrada com o motivo real', async () => {
+  const servico = criarServicoPagamentos({
+    chamar: chamarPglite,
+    mp: criarMercadoPago({ accessToken: 'TEST-token', fetch: async () => ({ ok: false, status: 401, json: async () => ({ message: 'Unauthorized use of live credentials' }) }) }),
+  });
+  const id = await agendar(CLIENTE_A, JOAO, CORTE_30, '09:00');
+  await assert.rejects(servico.criar({ usuario: { id: CLIENTE_A, email: 'ana@teste.com' }, agendamentoId: id, metodo: 'pix' }),
+    (e) => e.code === 'PROVEDOR_INDISPONIVEL');
+  const [p] = await doAgendamento(id);
+  assert.deepEqual([p.status, p.detalhe], ['canceled', 'erro ao criar no provedor: Unauthorized use of live credentials']);
+});
+
+test('webhook: "simular notificação" do painel (id inexistente) e pagamento de dentro de pedido são ignorados sem erro', async () => {
+  const simulada = await webhook(123456);
+  assert.deepEqual([simulada.status, simulada.corpo.situacao], [200, 'ignorado']);
+  const pedidoInexistente = await webhook('ORD999');
+  assert.deepEqual([pedidoInexistente.status, pedidoInexistente.corpo.situacao], [200, 'ignorado']);
+  // Notificacao "payment" com id de pagamento de pedido (PAY...): o pedido ja avisa
+  const requestId = 'req-pay';
+  const pay = await post('/webhook?data.id=PAY1&type=payment', { type: 'payment', data: { id: 'PAY1' } },
+    { headers: { 'x-request-id': requestId, 'x-signature': assinar('PAY1', requestId) } });
+  assert.deepEqual([pay.status, pay.corpo.situacao], [200, 'ignorado']);
+});
+
+test('cancelar PIX que o Mercado Pago já cancelou conta como cancelado', async () => {
+  const id = await agendar(CLIENTE_A, JOAO, CORTE_30, '09:00');
+  const pix = await post('/', { agendamento_id: id, metodo: 'pix' }, { token: 'token-a' });
+  const mpPix = (await pagamento(pix.corpo.id)).provedor_pagamento_id;
+  mp.mudarPedido(mpPix, 'canceled', 'canceled_transaction');
+  await post('/', { agendamento_id: id, metodo: 'cartao' }, { token: 'token-a' });
+  assert.equal((await pagamento(pix.corpo.id)).cancelamento_provedor, 'confirmado');
 });

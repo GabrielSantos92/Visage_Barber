@@ -1,15 +1,21 @@
-// Mercado Pago: cobranca PIX, Checkout Pro (cartao), consulta, cancelamento e
-// reembolso pela API REST oficial, mais a validacao da assinatura do webhook.
+// Mercado Pago: cobranca PIX (API de Orders), Checkout Pro (cartao), consulta,
+// cancelamento e reembolso pela API REST oficial, mais a validacao da
+// assinatura do webhook.
 //
 // O access token fica so no backend (MERCADOPAGO_ACCESS_TOKEN). O cartao e
 // digitado na pagina do proprio Mercado Pago (Checkout Pro): o numero nunca
 // passa pelo app nem por este servidor.
 //
 // Documentacao: https://www.mercadopago.com.br/developers/pt/reference
-//   POST /v1/payments                 (PIX: payment_method_id "pix")
-//   POST /checkout/preferences        (Checkout Pro)
+//   POST /v1/orders                   (PIX: payment_method pix / bank_transfer)
+//   GET  /v1/orders/{id}, POST /v1/orders/{id}/cancel, POST /v1/orders/{id}/refund
+//   POST /checkout/preferences        (Checkout Pro: cartao)
 //   GET  /v1/payments/{id}, /v1/payments/search
 //   POST /v1/payments/{id}/refunds
+//
+// O PIX usa a API de Orders porque as credenciais de teste das contas novas
+// (APP_USR- de usuario de teste) sao recusadas no POST /v1/payments com
+// "Unauthorized use of live credentials" (conferido em 15/11/2026).
 //   Webhooks: cabecalho x-signature "ts=...,v1=..." = HMAC-SHA256 do manifesto
 //   "id:{data.id};request-id:{x-request-id};ts:{ts};" com a chave secreta.
 
@@ -17,12 +23,17 @@ const crypto = require('node:crypto');
 
 const API = 'https://api.mercadopago.com';
 
+// `codigo`: o codigo do erro na API de Orders (ex.: order_already_canceled)
 class MercadoPagoErro extends Error {
-  constructor(status, message) {
+  constructor(status, message, codigo = null) {
     super(message);
     this.status = status;
+    this.codigo = codigo;
   }
 }
+
+const enc = encodeURIComponent;
+const reais = (v) => Number(v).toFixed(2);
 
 // O Mercado Pago espera data com fuso (yyyy-MM-ddTHH:mm:ss.SSS+00:00)
 const dataComFuso = (d) => d.toISOString().replace('Z', '+00:00');
@@ -39,25 +50,65 @@ function criarMercadoPago({ accessToken, fetch: fazerFetch = fetch }) {
       body: corpo === undefined ? undefined : JSON.stringify(corpo),
     });
     const dados = await r.json().catch(() => ({}));
-    if (!r.ok) throw new MercadoPagoErro(r.status, dados.message ?? `Mercado Pago respondeu ${r.status}`);
+    if (!r.ok) {
+      const erro = dados.errors?.[0] ?? {};
+      const codigo = erro.code ?? dados.error ?? null;
+      const texto = dados.message ?? erro.message ?? `Mercado Pago respondeu ${r.status}`;
+      throw new MercadoPagoErro(r.status, codigo && !texto.includes(codigo) ? `${texto} (${codigo})` : texto, codigo);
+    }
     return dados;
   }
 
   return {
-    // A chave de idempotencia (id do nosso pagamento) faz uma repeticao do
-    // pedido devolver a mesma cobranca em vez de criar outra
-    async criarPix({ idempotencia, valor, descricao, email, referencia, expiraEm, urlNotificacao }) {
-      const p = await chamar('POST', '/v1/payments', {
-        transaction_amount: Number(valor),
-        description: descricao,
-        payment_method_id: 'pix',
-        payer: { email },
+    // PIX pela API de Orders. A chave de idempotencia e o id do nosso pagamento:
+    // uma repeticao do pedido nao cria outra cobranca (a API responde 409).
+    // `minutos`: validade do QR Code (o Mercado Pago aceita de 30 min a 30 dias).
+    async criarPix({ idempotencia, valor, email, referencia, minutos }) {
+      const o = await chamar('POST', '/v1/orders', {
+        type: 'online',
+        processing_mode: 'automatic',
         external_reference: referencia,
-        date_of_expiration: dataComFuso(expiraEm),
-        ...(urlNotificacao ? { notification_url: urlNotificacao } : {}),
+        total_amount: reais(valor),
+        payer: { email },
+        transactions: {
+          payments: [{
+            amount: reais(valor),
+            payment_method: { id: 'pix', type: 'bank_transfer' },
+            expiration_time: `PT${minutos}M`,
+          }],
+        },
       }, idempotencia);
-      const dados = p.point_of_interaction?.transaction_data ?? {};
-      return { id: String(p.id), status: p.status, copiaCola: dados.qr_code, qrBase64: dados.qr_code_base64 };
+      const p = o.transactions?.payments?.[0] ?? {};
+      return {
+        id: String(o.id),
+        status: o.status,
+        copiaCola: p.payment_method?.qr_code,
+        qrBase64: p.payment_method?.qr_code_base64,
+        expiraEm: p.date_of_expiration ?? null,
+      };
+    },
+
+    buscarPedido: (id) => chamar('GET', `/v1/orders/${enc(id)}`),
+
+    // Pedido ja cancelado conta como cancelado
+    async cancelarPedido(id) {
+      try {
+        await chamar('POST', `/v1/orders/${enc(id)}/cancel`, undefined, crypto.randomUUID());
+      } catch (e) {
+        if (e.codigo !== 'order_already_canceled') throw e;
+      }
+    },
+
+    // Sem valor: reembolso total. O parcial precisa do id do pagamento dentro do pedido.
+    async reembolsarPedido(id, valor, idempotencia) {
+      let corpo;
+      if (valor != null) {
+        const o = await chamar('GET', `/v1/orders/${enc(id)}`);
+        corpo = { transactions: [{ id: o.transactions?.payments?.[0]?.id, amount: reais(valor) }] };
+      }
+      const r = await chamar('POST', `/v1/orders/${enc(id)}/refund`, corpo, idempotencia);
+      const ultimo = (r.transactions?.refunds ?? []).at(-1);
+      return { id: ultimo?.id ?? null };
     },
 
     // Checkout Pro so com cartao de credito
@@ -81,21 +132,19 @@ function criarMercadoPago({ accessToken, fetch: fazerFetch = fetch }) {
       return { id: String(p.id), link: (sandbox && p.sandbox_init_point) || p.init_point };
     },
 
-    buscarPagamento: (id) => chamar('GET', `/v1/payments/${encodeURIComponent(id)}`),
+    buscarPagamento: (id) => chamar('GET', `/v1/payments/${enc(id)}`),
 
     async buscarPorReferencia(referencia) {
       const r = await chamar('GET', `/v1/payments/search?sort=date_created&criteria=desc&external_reference=${encodeURIComponent(referencia)}`);
       return r.results ?? [];
     },
 
-    cancelarPagamento: (id) => chamar('PUT', `/v1/payments/${encodeURIComponent(id)}`, { status: 'cancelled' }),
-
-    expirarPreferencia: (id) => chamar('PUT', `/checkout/preferences/${encodeURIComponent(id)}`, {
+    expirarPreferencia: (id) => chamar('PUT', `/checkout/preferences/${enc(id)}`, {
       expires: true, expiration_date_to: dataComFuso(new Date()),
     }),
 
     // Sem valor: reembolso total
-    reembolsar: (id, valor, idempotencia) => chamar('POST', `/v1/payments/${encodeURIComponent(id)}/refunds`,
+    reembolsar: (id, valor, idempotencia) => chamar('POST', `/v1/payments/${enc(id)}/refunds`,
       valor == null ? {} : { amount: Number(valor) }, idempotencia),
   };
 }
@@ -160,4 +209,55 @@ function estadoDoMercadoPago(p) {
   };
 }
 
-module.exports = { criarMercadoPago, validarAssinatura, estadoDoMercadoPago, MercadoPagoErro };
+// Estado do pedido (API de Orders, usado no PIX) -> estado no nosso banco.
+// O pedido nao informa a taxa: ela fica como esta no banco.
+function estadoDoPedido(o) {
+  const pagamento = o.transactions?.payments?.[0] ?? {};
+  const detalhe = o.status_detail ?? pagamento.status_detail ?? null;
+  const valor = Number(o.total_amount);
+  let reembolsos = (o.transactions?.refunds ?? [])
+    .filter((r) => !['failed', 'rejected', 'canceled', 'cancelled'].includes(r.status))
+    .map((r) => ({ id: String(r.id), valor: Number(r.amount), data: r.date_created ?? null }));
+  let reembolsado = Math.round(reembolsos.reduce((s, r) => s + r.valor, 0) * 100) / 100;
+  let status;
+  switch (o.status) {
+    case 'processed':
+      status = detalhe === 'partially_refunded' || reembolsado > 0 ? 'partially_refunded' : 'approved';
+      break;
+    case 'refunded':
+      status = 'refunded';
+      reembolsado = valor;
+      break;
+    case 'charged_back':
+      status = 'refunded';
+      if (!reembolsos.length) reembolsos = [{ id: `chargeback-${o.id}`, valor, data: o.last_updated_date ?? null }];
+      reembolsado = valor;
+      break;
+    case 'failed':
+      status = detalhe === 'expired' ? 'expired' : 'rejected';
+      break;
+    case 'canceled':
+    case 'cancelled':
+      status = detalhe === 'expired' ? 'expired' : 'canceled';
+      break;
+    case 'expired':
+      status = 'expired';
+      break;
+    default:
+      // created, processing, action_required
+      status = 'pending';
+  }
+  const pago = ['approved', 'partially_refunded', 'refunded'].includes(status);
+  return {
+    status,
+    provedor_pagamento_id: String(o.id),
+    valor,
+    taxa: null,
+    valor_reembolsado: reembolsado,
+    aprovado_em: pago ? pagamento.date_approved ?? o.last_updated_date ?? null : null,
+    detalhe,
+    reembolsos,
+  };
+}
+
+module.exports = { criarMercadoPago, validarAssinatura, estadoDoMercadoPago, estadoDoPedido, MercadoPagoErro };

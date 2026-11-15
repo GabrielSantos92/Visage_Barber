@@ -13,8 +13,11 @@
 // Nenhum pagamento e aprovado porque o app recebeu uma resposta positiva: so
 // pelo estado consultado na API do provedor com o nosso access token. Pagamento
 // em duplicidade fica registrado e marcado no banco; nada e devolvido sem o admin.
+//
+// PIX: pedido da API de Orders (provedor_pagamento_id guarda o id do pedido).
+// Cartao: preferencia do Checkout Pro e pagamentos da API de Payments.
 
-const { validarAssinatura, estadoDoMercadoPago } = require('./mercadoPago');
+const { validarAssinatura, estadoDoMercadoPago, estadoDoPedido } = require('./mercadoPago');
 
 const METODOS = ['pix', 'cartao', 'presencial'];
 const UUID_RX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -70,7 +73,8 @@ const tentativasPagas = (lista) => lista.filter((t) => PAGAS.includes(t.status))
   .sort((a, b) => String(a.date_approved ?? a.date_created ?? '').localeCompare(String(b.date_approved ?? b.date_created ?? '')));
 
 function criarServicoPagamentos({ chamar, mp, config = {}, agora = () => new Date() }) {
-  const minutosPix = config.minutosPix ?? 30;
+  // O Mercado Pago so aceita de 30 minutos a 30 dias
+  const minutosPix = Math.min(Math.max(Math.round(config.minutosPix ?? 30), 30), 43200);
   const minutosCartao = config.minutosCartao ?? 60;
 
   async function banco(nome, args) {
@@ -93,7 +97,7 @@ function criarServicoPagamentos({ chamar, mp, config = {}, agora = () => new Dat
       if (!pix && !cartao) continue;
       let erro = null;
       try {
-        if (pix) await mp.cancelarPagamento(c.provedor_pagamento_id);
+        if (pix) await mp.cancelarPedido(c.provedor_pagamento_id);
         else await mp.expirarPreferencia(c.provedor_preferencia_id);
       } catch (e) {
         erro = String(e.message ?? e).slice(0, 300);
@@ -107,7 +111,7 @@ function criarServicoPagamentos({ chamar, mp, config = {}, agora = () => new Dat
       }
       resultado.falharam++;
       try {
-        if (pix) await aplicar(c.id, await mp.buscarPagamento(c.provedor_pagamento_id));
+        if (pix) await aplicar(c.id, await mp.buscarPedido(c.provedor_pagamento_id));
         else for (const t of tentativasPagas(await mp.buscarPorReferencia(c.id))) await aplicar(c.id, t);
       } catch (e) {
         console.warn('[pagamentos] nao foi possivel conferir a cobranca no provedor:', e.message);
@@ -116,13 +120,15 @@ function criarServicoPagamentos({ chamar, mp, config = {}, agora = () => new Dat
     return resultado;
   }
 
+  // `objetoMp`: pedido da API de Orders (PIX) ou pagamento da API de Payments (cartao).
   // `extra`: quem pediu (admin) e, no reembolso, o motivo e o id do reembolso
-  async function aplicar(pagamentoId, pagamentoMp, extra = {}) {
-    if (pagamentoMp.external_reference !== pagamentoId) {
+  async function aplicar(pagamentoId, objetoMp, extra = {}) {
+    if (objetoMp.external_reference !== pagamentoId) {
       throw new PagamentoErro(409, 'REFERENCIA_DIVERGENTE', 'O pagamento do provedor não corresponde a esta cobrança.');
     }
+    const estado = objetoMp.transactions ? estadoDoPedido(objetoMp) : estadoDoMercadoPago(objetoMp);
     const r = await banco('aplicar_estado_pagamento', {
-      p_pagamento_id: pagamentoId, p_estado: { ...estadoDoMercadoPago(pagamentoMp), ...extra },
+      p_pagamento_id: pagamentoId, p_estado: { ...estado, ...extra },
     });
     await cancelarNoProvedor(r.cancelados);
     return r.pagamento;
@@ -150,12 +156,13 @@ function criarServicoPagamentos({ chamar, mp, config = {}, agora = () => new Dat
     let dados;
     try {
       if (metodo === 'pix') {
-        const expiraEm = new Date(agora().getTime() + minutosPix * 60000);
         const pix = await mp.criarPix({
           // Em teste, o Mercado Pago so aceita pagador que tambem seja conta de teste
-          idempotencia: pag.id, valor: pag.valor, descricao: inicio.descricao, email: config.emailPagadorTeste || usuario.email,
-          referencia: pag.id, expiraEm, urlNotificacao: config.urlNotificacao,
+          idempotencia: pag.id, valor: pag.valor, email: config.emailPagadorTeste || usuario.email,
+          referencia: pag.id, minutos: minutosPix,
         });
+        // O prazo que vale e o do Mercado Pago; sem ele, o que pedimos
+        const expiraEm = pix.expiraEm ? new Date(pix.expiraEm) : new Date(agora().getTime() + minutosPix * 60000);
         dados = {
           provedor_pagamento_id: pix.id, pix_copia_cola: pix.copiaCola, pix_qr_base64: pix.qrBase64,
           expira_em: expiraEm.toISOString(),
@@ -171,7 +178,9 @@ function criarServicoPagamentos({ chamar, mp, config = {}, agora = () => new Dat
       }
     } catch (e) {
       console.error('[pagamentos] falha ao criar cobranca:', e.message);
-      await banco('falhar_cobranca', { p_pagamento_id: pag.id, p_detalhe: 'erro ao criar no provedor' });
+      await banco('falhar_cobranca', {
+        p_pagamento_id: pag.id, p_detalhe: `erro ao criar no provedor: ${String(e.message ?? e)}`.slice(0, 300),
+      });
       throw new PagamentoErro(502, 'PROVEDOR_INDISPONIVEL',
         'Não foi possível gerar a cobrança agora. Tente novamente ou escolha pagar na barbearia.');
     }
@@ -197,7 +206,7 @@ function criarServicoPagamentos({ chamar, mp, config = {}, agora = () => new Dat
       return publico(await banco('pagamento_para_sincronizar', { p_pagamento_id: pag.id, p_cliente_id: admin ? null : usuario.id }));
     }
     if (!pag.provedor_pagamento_id) return publico(pag);
-    return publico(await aplicar(pag.id, await mp.buscarPagamento(pag.provedor_pagamento_id), extra));
+    return publico(await aplicar(pag.id, await mp.buscarPedido(pag.provedor_pagamento_id), extra));
   }
 
   // Reembolso de pagamento online (admin). Sem valor: o que falta reembolsar.
@@ -215,10 +224,13 @@ function criarServicoPagamentos({ chamar, mp, config = {}, agora = () => new Dat
     });
     const pag = preparo.pagamento;
     const v = Number(preparo.valor);
+    const pix = pag.metodo === 'pix';
     let reembolso;
     try {
-      reembolso = await mp.reembolsar(pag.provedor_pagamento_id, preparo.total ? null : v,
-        `reembolso-${pag.id}-${pag.valor_reembolsado}-${v}`);
+      const chave = `reembolso-${pag.id}-${pag.valor_reembolsado}-${v}`;
+      reembolso = pix
+        ? await mp.reembolsarPedido(pag.provedor_pagamento_id, preparo.total ? null : v, chave)
+        : await mp.reembolsar(pag.provedor_pagamento_id, preparo.total ? null : v, chave);
     } catch (e) {
       console.error('[pagamentos] falha no reembolso:', e.message);
       await banco('registrar_falha_reembolso', { p_pagamento_id: pag.id, p_ator: usuario.id, p_erro: String(e.message ?? e) })
@@ -226,7 +238,8 @@ function criarServicoPagamentos({ chamar, mp, config = {}, agora = () => new Dat
       throw new PagamentoErro(502, 'PROVEDOR_INDISPONIVEL',
         'O Mercado Pago não confirmou o reembolso. Confira o pagamento em alguns minutos antes de tentar de novo.');
     }
-    return publico(await aplicar(pag.id, await mp.buscarPagamento(pag.provedor_pagamento_id), {
+    const atual = pix ? await mp.buscarPedido(pag.provedor_pagamento_id) : await mp.buscarPagamento(pag.provedor_pagamento_id);
+    return publico(await aplicar(pag.id, atual, {
       ator: usuario.id,
       solicitacao: { id: reembolso?.id == null ? null : String(reembolso.id), motivo: texto, ator: usuario.id },
     }));
@@ -253,8 +266,11 @@ function criarServicoPagamentos({ chamar, mp, config = {}, agora = () => new Dat
     });
     if (!valida) throw new PagamentoErro(401, 'ASSINATURA_INVALIDA', 'Notificação com assinatura inválida.');
 
+    // "order": PIX (API de Orders); "payment": cartao. Ids de pagamento da API de
+    // Payments sao numericos; os de dentro de um pedido (PAY...) chegam pelo "order".
     const tipo = body?.type ?? query.type ?? query.topic;
-    if (tipo !== 'payment' || !dataId) return { situacao: 'ignorado' };
+    if (!['payment', 'order'].includes(tipo) || !dataId) return { situacao: 'ignorado' };
+    if (tipo === 'payment' && !/^\d+$/.test(dataId)) return { situacao: 'ignorado' };
 
     const chave = String(body?.id ?? headers['x-request-id'] ?? `${dataId}:${body?.action ?? ''}`);
     const evento = await banco('registrar_evento_pagamento', {
@@ -266,7 +282,17 @@ function criarServicoPagamentos({ chamar, mp, config = {}, agora = () => new Dat
       p_provedor: 'mercadopago', p_chave: chave, p_situacao: situacao, p_erro: erro,
     });
     try {
-      const pagamentoMp = await mp.buscarPagamento(dataId);
+      let pagamentoMp;
+      try {
+        pagamentoMp = tipo === 'order' ? await mp.buscarPedido(dataId) : await mp.buscarPagamento(dataId);
+      } catch (e) {
+        // Ex.: o "simular notificacao" do painel, que manda um id que nao existe
+        if (e.status === 404) {
+          await concluir('ignorado', 'recurso inexistente no provedor');
+          return { situacao: 'ignorado' };
+        }
+        throw e;
+      }
       const referencia = pagamentoMp.external_reference;
       if (!UUID_RX.test(String(referencia ?? ''))) {
         await concluir('ignorado', 'sem referencia do Visage Barber');
