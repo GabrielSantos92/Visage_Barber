@@ -110,6 +110,10 @@ const servico = criarServicoPagamentos({
     urlNotificacao: process.env.MERCADOPAGO_NOTIFICATION_URL,
     urlRetorno: process.env.PAGAMENTO_RETORNO_URL,
     sandbox: process.env.MERCADOPAGO_AMBIENTE === 'teste',
+    // So vale em teste: em producao o e-mail e sempre o do cliente
+    emailPagadorTeste: process.env.MERCADOPAGO_AMBIENTE === 'teste'
+      ? (process.env.MERCADOPAGO_EMAIL_PAGADOR_TESTE || '').trim() || undefined
+      : undefined,
     minutosPix: Number(process.env.PAGAMENTO_PIX_MINUTOS) || 30,
   },
 });

@@ -152,7 +152,8 @@ function criarServicoPagamentos({ chamar, mp, config = {}, agora = () => new Dat
       if (metodo === 'pix') {
         const expiraEm = new Date(agora().getTime() + minutosPix * 60000);
         const pix = await mp.criarPix({
-          idempotencia: pag.id, valor: pag.valor, descricao: inicio.descricao, email: usuario.email,
+          // Em teste, o Mercado Pago so aceita pagador que tambem seja conta de teste
+          idempotencia: pag.id, valor: pag.valor, descricao: inicio.descricao, email: config.emailPagadorTeste || usuario.email,
           referencia: pag.id, expiraEm, urlNotificacao: config.urlNotificacao,
         });
         dados = {
