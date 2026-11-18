@@ -6,7 +6,6 @@
 //   POST /api/privacidade/consentimentos/:finalidade/revogar  { origem } revoga
 
 const express = require('express');
-const { createClient } = require('@supabase/supabase-js');
 const {
   ConsentimentoErro, criarConsentimentos, criarProtecaoConsentimento, repositorioSupabase,
 } = require('../services/consentimento');
@@ -51,17 +50,9 @@ function criarRotasPrivacidade({ consentimentos, verificarToken }) {
   return router;
 }
 
-// Instancia real: banco com service role e validacao do token no Supabase Auth
-const supabaseServico = createClient(
-  process.env.SUPABASE_URL,
-  process.env.SUPABASE_SERVICE_ROLE_KEY,
-  { auth: { autoRefreshToken: false, persistSession: false } },
-);
-
-async function verificarToken(token) {
-  const { data, error } = await supabaseServico.auth.getUser(token);
-  return error ? null : data?.user ?? null;
-}
+// Instancia real: o cliente unico (service role, protegido pela conferencia do
+// ambiente) e a validacao do token no Supabase Auth
+const { supabase: supabaseServico, verificarToken } = require('../services/supabaseServico');
 
 const consentimentos = criarConsentimentos({ repositorio: repositorioSupabase(supabaseServico) });
 

@@ -1,15 +1,10 @@
 const express = require('express');
-const { createClient } = require('@supabase/supabase-js');
 const { criarRecuperacaoSenha, RecuperacaoErro } = require('../services/recuperacaoSenha');
 const { telefoneParaSalvar } = require('../services/telefone');
+// Cliente unico, protegido pela conferencia do ambiente
+const { supabase: supabaseAdmin } = require('../services/supabaseServico');
 
 const router = express.Router();
-
-const supabaseAdmin = createClient(
-  process.env.SUPABASE_URL,
-  process.env.SUPABASE_SERVICE_ROLE_KEY,
-  { auth: { autoRefreshToken: false, persistSession: false } }
-);
 
 // POST /api/auth/register
 // Cria o usuário já confirmado usando a chave admin (bypassa confirmação de email)
