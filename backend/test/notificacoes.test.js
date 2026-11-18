@@ -645,6 +645,23 @@ test('20. /processar fica fechada sem segredo configurado (ou curto) e com as no
   assert.equal(expo.pedidos.length, 0);
 });
 
+test('20b. desligado: /processar confere o segredo primeiro (errado → 401; certo → 503 DESATIVADO) e não lê a fila', async () => {
+  await registrar(USUARIO_JOAO, TOKEN.joao);
+  await agendarComo(CLIENTE_A, '10:00');
+  await subir({ ativo: false });
+  for (const segredo of [undefined, SEGREDO.slice(0, -1), 'x'.repeat(48)]) {
+    const r = await post('/processar', {}, { segredo });
+    assert.deepEqual([r.status, r.corpo.code], [401, 'NAO_AUTORIZADO'], String(segredo).slice(0, 8));
+  }
+  // O segredo certo prova que banco e backend combinam, sem ligar canal nenhum
+  const certo = await post('/processar', {}, { segredo: SEGREDO });
+  assert.deepEqual([certo.status, certo.corpo], [503, { error: 'Notificações desativadas no servidor.', code: 'DESATIVADO' }]);
+  await servico.aguardar();
+  assert.equal(expo.pedidos.length, 0);
+  assert.equal((await avisos('novo_agendamento'))[0].status, 'pendente');
+  assert.ok(!logs.linhas.join('\n').includes(SEGREDO));
+});
+
 test('21. tentativas sem segredo ou com segredo errado não gastam o limite do banco e não leem a fila', async () => {
   await subir({
     limiteProcessar: criarLimitador({ max: 3, janelaMs: 60000 }),

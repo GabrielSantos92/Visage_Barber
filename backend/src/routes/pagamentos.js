@@ -11,7 +11,6 @@
 // pelo app sao ignorados; o preco vem do agendamento no banco.
 
 const express = require('express');
-const { createClient } = require('@supabase/supabase-js');
 const { criarMercadoPago } = require('../services/mercadoPago');
 const { criarServicoPagamentos, PagamentoErro } = require('../services/pagamentos');
 
@@ -76,30 +75,10 @@ function criarRotasPagamentos({ servico, verificarToken, ehAdmin }) {
   return router;
 }
 
-// Instancia real: banco com service role, token validado no Supabase Auth e
-// Mercado Pago so se o access token estiver configurado
-const supabaseServico = createClient(
-  process.env.SUPABASE_URL,
-  process.env.SUPABASE_SERVICE_ROLE_KEY,
-  { auth: { autoRefreshToken: false, persistSession: false } },
-);
-
-async function chamarSupabase(nome, args) {
-  const { data, error } = await supabaseServico.rpc(nome, args);
-  if (error) throw error; // { code: 'PT404', details: 'CODIGO', message }
-  return data;
-}
-
-async function verificarToken(token) {
-  const { data, error } = await supabaseServico.auth.getUser(token);
-  return error ? null : data?.user ?? null;
-}
-
-async function ehAdmin(userId) {
-  const { data, error } = await supabaseServico.from('user_roles').select('role').eq('user_id', userId).eq('role', 'admin');
-  if (error) throw error;
-  return (data ?? []).length > 0;
-}
+// Instancia real: o cliente unico (service role, protegido pela conferencia do
+// ambiente), token validado no Supabase Auth e Mercado Pago so se o access
+// token estiver configurado. Erro do banco: { code: 'PT404', details: 'CODIGO', message }
+const { chamar: chamarSupabase, verificarToken, ehAdmin } = require('../services/supabaseServico');
 
 const accessToken = process.env.MERCADOPAGO_ACCESS_TOKEN;
 const servico = criarServicoPagamentos({

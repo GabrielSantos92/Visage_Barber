@@ -13,10 +13,15 @@
 // Com os dois canais desligados, as duas rotas respondem 503 e nada e enviado.
 // /processar le a fila de cada canal ligado; /teste e so do push. Sem segredo
 // valido, a rota do banco fica fechada.
+//
+// /processar confere o segredo ANTES de olhar se ha canal ligado: com tudo
+// desligado, segredo certo = 503 DESATIVADO e segredo errado = 401. Assim da
+// para provar, sem ligar nenhum canal, que o segredo do Vault (banco) e o
+// NOTIFICACOES_SEGREDO (Render) sao iguais: SELECT public.despertar_backend()
+// e a resposta em net._http_response.
 
 const crypto = require('node:crypto');
 const express = require('express');
-const { createClient } = require('@supabase/supabase-js');
 const { criarLimitador } = require('../services/limiteTaxa');
 const { criarExpoPush } = require('../services/expoPush');
 const { criarServicoNotificacoes, NotificacaoErro } = require('../services/notificacoes');
@@ -80,7 +85,8 @@ function criarRotasNotificacoes({
   // O segredo e conferido ANTES de qualquer limite: tentativas invalidas tem
   // um limite proprio (por IP) e nunca gastam o limite das chamadas do banco.
   // O IP so serve para frear tentativas invalidas; nunca autentica ninguem.
-  router.post('/processar', exigirAtivo, (req, res) => {
+  // "Desligado" so e respondido a quem provou ter o segredo.
+  router.post('/processar', (req, res) => {
     if (!segredoConfigurado(segredo)) {
       return res.status(503).json({ error: 'Processamento de notificações não configurado.', code: 'NAO_CONFIGURADO' });
     }
@@ -93,6 +99,7 @@ function criarRotasNotificacoes({
         ? res.status(401).json({ error: 'Não autorizado.', code: 'NAO_AUTORIZADO' })
         : res.status(429).json({ error: 'Muitas tentativas. Tente de novo em instantes.', code: 'LIMITE' });
     }
+    if (!ativo) return res.status(503).json({ error: 'Notificações desativadas no servidor.', code: 'DESATIVADO' });
     if (!limiteProcessar.consumir('autenticado')) {
       return res.status(429).json({ error: 'Muitas chamadas. Tente de novo em instantes.', code: 'LIMITE' });
     }
@@ -118,24 +125,12 @@ function criarRotasNotificacoes({
 }
 
 // ---------------------------------------------------------------
-// Instancia real: banco com service role, sessao validada no Supabase Auth
+// Instancia real: o cliente Supabase unico (service role, protegido pela
+// conferencia do ambiente), sessao validada no Supabase Auth
 // ---------------------------------------------------------------
-const supabaseServico = createClient(
-  process.env.SUPABASE_URL,
-  process.env.SUPABASE_SERVICE_ROLE_KEY,
-  { auth: { autoRefreshToken: false, persistSession: false } },
-);
-
-async function chamarSupabase(nome, args) {
-  const { data, error } = await supabaseServico.rpc(nome, args);
-  if (error) throw error;
-  return data;
-}
-
-async function verificarToken(token) {
-  const { data, error } = await supabaseServico.auth.getUser(token);
-  return error ? null : data?.user ?? null;
-}
+const {
+  supabase: supabaseServico, chamar: chamarSupabase, verificarToken,
+} = require('../services/supabaseServico');
 
 // Aparelhos ativos do proprio usuario (para o teste)
 async function buscarDispositivos(usuarioId, dispositivoId) {
@@ -168,13 +163,25 @@ const servico = criarServicoNotificacoes({
   buscarDispositivos,
 });
 
+// /processar (como todo /api) so passa depois de liberado o ambiente
+// (services/ambienteServidor.js): o banco ja foi conferido
 const router = criarRotasNotificacoes({
   servico, verificarToken, segredo: process.env.NOTIFICACOES_SEGREDO, ativo, pushAtivo,
   servicoWhatsapp: whatsappAtivo ? servicoWhatsappReal : null,
 });
 
-// Chamado pelo app.js depois de subir o servidor. So nomes de variaveis vao
-// para o log, nunca valores.
+function ligarWhatsapp(intervaloMs) {
+  const piloto = configuracao.whatsapp.piloto.length;
+  const teste = configuracao.whatsapp.destinatariosTeste;
+  // So o nome do ambiente e quantidades: nunca numeros, ids ou tokens
+  console.log(`[notificacoes] WhatsApp ligado no ambiente ${configuracao.whatsapp.ambiente}`
+    + `${teste ? ` (${teste.length} destinatario(s) de teste autorizado(s))` : ''}`
+    + `${piloto ? ` (piloto: ${piloto} usuario(s))` : ''}.`);
+  servicoWhatsappReal.iniciar(intervaloMs);
+}
+
+// Chamado pelo app.js SO depois de liberado o ambiente (banco conferido). So
+// nomes de variaveis vao para o log, nunca valores.
 function iniciarNotificacoes() {
   if (configuracao.chaveAntiga) {
     console.warn('[notificacoes] NOTIFICACOES_ATIVAS esta configurada: essa chave antiga nao deve existir. '
@@ -198,11 +205,7 @@ function iniciarNotificacoes() {
     console.log('[notificacoes] push ligado.');
     servico.iniciar(intervaloMs);
   }
-  if (whatsappAtivo) {
-    const piloto = configuracao.whatsapp.piloto.length;
-    console.log(`[notificacoes] WhatsApp ligado${piloto ? ` (piloto: ${piloto} usuario(s))` : ''}.`);
-    servicoWhatsappReal.iniciar(intervaloMs);
-  }
+  if (whatsappAtivo) ligarWhatsapp(intervaloMs);
 }
 
 module.exports = { router, iniciarNotificacoes, criarRotasNotificacoes, segredoConfere, SEGREDO_MINIMO };

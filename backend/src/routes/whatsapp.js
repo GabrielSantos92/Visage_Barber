@@ -8,11 +8,16 @@
 //        escolhe agendamento nem destinatario: o banco reconfere tudo.
 //
 // Com o WhatsApp desligado (services/notificacoesConfig.js), as duas rotas
-// respondem 503 e nada e processado.
+// respondem 503 e nada e processado. Ligado, elas (como todo /api) so atendem
+// depois de conferido QUAL banco esta conectado (services/ambienteServidor.js,
+// no app.js): o modo teste exige o banco de teste marcado, e producao recusa
+// um banco de teste. O WhatsApp so liga com WHATSAPP_AMBIENTE igual a
+// BACKEND_AMBIENTE. So os eventos do Phone Number ID do ambiente ligado
+// (producao ou teste) sao lidos; no modo teste, mensagens de numeros fora de
+// WHATSAPP_TESTE_DESTINATARIOS sao ignoradas.
 
 const crypto = require('node:crypto');
 const express = require('express');
-const { createClient } = require('@supabase/supabase-js');
 const { criarLimitador } = require('../services/limiteTaxa');
 const { criarWhatsApp, assinaturaConfere, extrairEventos } = require('../services/whatsapp');
 const { criarConfirmacaoPresenca } = require('../services/confirmacaoPresenca');
@@ -37,9 +42,11 @@ function criarRotasWhatsapp({
   log = console,
 }) {
   const router = express.Router();
+  // ativo: valor fixo ou funcao (ligado so depois de conferir o banco)
+  const ligado = () => (typeof ativo === 'function' ? ativo() : ativo);
 
   function exigirAtivo(_req, res, next) {
-    if (!ativo) return res.status(503).json({ error: 'WhatsApp desativado no servidor.', code: 'DESATIVADO' });
+    if (!ligado()) return res.status(503).json({ error: 'WhatsApp desativado no servidor.', code: 'DESATIVADO' });
     next();
   }
 
@@ -75,46 +82,52 @@ function criarRotasWhatsapp({
 }
 
 // ---------------------------------------------------------------
-// Instancia real: banco com service role e a Cloud API da Meta
+// Instancia real: o cliente Supabase unico (protegido pela conferencia do
+// ambiente) e a Cloud API da Meta
 // ---------------------------------------------------------------
+const { chamar: chamarSupabase } = require('../services/supabaseServico');
+
 const configuracao = lerConfiguracao();
 const wa = configuracao.whatsapp;
-
-const supabaseServico = createClient(
-  process.env.SUPABASE_URL,
-  process.env.SUPABASE_SERVICE_ROLE_KEY,
-  { auth: { autoRefreshToken: false, persistSession: false } },
-);
-
-async function chamarSupabase(nome, args) {
-  const { data, error } = await supabaseServico.rpc(nome, args);
-  if (error) throw error;
-  return data;
-}
 
 const segundos = (valor, padrao) => {
   const n = Number(valor);
   return Number.isFinite(n) && n > 0 ? n : padrao;
 };
 
-const servico = criarConfirmacaoPresenca({
+// Monta o servico a partir da configuracao do ambiente escolhido
+// (lerConfiguracao().whatsapp): o numero, o token e os templates sao sempre os
+// do mesmo ambiente, e no modo teste vai junto a lista de destinatarios.
+function criarServicoWhatsapp(waConfig, { chamar, fetch, timeoutMs = 10000, log } = {}) {
+  return criarConfirmacaoPresenca({
+    chamar,
+    whatsapp: criarWhatsApp({
+      token: waConfig.token,
+      phoneNumberId: waConfig.phoneNumberId,
+      versao: waConfig.versao,
+      timeoutMs,
+      ...(fetch ? { fetch } : {}),
+    }),
+    config: {
+      templateConfirmacao: waConfig.templateConfirmacao,
+      templatePresencaNegada: waConfig.templatePresencaNegada,
+      templateCancelamento: waConfig.templateCancelamento,
+      templateCancelamentoNaoConcluido: waConfig.templateCancelamentoNaoConcluido,
+      idioma: waConfig.idioma,
+      piloto: waConfig.piloto,
+      destinatariosTeste: waConfig.destinatariosTeste,
+    },
+    ...(log ? { log } : {}),
+  });
+}
+
+const servico = criarServicoWhatsapp(wa, {
   chamar: chamarSupabase,
-  whatsapp: criarWhatsApp({
-    token: wa.token,
-    phoneNumberId: wa.phoneNumberId,
-    versao: wa.versao,
-    timeoutMs: segundos(process.env.NOTIFICACOES_TIMEOUT_SEGUNDOS, 10) * 1000,
-  }),
-  config: {
-    templateConfirmacao: wa.templateConfirmacao,
-    templatePresencaNegada: wa.templatePresencaNegada,
-    idioma: wa.idioma,
-    piloto: wa.piloto,
-  },
+  timeoutMs: segundos(process.env.NOTIFICACOES_TIMEOUT_SEGUNDOS, 10) * 1000,
 });
 
 const router = criarRotasWhatsapp({
   ativo: wa.ativo, servico, appSecret: wa.appSecret, verifyToken: wa.verifyToken, phoneNumberId: wa.phoneNumberId,
 });
 
-module.exports = { router, servico, configuracao, criarRotasWhatsapp, textoConfere };
+module.exports = { router, servico, configuracao, criarRotasWhatsapp, criarServicoWhatsapp, textoConfere };

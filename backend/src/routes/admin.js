@@ -1,20 +1,13 @@
 const express = require('express');
 const router = express.Router();
-const { createClient } = require('@supabase/supabase-js');
 const { excluirBarbeiro } = require('../services/barbeiros');
 const { telefoneParaSalvar, validarTelefone } = require('../services/telefone');
+// Cliente unico, protegido pela conferencia do ambiente (sem chave reserva:
+// antes havia a anon como alternativa a service role)
+const { supabase } = require('../services/supabaseServico');
 
-const supabaseAdmin = createClient(
-  process.env.SUPABASE_URL,
-  process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY
-);
-
-// Cliente separado com configuração correta para auth.admin em Node.js
-const supabaseAuth = createClient(
-  process.env.SUPABASE_URL,
-  process.env.SUPABASE_SERVICE_ROLE_KEY,
-  { auth: { autoRefreshToken: false, persistSession: false } }
-);
+const supabaseAdmin = supabase;
+const supabaseAuth = supabase;
 
 // Todas as rotas /api/admin exigem o token de sessão (Authorization: Bearer ...)
 // de um usuário com role 'admin'. Sem isso qualquer pessoa conseguiria criar barbeiros.
