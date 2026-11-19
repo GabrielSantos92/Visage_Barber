@@ -11,7 +11,10 @@ const {
   JOAO, CORTE_30, CLIENTE_A, CLIENTE_B, CLIENTE_C, USUARIO_JOAO,
 } = require('./helpers/bancoAgenda');
 const { criarExpoPush } = require('../src/services/expoPush');
-const { criarServicoNotificacoes, textoDoAviso, quando, horaCurta } = require('../src/services/notificacoes');
+const { criarServicoNotificacoes, textoDoAviso, quando, horaCurta, TEXTO_PUSH } = require('../src/services/notificacoes');
+// O push e generico (nada pessoal no payload): o detalhe fica na central
+const PUSH_AG = ['Visage Barber', TEXTO_PUSH.agendamento];
+const PUSH_MSG = ['Visage Barber', TEXTO_PUSH.mensagem];
 const { criarLimitador } = require('../src/services/limiteTaxa');
 
 const SEGREDO = 'segredo-de-teste-com-mais-de-32-caracteres-0123';
@@ -252,18 +255,17 @@ test('1. novo agendamento: o barbeiro recebe em todos os aparelhos, com texto, c
   const resumo = await processar();
   assert.equal(resumo.aceitas, 2);
   assert.deepEqual(expo.entregues.map((m) => m.to).sort(), [TOKEN.joao, TOKEN.joaoTablet].sort());
+  const [aviso] = await avisos('novo_agendamento');
   for (const m of expo.entregues) {
-    assert.equal(m.title, 'Novo agendamento');
-    assert.equal(m.body, `Ana agendou Corte para dia ${DDMM} às 10h.`);
+    assert.deepEqual([m.title, m.body], PUSH_AG);
     assert.equal(m.channelId, 'agendamentos');
     assert.equal(m.priority, 'high');
-    assert.equal(m.tag, `agendamento:${id}`);
-    assert.deepEqual(m.data, { tipo: 'novo_agendamento', destinatario: USUARIO_JOAO, agendamento_id: id });
+    assert.equal(m.tag, 'agendamentos');
+    assert.deepEqual(m.data, { tipo: 'novo_agendamento', notificacao_id: aviso.id });
     assert.ok(m.ttl > 6 * 24 * 3600 && m.ttl <= 28 * 24 * 3600, `ttl ${m.ttl}`);
   }
   assert.equal(expo.pedidos[0].headers.Authorization, 'Bearer acesso-expo-teste');
 
-  const [aviso] = await avisos('novo_agendamento');
   assert.equal(aviso.status, 'enviada');
   const lista = await envios(aviso.id);
   assert.deepEqual(lista.map((e) => e.status), ['aceito', 'aceito']);
@@ -287,9 +289,10 @@ test('2. cancelamento: pelo cliente só o barbeiro recebe; pelo barbeiro só o c
 
   const porToken = Object.fromEntries(expo.entregues.map((m) => [m.to, m]));
   assert.deepEqual(Object.keys(porToken).sort(), [TOKEN.bruno, TOKEN.joao].sort());
-  assert.equal(porToken[TOKEN.joao].body, `Ana cancelou o atendimento de dia ${DDMM} às 10h (Corte).`);
-  assert.equal(porToken[TOKEN.bruno].body, `João cancelou o seu atendimento de dia ${DDMM} às 11h (Corte).`);
-  assert.ok(expo.entregues.every((m) => m.title === 'Agendamento cancelado' && m.channelId === 'cancelamentos'));
+  assert.ok(expo.entregues.every((m) => m.title === PUSH_AG[0] && m.body === PUSH_AG[1] && m.channelId === 'cancelamentos'));
+  // Quem cancelou, o horario e o servico ficam so na central
+  const tudo = JSON.stringify(expo.pedidos);
+  for (const dado of ['Ana', 'João', 'Corte', DDMM, '10h', '11h']) assert.ok(!tudo.includes(dado), dado);
 });
 
 test('3. mensagem: o outro participante recebe "Você recebeu uma mensagem de ...", sem o texto; o remetente nunca recebe', async () => {
@@ -300,18 +303,17 @@ test('3. mensagem: o outro participante recebe "Você recebeu uma mensagem de ..
   await processar();
   assert.deepEqual(expo.entregues.map((m) => m.to), [TOKEN.joao]);
   const [m] = expo.entregues;
-  assert.deepEqual([m.title, m.body, m.channelId, m.tag],
-    ['Nova mensagem', 'Você recebeu uma mensagem de Ana.', 'mensagens', `conversa:${conversa}`]);
-  assert.deepEqual(m.data, {
-    tipo: 'mensagem', destinatario: USUARIO_JOAO, conversa_id: conversa, barbeiro_id: JOAO, cliente_id: CLIENTE_A, outro_nome: 'Ana',
-  });
+  const [avisoMsg] = await avisos('mensagem');
+  assert.deepEqual([m.title, m.body, m.channelId, m.tag], [...PUSH_MSG, 'mensagens', 'mensagens']);
+  assert.deepEqual(m.data, { tipo: 'mensagem', notificacao_id: avisoMsg.id });
 
   await enviarMensagem(conversa, USUARIO_JOAO, 'Pode vir!');
   await processar();
   assert.deepEqual(expo.entregues.map((x) => x.to), [TOKEN.joao, TOKEN.ana]);
-  assert.equal(expo.entregues[1].body, 'Você recebeu uma mensagem de João.');
+  assert.equal(expo.entregues[1].body, PUSH_MSG[1]);
   const tudo = JSON.stringify(expo.pedidos);
   assert.ok(!tudo.includes('Segredo') && !tudo.includes('irmão') && !tudo.includes('Pode vir'));
+  for (const dado of ['Ana', 'João', conversa, JOAO, CLIENTE_A, USUARIO_JOAO]) assert.ok(!tudo.includes(dado), dado);
 });
 
 test('4. várias mensagens seguidas da mesma conversa viram um aviso só por aparelho, com a contagem', async () => {
@@ -321,7 +323,7 @@ test('4. várias mensagens seguidas da mesma conversa viram um aviso só por apa
   for (const texto of ['oi', 'tudo bem?', 'posso remarcar?']) await enviarMensagem(conversa, CLIENTE_A, texto);
   await processar();
   assert.equal(expo.entregues.length, 2); // um por aparelho
-  assert.ok(expo.entregues.every((m) => m.body === 'Você tem 3 mensagens novas de Ana.'));
+  assert.ok(expo.entregues.every((m) => m.body === PUSH_MSG[1]));
   assert.deepEqual((await avisos('mensagem')).map((a) => a.status), ['enviada', 'enviada', 'enviada']);
   // O ticket fica so com o aviso principal (um por aparelho)
   assert.equal(await contar('SELECT count(*) AS n FROM public.notificacao_envios WHERE ticket_id IS NOT NULL'), 2);
@@ -343,7 +345,7 @@ test('5. não envia o que deixou de valer: cancelado antes do envio, horário pa
   await enviarMensagem(conversa, CLIENTE_A, 'oi');
   await db.query('UPDATE public.mensagens SET lida = true');
   await processar();
-  assert.deepEqual(expo.entregues.map((m) => m.title), ['Agendamento cancelado']);
+  assert.deepEqual(expo.entregues.map((m) => [m.channelId, m.data.tipo]), [['cancelamentos', 'cancelamento']]);
 
   // Preferencia desligada: o barbeiro nao quer avisos de mensagem
   await como(USUARIO_JOAO, () => rpc('salvar_preferencias_notificacao', { p_preferencias: { mensagens: false } }));
@@ -364,8 +366,10 @@ test('6. lembrete: o cliente recebe 30 min antes, no canal de lembretes, com ser
   await processar();
   assert.equal(expo.entregues.length, 1); // o barbeiro tem o lembrete desligado
   const [m] = expo.para(TOKEN.ana);
-  assert.deepEqual([m.title, m.body, m.channelId, m.tag],
-    ['Seu atendimento está próximo', `Corte com João às ${horaCurta(await dataHora(id))}.`, 'lembretes', `agendamento:${id}`]);
+  assert.deepEqual([m.title, m.body, m.channelId, m.tag], [...PUSH_AG, 'lembretes', 'agendamentos']);
+  // Servico, barbeiro e hora ficam so na central
+  const tudo = JSON.stringify(m);
+  for (const dado of ['Corte', 'João', horaCurta(await dataHora(id)), id]) assert.ok(!tudo.includes(dado), dado);
   assert.ok(m.ttl >= 60 && m.ttl <= 20 * 60);
 });
 
@@ -503,7 +507,7 @@ test('13. processamento ao mesmo tempo não duplica: várias chamadas juntas e d
   await agendarComo(CLIENTE_C, '13:00');
   await Promise.all([servico.solicitarProcessamento(), outro.solicitarProcessamento()]);
   assert.equal(expo.entregues.length, 3);
-  assert.equal(new Set(expo.entregues.map((m) => m.body)).size, 3);
+  assert.equal(new Set(expo.entregues.map((m) => m.data.notificacao_id)).size, 3);
 });
 
 test('14. isolamento: no mesmo lote, cada aviso vai só para os aparelhos do seu destinatário (e cada erro fica com o dono)', async () => {
@@ -523,7 +527,12 @@ test('14. isolamento: no mesmo lote, cada aviso vai só para os aparelhos do seu
   assert.equal(expo.pedidos.length, 1);
   const lote = expo.pedidos[0].corpo;
   assert.equal(lote.length, 3);
-  for (const m of lote) assert.equal(m.data.destinatario, DONO[m.to], m.to);
+  // Cada mensagem vai para um aparelho do dono do aviso (o payload nao diz quem e)
+  for (const m of lote) {
+    const { rows: [n] } = await db.query('SELECT destinatario_id FROM public.notificacoes WHERE id = $1', [m.data.notificacao_id]);
+    assert.equal(n.destinatario_id, DONO[m.to], m.to);
+    assert.ok(!('destinatario' in m.data), 'sem id de pessoa no payload');
+  }
   assert.equal((await aparelho(TOKEN.bruno)).ativo, false);
   assert.equal((await aparelho(TOKEN.ana)).ativo, true);
   assert.equal((await aparelho(TOKEN.joao)).ativo, true);
@@ -563,7 +572,7 @@ test('16. aviso com dados que não formam uma notificação falha sem travar a f
   const [cancelamento] = await avisos('cancelamento');
   assert.deepEqual([cancelamento.status, cancelamento.motivo], ['falhou', 'recusado: DadosInvalidos']);
   // O resto da fila seguiu: a mensagem chegou ao barbeiro
-  assert.deepEqual(expo.entregues.map((m) => [m.to, m.title]), [[TOKEN.joao, 'Nova mensagem']]);
+  assert.deepEqual(expo.entregues.map((m) => [m.to, m.data.tipo]), [[TOKEN.joao, 'mensagem']]);
   assert.ok(logs.linhas.some((l) => l.includes('dados invalidos')));
 });
 
@@ -627,7 +636,7 @@ test('19. /processar: sem segredo ou com segredo errado → 401 e nada é enviad
   const r = await post('/processar', { destinatario: CLIENTE_B, to: TOKEN.bruno, title: 'Promoção' }, { segredo: SEGREDO });
   assert.deepEqual([r.status, r.corpo], [202, { recebido: true }]);
   await servico.aguardar();
-  assert.deepEqual(expo.entregues.map((m) => [m.to, m.title]), [[TOKEN.joao, 'Novo agendamento']]);
+  assert.deepEqual(expo.entregues.map((m) => [m.to, m.data.tipo, m.title]), [[TOKEN.joao, 'novo_agendamento', 'Visage Barber']]);
   assert.ok(!logs.linhas.join('\n').includes(SEGREDO));
 });
 
@@ -727,7 +736,7 @@ test('22. /teste: exige login e envia só aos aparelhos do próprio usuário, se
   assert.ok(resultado.ticket_id);
   assert.ok(!JSON.stringify(r.corpo).includes('ExponentPushToken'));
   assert.deepEqual(expo.entregues.map((m) => m.to), [TOKEN.ana]);
-  assert.deepEqual(expo.entregues[0].data, { tipo: 'teste', destinatario: CLIENTE_A });
+  assert.deepEqual(expo.entregues[0].data, { tipo: 'teste' });
   assert.equal(await contar('SELECT count(*) AS n FROM public.notificacoes'), 0); // nada na fila
 
   // Aparelho de outra pessoa: como se nao existisse

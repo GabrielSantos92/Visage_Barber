@@ -48,6 +48,17 @@ export async function buscarNotificacoes(antes?: string | null): Promise<Notific
   return Array.isArray(data) ? data : [];
 }
 
+// O aviso de um push (que so traz o id), procurado na central da conta logada.
+// O banco so devolve avisos de quem chama: aviso de outra conta nao e achado.
+export async function notificacaoDoPush(id: string | undefined): Promise<Notificacao | null> {
+  if (!id) return null;
+  try {
+    return (await buscarNotificacoes()).find((n) => n.id === id) ?? null;
+  } catch {
+    return null;
+  }
+}
+
 // Sem a central no banco (ou sem rede): zero, sem quebrar a tela
 export async function contarNaoLidas(): Promise<number> {
   try {

@@ -5,7 +5,7 @@ import { useEffect, useRef } from 'react';
 import * as Notifications from 'expo-notifications';
 import { useAuth } from '../contexts/AuthContext';
 import { registrarAparelho, aoRenovarToken, definirUsuarioAtual } from '../lib/pushNotificacoes';
-import { avisarMudanca, destinoDaNotificacao, DadosNotificacao } from '../lib/centralNotificacoes';
+import { avisarMudanca, destinoDaNotificacao, DadosNotificacao, notificacaoDoPush, marcarLidas } from '../lib/centralNotificacoes';
 import { navegacaoRef } from '../navigation/navegacao';
 
 export type PapelNoApp = 'barbeiro' | 'cliente';
@@ -37,20 +37,25 @@ export function usePushToken(papel: PapelNoApp) {
     return aoRenovarToken();
   }, [user?.id]);
 
-  // Toque na notificacao (inclusive a que abriu o app fechado). So abre se o
-  // aviso for da conta logada: aviso antigo de outra conta no mesmo aparelho
-  // e ignorado.
+  // Toque na notificacao (inclusive a que abriu o app fechado). O push so traz
+  // o tipo e o id do aviso: o detalhe vem da central, que so devolve avisos da
+  // conta logada. Aviso de outra conta (aparelho que ficou vinculado) nao e
+  // encontrado e o toque so abre a central.
   useEffect(() => {
     if (!resposta || !user) return;
     const id = resposta.notification.request.identifier;
     if (tratadas.current.has(id)) return;
     tratadas.current.add(id);
-    const dados = (resposta.notification.request.content.data ?? {}) as DadosNotificacao & { tipo?: string; destinatario?: string };
+    const push = (resposta.notification.request.content.data ?? {}) as { tipo?: string; notificacao_id?: string };
     avisarMudanca();
-    if (dados.destinatario && dados.destinatario !== user.id) return;
-    // A navegacao pode ainda nao estar pronta logo ao abrir o app
-    if (!abrirDestino(papel, dados.tipo, dados)) {
-      setTimeout(() => abrirDestino(papel, dados.tipo, dados), 600);
-    }
+    (async () => {
+      const aviso = await notificacaoDoPush(push.notificacao_id);
+      const abrir = () => (aviso
+        ? abrirDestino(papel, aviso.tipo, aviso.dados as DadosNotificacao)
+        : navegacaoRef.isReady() && (navegacaoRef.navigate('Notificacoes', { papel }), true));
+      if (aviso && !aviso.lida_em) marcarLidas([aviso.id]).catch(() => {});
+      // A navegacao pode ainda nao estar pronta logo ao abrir o app
+      if (!abrir()) setTimeout(abrir, 600);
+    })();
   }, [resposta, user?.id, papel]);
 }
