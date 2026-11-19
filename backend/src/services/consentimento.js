@@ -13,9 +13,12 @@ const FINALIDADES = {
   // Versao do Aviso de Privacidade apresentado. Ao mudar o texto do aviso (web e
   // mobile), atualize aqui: quem concordou com a versao antiga precisa concordar de novo.
   visagismo_foto: { versaoAviso: '2026-11-04' },
-  // Avisos e confirmacao de presenca pelo WhatsApp (migration 20261113000025).
-  // A versao e a do texto mostrado no perfil (web e mobile: lib/privacidade.ts).
-  whatsapp_avisos: { versaoAviso: '2026-11-13' },
+  // Confirmacao de presenca e cancelamento com confirmacao dupla pelo WhatsApp
+  // (migrations 20261113000025 e 20261116000026). A versao e a do texto
+  // mostrado no perfil (web e mobile: lib/privacidade.ts) e tem de ser igual a
+  // public.whatsapp_versao_aviso() no banco, que so envia para quem autorizou
+  // esta versao. A anterior (2026-11-13) dizia que responder Nao nao cancelava.
+  whatsapp_avisos: { versaoAviso: '2026-11-16' },
 };
 
 const ORIGENS = ['web', 'mobile'];
@@ -48,15 +51,19 @@ function criarConsentimentos({ repositorio }) {
   }
 
   return {
+    // versao_anterior: autorizou uma versao antiga do aviso (sem revogar) e
+    // ainda nao a atual. Essa autorizacao nao vale: o app pede de novo.
     async status(userId, finalidade) {
       const { versaoAviso } = configDa(finalidade);
-      const atual = await vigenteNaVersaoAtual(userId, finalidade);
+      const vigentes = await repositorio.vigentes(userId, finalidade);
+      const atual = vigentes.find((c) => c.versao_aviso === versaoAviso) ?? null;
       return {
         finalidade,
         versao_atual: versaoAviso,
         consentido: Boolean(atual),
         concedido_em: atual?.concedido_em ?? null,
         origem: atual?.origem ?? null,
+        versao_anterior: !atual && vigentes.length > 0,
       };
     },
 

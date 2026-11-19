@@ -131,6 +131,24 @@ function montarEnvio(item, config) {
     }
     return { modo: 'texto', texto: textoCancelamentoNaoConcluido(data, hora), janelaFechada: JANELA_FECHADA.test(String(d.falha ?? '')) };
   }
+  // novo_agendamento (migration 28) e cancelamento (migration 29), sem botoes.
+  // Cliente: {{1}} cliente, {{2}} servico, {{3}} barbeiro, {{4}} data, {{5}}
+  // hora. Barbeiro: {{1}} cliente, {{2}} servico, {{3}} data, {{4}} hora.
+  if (item.tipo === 'novo_agendamento' || item.tipo === 'cancelamento') {
+    if (d.papel !== 'cliente' && d.papel !== 'barbeiro') throw new Error('papel invalido');
+    const barbeiro = d.papel === 'barbeiro';
+    const templates = item.tipo === 'cancelamento'
+      ? [config.templateCancelamentoCliente, config.templateCancelamentoBarbeiro]
+      : [config.templateNovoAgendamentoCliente, config.templateNovoAgendamentoBarbeiro];
+    return {
+      modo: 'template',
+      template: barbeiro ? templates[1] : templates[0],
+      parametros: barbeiro
+        ? [d.cliente_nome || 'Cliente', d.servico || 'atendimento', data, hora]
+        : [d.cliente_nome || 'Cliente', d.servico || 'atendimento', d.barbeiro_nome || 'seu barbeiro', data, hora],
+      botoes: [],
+    };
+  }
   if (item.tipo === 'presenca_negada' || item.tipo === 'cancelamento_whatsapp') {
     return {
       modo: 'template',

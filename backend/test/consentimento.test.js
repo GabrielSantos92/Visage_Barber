@@ -97,7 +97,9 @@ test('visagismo recusa envio sem consentimento', async () => {
 test('situacao inicial: sem consentimento', async () => {
   const r = await chamar('GET', URL_CONSENT, { token: 'token-ana' });
   assert.equal(r.status, 200);
-  assert.deepEqual(r.json, { finalidade: 'visagismo_foto', versao_atual: VERSAO, consentido: false, concedido_em: null, origem: null });
+  assert.deepEqual(r.json, {
+    finalidade: 'visagismo_foto', versao_atual: VERSAO, consentido: false, concedido_em: null, origem: null, versao_anterior: false,
+  });
 });
 
 test('concordancia registrada libera a analise', async () => {
@@ -135,6 +137,22 @@ test('consentimento em versao antiga nao vale mais', async () => {
   repo.linhas.push({ user_id: 'ana', finalidade: 'visagismo_foto', versao_aviso: '2020-01-01', origem: 'web', concedido_em: 'x', revogado_em: null });
   assert.equal((await analisar('token-ana')).status, 403);
   assert.equal((await chamar('GET', URL_CONSENT, { token: 'token-ana' })).json.consentido, false);
+});
+
+test('WhatsApp: a autorizacao do aviso anterior (Nao nao cancelava) nao vale para o fluxo com cancelamento', async () => {
+  const URL_WA = '/api/privacidade/consentimentos/whatsapp_avisos';
+  assert.equal(FINALIDADES.whatsapp_avisos.versaoAviso, '2026-11-16');
+  repo.linhas.push({ user_id: 'ana', finalidade: 'whatsapp_avisos', versao_aviso: '2026-11-13', origem: 'web', concedido_em: 'x', revogado_em: null });
+  const antes = await chamar('GET', URL_WA, { token: 'token-ana' });
+  assert.deepEqual([antes.json.consentido, antes.json.versao_anterior], [false, true]);
+  // O app antigo (com o texto anterior) nao consegue autorizar
+  assert.equal((await chamar('POST', URL_WA, { token: 'token-ana', corpo: { versao: '2026-11-13', origem: 'mobile' } })).status, 409);
+  // Autorizar o texto novo: vale, e o registro anterior continua no historico
+  const depois = await chamar('POST', URL_WA, { token: 'token-ana', corpo: { versao: '2026-11-16', origem: 'mobile' } });
+  assert.deepEqual([depois.status, depois.json.consentido, depois.json.versao_anterior], [200, true, false]);
+  assert.deepEqual(repo.linhas.map((l) => l.versao_aviso), ['2026-11-13', '2026-11-16']);
+  // Sem nenhuma autorizacao, nao ha versao anterior
+  assert.equal((await chamar('GET', URL_WA, { token: 'token-bia' })).json.versao_anterior, false);
 });
 
 test('revogacao impede novos envios e preserva o historico', async () => {
