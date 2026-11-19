@@ -2,6 +2,7 @@ import React, { createContext, useContext, useEffect, useRef, useState } from 'r
 import { Alert, Linking } from 'react-native';
 import { Session, User } from '@supabase/supabase-js';
 import { supabase } from '../lib/supabase';
+import { removerAparelho } from '../lib/pushNotificacoes';
 import { Enums } from '../types/supabase';
 
 type AppRole = Enums<'app_role'>;
@@ -124,6 +125,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const signOut = async () => {
+    // Antes de sair (ainda com a sessao): este aparelho para de receber os
+    // avisos desta conta
+    await removerAparelho();
     await supabase.auth.signOut();
   };
 

@@ -64,12 +64,12 @@ function usadosPeloCodigo() {
   return { tabelas: [...tabelas].sort(), funcoes: [...funcoes].sort() };
 }
 
-test('N1. ordem: as 33 migrations (3 de base + 30) aplicadas pela versão, sem versão repetida; a 27 antes da 26', () => {
+test('N1. ordem: as 34 migrations (3 de base + 31) aplicadas pela versão, sem versão repetida; a 27 antes da 26', () => {
   const lista = migrationsEmOrdem();
-  assert.equal(lista.length, 33);
+  assert.equal(lista.length, 34);
   assert.equal(new Set(lista.map((m) => m.versao)).size, lista.length);
   assert.ok(lista.slice(0, 2).every((m) => m.arquivo.includes(path.join('cut-advisor-pro', 'supabase'))), 'as duas primeiras são as de base');
-  assert.equal(lista.at(-1).nome, '20261118000029_whatsapp_aviso_cancelamento.sql');
+  assert.equal(lista.at(-1).nome, '20261119000030_central_notificacoes_push.sql');
   const pos = (v) => lista.findIndex((m) => m.versao === v);
   assert.ok(pos('20261105000018') < pos('20261105000019'));
   assert.ok(pos('20261109000021') < pos('20261109000022'));
@@ -87,11 +87,11 @@ test('N2. sem as tabelas do chat, a instalação nova para na migration 11 (as a
   assert.equal(r.aplicadas.at(-1).split('_')[0], ULTIMA_ANTES_DO_CHAT);
 });
 
-test('N3. com a preparação do chat: as 33 migrations entram em ordem e tudo que o código usa existe', async () => {
+test('N3. com a preparação do chat: as 34 migrations entram em ordem e tudo que o código usa existe', async () => {
   const db = await bancoVazio();
   const r = await instalar(db, { preparacao: PREPARACAO });
   assert.equal(r.ok, true, `${r.falhou}: ${r.erro}`);
-  assert.equal(r.aplicadas.length, 33);
+  assert.equal(r.aplicadas.length, 34);
   assert.equal(r.extensoesTrocadas, 3, 'pg_cron (08 e 22) e pg_net (22)');
 
   const { tabelas, funcoes } = usadosPeloCodigo();

@@ -1,6 +1,6 @@
 -- =====================================================================
 -- Auditoria das notificacoes (depois das migrations 21, 22 e 23; reconhece
--- tambem a 25, a 27 e a 26, e os rollbacks delas)
+-- tambem a 25, a 27, a 26 e a 30, e os rollbacks delas)
 --
 -- SOMENTE LEITURA: uma unica consulta; nao cria, nao altera e nao apaga nada.
 -- Rode no Supabase Dashboard > SQL Editor e mande o resultado.
@@ -22,6 +22,7 @@ WITH
 --      27           c5e63445649493ba26941d701c74ac2d  (= rollback da 26)
 --      26           d7292c319cc19a4318f90c845a0b0832  (26 ajustada)
 --      26_original  cf980d362eb940169527bb95b9c07b89  (obsoleta: nunca aplicar)
+--      30           0f8ac1055d747bd708c1b6211a2d8500  (central e push de volta)
 --    Funcao do gatilho despertar_backend_apos_aviso (22 = rollback da 27):
 --                   ae27781cf33c63989c107b791dcc6379
 --    Estados validos (TODAS as condicoes juntas):
@@ -34,7 +35,12 @@ WITH
 --      B            rotina 27; coluna canal da 25; as 3 funcoes da 25; nenhuma
 --                   da 26; NENHUM gatilho que acorde o backend; sem a funcao
 --      C            rotina 26; coluna canal da 25; as 3 da 25 e as 3 da 26;
---                   nenhum gatilho que acorde o backend; sem a funcao
+--                   nenhum gatilho que acorde o backend; sem a funcao; sem
+--                   as colunas da 30
+--      D            rotina 30; tudo do C e as 3 colunas da 30 (lida_em,
+--                   push_ativo, push_ativado_em); o push acorda o backend so
+--                   com notificacao_config.push_ativo ligado
+--    antes_da_25, A e B tambem nao podem ter as colunas da 30.
 --    Gatilho que acorda o backend: qualquer gatilho (de qualquer nome) em
 --    public.notificacoes cuja funcao chame despertar_backend ou http_post.
 --    Qualquer outra combinacao e inconsistente.
@@ -59,6 +65,11 @@ arq_sinais AS (
     (to_regprocedure('public.whatsapp_expirar_solicitacoes()') IS NOT NULL)::int
       + (to_regprocedure('public.whatsapp_versao_aviso()') IS NOT NULL)::int
       + (to_regprocedure('public.whatsapp_avisar_cancelamento_nao_concluido(uuid,text)') IS NOT NULL)::int AS funcoes_26,
+    -- Colunas da migration 30 (central e marcador do push)
+    (SELECT count(*) FROM pg_attribute a
+      WHERE NOT a.attisdropped AND a.attnum > 0
+        AND ((a.attrelid = to_regclass('public.notificacoes') AND a.attname = 'lida_em')
+             OR (a.attrelid = to_regclass('public.notificacao_config') AND a.attname IN ('push_ativo', 'push_ativado_em'))))::int AS colunas_30,
     (SELECT count(*) FROM pg_trigger t JOIN pg_proc f ON f.oid = t.tgfoid
       WHERE t.tgrelid = to_regclass('public.notificacoes') AND NOT t.tgisinternal
         AND (f.prosrc ILIKE '%despertar_backend%' OR f.prosrc ILIKE '%http_post%')) AS gatilhos_despertar,
@@ -80,6 +91,7 @@ arq AS (
            WHEN 'c5e63445649493ba26941d701c74ac2d' THEN '27'
            WHEN 'd7292c319cc19a4318f90c845a0b0832' THEN '26'
            WHEN 'cf980d362eb940169527bb95b9c07b89' THEN '26_original'
+           WHEN '0f8ac1055d747bd708c1b6211a2d8500' THEN '30'
            ELSE CASE WHEN s.hash_rotina IS NULL THEN 'ausente' ELSE 'desconhecida' END END AS versao,
          s.hash_funcao_gatilho IS NOT NULL AS funcao_gatilho_existe,
          coalesce(s.hash_funcao_gatilho = 'ae27781cf33c63989c107b791dcc6379', false) AS funcao_gatilho_da_22
@@ -91,17 +103,20 @@ arq_estado AS (
            WHEN a.versao = 'ausente' THEN 'rotina_ausente'
            WHEN a.versao = 'desconhecida' THEN 'desconhecida'
            WHEN a.versao = '22' AND NOT a.canal_existe AND a.funcoes_25 = 0 AND a.funcoes_26 = 0
-                AND a.gatilhos_despertar = 1 AND a.gatilho_original AND a.funcao_gatilho_da_22 THEN 'antes_da_25'
+                AND a.gatilhos_despertar = 1 AND a.gatilho_original AND a.funcao_gatilho_da_22 AND a.colunas_30 = 0 THEN 'antes_da_25'
            WHEN a.versao = '25' AND a.canal_certo AND a.funcoes_25 = 3 AND a.funcoes_26 = 0
-                AND a.gatilhos_despertar = 1 AND a.gatilho_original AND a.funcao_gatilho_da_22 THEN 'A'
+                AND a.gatilhos_despertar = 1 AND a.gatilho_original AND a.funcao_gatilho_da_22 AND a.colunas_30 = 0 THEN 'A'
            WHEN a.versao = '27' AND a.canal_certo AND a.funcoes_25 = 3 AND a.funcoes_26 = 0
-                AND a.gatilhos_despertar = 0 AND NOT a.funcao_gatilho_existe THEN 'B'
+                AND a.gatilhos_despertar = 0 AND NOT a.funcao_gatilho_existe AND a.colunas_30 = 0 THEN 'B'
            WHEN a.versao = '26' AND a.canal_certo AND a.funcoes_25 = 3 AND a.funcoes_26 = 3
-                AND a.gatilhos_despertar = 0 AND NOT a.funcao_gatilho_existe THEN 'C'
+                AND a.gatilhos_despertar = 0 AND NOT a.funcao_gatilho_existe AND a.colunas_30 = 0 THEN 'C'
+           WHEN a.versao = '30' AND a.canal_certo AND a.funcoes_25 = 3 AND a.funcoes_26 = 3
+                AND a.gatilhos_despertar = 0 AND NOT a.funcao_gatilho_existe AND a.colunas_30 = 3 THEN 'D'
            ELSE 'inconsistente' END AS estado,
          'rotina ' || a.versao
            || '; coluna canal: ' || CASE WHEN a.canal_certo THEN 'a da 25' WHEN a.canal_existe THEN 'INESPERADA' ELSE 'ausente' END
            || '; funcoes da 25: ' || a.funcoes_25 || '/3; da 26: ' || a.funcoes_26 || '/3'
+           || '; colunas da 30: ' || a.colunas_30 || '/3'
            || '; gatilhos que acordam o backend: ' || coalesce(a.nomes_gatilhos, 'nenhum')
            || '; funcao do gatilho: ' || CASE WHEN NOT a.funcao_gatilho_existe THEN 'ausente'
                                               WHEN a.funcao_gatilho_da_22 THEN 'a da 22' ELSE 'DESCONHECIDA' END AS sinais
@@ -158,7 +173,14 @@ funcoes(assinatura, publico) AS (
     ('public.despertar_backend()', 'interna'),
     -- So existe antes da migration 27 (a 27 a remove junto com o gatilho)
     ('public.despertar_backend_apos_aviso()', 'gatilho'),
-    ('public.limpar_notificacoes_antigas(integer)', 'interna')
+    ('public.limpar_notificacoes_antigas(integer)', 'interna'),
+    -- Central de notificacoes e marcador do push (migration 30)
+    ('public.minhas_notificacoes(integer,timestamp with time zone)', 'app30'),
+    ('public.contar_notificacoes_nao_lidas()', 'app30'),
+    ('public.marcar_notificacoes_lidas(uuid[])', 'app30'),
+    ('public.marcar_todas_notificacoes_lidas()', 'app30'),
+    ('public.central_dados(jsonb)', 'interna30'),
+    ('public.push_ao_ativar()', 'interna30')
 ),
 f_estado AS (
   SELECT f.assinatura, f.publico, to_regprocedure(f.assinatura) AS oid,
@@ -174,19 +196,22 @@ f_perm AS (
 ),
 r_funcoes AS (
   SELECT 2, 'Funcao (' || f.publico || ')', f.assinatura,
-         CASE WHEN f.publico = 'gatilho' AND f.oid IS NULL AND e.versao IN ('27', '26')
+         CASE WHEN f.publico IN ('app30', 'interna30') AND f.oid IS NULL AND e.versao <> '30'
+                THEN 'so existe a partir da migration 30'
+              WHEN f.publico = 'gatilho' AND f.oid IS NULL AND e.versao IN ('27', '26', '30')
                 THEN 'removida pela migration 27 (esperado)'
               WHEN f.oid IS NULL THEN 'nao existe'
-              WHEN f.publico = 'gatilho' AND e.versao IN ('27', '26')
+              WHEN f.publico = 'gatilho' AND e.versao IN ('27', '26', '30')
                 THEN 'AINDA EXISTE: com a rotina da migration ' || e.versao || ' nao deveria existir'
               ELSE 'anon: ' || CASE WHEN f.anon THEN 'SIM' ELSE 'nao' END
                 || '; logado: ' || CASE WHEN f.logado THEN 'sim' ELSE 'nao' END
                 || coalesce('; service_role: ' || CASE WHEN f.servico THEN 'sim' ELSE 'nao' END, '') END,
-         CASE WHEN f.publico = 'gatilho' AND f.oid IS NULL AND e.versao IN ('27', '26') THEN 'OK'
+         CASE WHEN f.publico IN ('app30', 'interna30') AND f.oid IS NULL AND e.versao <> '30' THEN 'OK'
+              WHEN f.publico = 'gatilho' AND f.oid IS NULL AND e.versao IN ('27', '26', '30') THEN 'OK'
               WHEN f.oid IS NULL OR f.anon THEN 'PROBLEMA'
-              WHEN f.publico = 'gatilho' AND e.versao IN ('27', '26') THEN 'PROBLEMA'
-              WHEN f.publico = 'app' AND NOT f.logado THEN 'PROBLEMA'
-              WHEN f.publico <> 'app' AND f.logado THEN 'PROBLEMA'
+              WHEN f.publico = 'gatilho' AND e.versao IN ('27', '26', '30') THEN 'PROBLEMA'
+              WHEN f.publico IN ('app', 'app30') AND NOT f.logado THEN 'PROBLEMA'
+              WHEN f.publico NOT IN ('app', 'app30') AND f.logado THEN 'PROBLEMA'
               WHEN f.publico = 'backend' AND f.servico IS FALSE THEN 'PROBLEMA'
               ELSE 'OK' END
     FROM f_perm f
@@ -222,10 +247,11 @@ r_arq AS (
            WHEN 'A' THEN 'A: migration 25 sem a 27 (o banco chama o backend por qualquer aviso)'
            WHEN 'B' THEN 'B: migration 27 (so o canal whatsapp acorda o backend)'
            WHEN 'C' THEN 'C: migration 26 depois da 27'
+           WHEN 'D' THEN 'D: migration 30 (central; o push acorda o backend so com push_ativo)'
            WHEN 'desconhecida' THEN 'rotina_notificacoes com versao DESCONHECIDA (md5 ' || e.hash_rotina || '): alterada fora das migrations'
            WHEN 'rotina_ausente' THEN 'rotina_notificacoes NAO existe'
            ELSE 'INCONSISTENTE' END || ' | ' || e.sinais,
-         CASE WHEN e.estado IN ('antes_da_25', 'B', 'C') THEN 'OK'
+         CASE WHEN e.estado IN ('antes_da_25', 'B', 'C', 'D') THEN 'OK'
               WHEN e.estado IN ('A', 'desconhecida') THEN 'ATENCAO'
               ELSE 'PROBLEMA' END
     FROM arq_estado e
@@ -233,9 +259,9 @@ r_arq AS (
   SELECT 3, 'Acionamento do backend', 'gatilhos em notificacoes que acordam o backend',
          coalesce(e.nomes_gatilhos, 'nenhum')
            || CASE WHEN e.versao IN ('22', '25') THEN ' (esperado: so o despertar_backend original)'
-                   WHEN e.versao IN ('27', '26') THEN ' (esperado: nenhum)' ELSE '' END,
+                   WHEN e.versao IN ('27', '26', '30') THEN ' (esperado: nenhum)' ELSE '' END,
          CASE WHEN e.versao IN ('22', '25') AND e.gatilhos_despertar = 1 AND e.gatilho_original AND e.funcao_gatilho_da_22 THEN 'OK'
-              WHEN e.versao IN ('27', '26') AND e.gatilhos_despertar = 0 THEN 'OK'
+              WHEN e.versao IN ('27', '26', '30') AND e.gatilhos_despertar = 0 THEN 'OK'
               WHEN e.versao IN ('desconhecida', 'ausente') THEN 'ATENCAO'
               ELSE 'PROBLEMA' END
     FROM arq_estado e

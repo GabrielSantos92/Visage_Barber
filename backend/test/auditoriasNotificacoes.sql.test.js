@@ -11,7 +11,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 
 const {
-  criarBanco, migration, MIGRATIONS_AGENDA, MIGRATIONS_WHATSAPP, MIGRATIONS_WHATSAPP_27, MIGRATIONS_WHATSAPP_26,
+  criarBanco, migration, MIGRATIONS_AGENDA, MIGRATIONS_WHATSAPP, MIGRATIONS_WHATSAPP_27, MIGRATIONS_WHATSAPP_26, MIGRATIONS_PUSH_30,
   JOAO, CORTE_30, CLIENTE_A, USUARIO_JOAO,
 } = require('./helpers/bancoAgenda');
 
@@ -53,7 +53,7 @@ const ITEM_ESTADO_PRE = 'estado da arquitetura de acionamento (migrations 25, 27
 const ITEM_JOB_PRE = 'job notificacoes-rotina (unico, ativo, agenda e comando exatos)';
 const ITEM_JOB_AUD = 'notificacoes-rotina: unico, ativo, agenda e comando';
 const ESTADOS = [
-  [/^antes da migration 25/, 'antes_da_25'], [/^A: /, 'A'], [/^B: /, 'B'], [/^C: /, 'C'],
+  [/^antes da migration 25/, 'antes_da_25'], [/^A: /, 'A'], [/^B: /, 'B'], [/^C: /, 'C'], [/^D: /, 'D'],
   [/^rotina_notificacoes com versao DESCONHECIDA/, 'desconhecida'], [/^rotina_notificacoes NAO existe/, 'rotina_ausente'],
   [/^INCONSISTENTE/, 'inconsistente'],
 ];
@@ -89,8 +89,8 @@ async function classificar(db) {
 }
 
 // O que cada estado deve dar em cada auditoria
-const SITUACAO_AUD = { antes_da_25: 'OK', A: 'ATENCAO', B: 'OK', C: 'OK', desconhecida: 'ATENCAO', inconsistente: 'PROBLEMA', rotina_ausente: 'PROBLEMA' };
-const SITUACAO_PRE = { antes_da_25: 'PENDENTE', A: 'PENDENTE', B: 'OK', C: 'OK', desconhecida: 'PROBLEMA', inconsistente: 'PROBLEMA', rotina_ausente: 'PROBLEMA' };
+const SITUACAO_AUD = { antes_da_25: 'OK', A: 'ATENCAO', B: 'OK', C: 'OK', D: 'OK', desconhecida: 'ATENCAO', inconsistente: 'PROBLEMA', rotina_ausente: 'PROBLEMA' };
+const SITUACAO_PRE = { antes_da_25: 'PENDENTE', A: 'PENDENTE', B: 'OK', C: 'OK', D: 'OK', desconhecida: 'PROBLEMA', inconsistente: 'PROBLEMA', rotina_ausente: 'PROBLEMA' };
 async function esperar(db, estado, extra = {}) {
   const c = await classificar(db);
   assert.equal(c.estado, estado, c.sinais);
@@ -313,6 +313,47 @@ test('coluna canal ausente (com a 25) ou inesperada (antes da 25, ou diferente d
   const nula = await banco(MIGRATIONS_WHATSAPP_27);
   await nula.exec('ALTER TABLE public.notificacoes ALTER COLUMN canal DROP NOT NULL');
   await esperar(nula, 'inconsistente');
+});
+
+// ---------------------------------------------------------------
+// Migration 30 (estado D): central e push de volta
+// ---------------------------------------------------------------
+const ROLLBACK30 = ler('supabase/rollbacks/20261119000030_rollback.sql');
+const ITEM_MARCADOR = 'marcador do push no banco (notificacao_config.push_ativo)';
+const CENTRAL = ['public.minhas_notificacoes(integer,timestamp with time zone)', 'public.contar_notificacoes_nao_lidas()',
+  'public.marcar_notificacoes_lidas(uuid[])', 'public.marcar_todas_notificacoes_lidas()', 'public.central_dados(jsonb)', 'public.push_ao_ativar()'];
+async function linhas(db) {
+  const aud = (await db.query(AUDITORIA)).rows;
+  const pre = (await db.query(PRE)).rows;
+  return { aud: (i) => aud.find((x) => x.item === i), pre: (i) => pre.find((x) => x.item === i) };
+}
+
+test('estado D (30 depois da 26): OK nas duas; funções da central com a permissão certa; marcador PENDENTE até ligar', async () => {
+  const db = await banco(MIGRATIONS_PUSH_30);
+  await esperar(db, 'D', { gatilhos: 'OK', funcao: 'OK', funcaoPre: 'OK', job: 'OK', comando: 'OK', jobPre: 'OK' });
+  const l = await linhas(db);
+  for (const fn of CENTRAL) assert.equal(l.aud(fn)?.situacao, 'OK', `${fn}: ${l.aud(fn)?.resultado}`);
+  assert.match(l.aud(CENTRAL[0]).resultado, /logado: sim/);
+  assert.deepEqual([l.pre(ITEM_MARCADOR).situacao, l.pre(ITEM_MARCADOR).resultado.slice(0, 9)], ['PENDENTE', 'desligado']);
+  await db.query('UPDATE public.notificacao_config SET push_ativo = true WHERE id');
+  assert.equal((await linhas(db)).pre(ITEM_MARCADOR).situacao, 'OK');
+});
+
+test('antes da 30 (estado C): as funções da central são esperadas ausentes (OK) e o marcador pede a migration 30', async () => {
+  const l = await linhas(await banco(MIGRATIONS_WHATSAPP_26));
+  for (const fn of CENTRAL) assert.deepEqual([l.aud(fn).resultado, l.aud(fn).situacao], ['so existe a partir da migration 30', 'OK'], fn);
+  assert.deepEqual([l.pre(ITEM_MARCADOR).resultado, l.pre(ITEM_MARCADOR).situacao], ['nao existe: aplique a migration 30', 'PENDENTE']);
+});
+
+test('rollback da 30 volta ao estado C; a 26 reaplicada depois da 30 fica inconsistente', async () => {
+  const db = await banco(MIGRATIONS_PUSH_30);
+  await db.exec(ROLLBACK30);
+  await esperar(db, 'C', { gatilhos: 'OK', funcao: 'OK', funcaoPre: 'OK' });
+
+  const reaplicada = await banco(MIGRATIONS_PUSH_30);
+  await reaplicada.exec(migration('20261116000026_whatsapp_cancelamento_confirmado.sql'));
+  const c = await esperar(reaplicada, 'inconsistente');
+  assert.match(c.sinais, /rotina 26; .*colunas da 30: 3\/3/);
 });
 
 // ---------------------------------------------------------------

@@ -47,7 +47,8 @@
             "photo"
           ]
         }
-      ]
+      ],
+      "expo-notifications"
     ],
     "extra": {
       "eas": {

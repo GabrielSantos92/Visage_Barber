@@ -15,11 +15,12 @@ import { AuthProvider } from './src/contexts/AuthContext';
 import { ThemeProvider, useTheme } from './src/contexts/ThemeContext';
 import RootNavigator from './src/navigation/RootNavigator';
 import ThemeToggleButton from './src/components/ThemeToggleButton';
+import { navegacaoRef } from './src/navigation/navegacao';
 
 function AppContent() {
   const { isDark } = useTheme();
   return (
-    <NavigationContainer>
+    <NavigationContainer ref={navegacaoRef}>
       <StatusBar style={isDark ? 'light' : 'dark'} />
       <RootNavigator />
       <ThemeToggleButton />

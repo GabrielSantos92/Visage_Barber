@@ -16,6 +16,7 @@ import {
   situacaoDe,
 } from '../../lib/painelBarbeiro';
 import DesempenhoFinanceiro from './painel/DesempenhoFinanceiro';
+import SinoNotificacoes from '../../components/SinoNotificacoes';
 
 type Nav = CompositeNavigationProp<
   BottomTabNavigationProp<BarbeiroTabParamList, 'BarbeiroHome'>,
@@ -83,9 +84,12 @@ export default function BarbeiroHomeScreen() {
         <Text style={s.pageLabel}>{TEXTOS_PAINEL.rotulo.toUpperCase()}</Text>
         <Text style={s.pageTitle}>{TEXTOS_PAINEL.titulo}</Text>
       </View>
-      <TouchableOpacity onPress={signOut} accessibilityLabel="Sair da conta">
-        <Feather name="log-out" size={18} color={C.mutedFg} />
-      </TouchableOpacity>
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 14 }}>
+        <SinoNotificacoes papel="barbeiro" />
+        <TouchableOpacity onPress={signOut} accessibilityLabel="Sair da conta">
+          <Feather name="log-out" size={18} color={C.mutedFg} />
+        </TouchableOpacity>
+      </View>
     </View>
   );
 

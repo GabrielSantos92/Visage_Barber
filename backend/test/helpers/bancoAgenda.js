@@ -41,6 +41,15 @@ const MIGRATIONS_WHATSAPP_26 = [
   '20261116000026_whatsapp_cancelamento_confirmado.sql',
 ];
 
+// Estado de producao (25, 27, 26, 28 e 29) com a central de notificacoes e o
+// push de volta (migration 30, que exige a 26)
+const MIGRATIONS_PUSH_30 = [
+  ...MIGRATIONS_WHATSAPP_26,
+  '20261118000028_whatsapp_novo_agendamento.sql',
+  '20261118000029_whatsapp_aviso_cancelamento.sql',
+  '20261119000030_central_notificacoes_push.sql',
+];
+
 const JOAO = 'b0000000-0000-4000-8000-000000000001';
 const PEDRO = 'b0000000-0000-4000-8000-000000000002';
 const INATIVO = 'b0000000-0000-4000-8000-000000000003';
@@ -177,6 +186,6 @@ async function recusa(promessa) {
 
 module.exports = {
   criarBanco, auxiliares, recusa, migration, as, DIA, MIGRATIONS_AGENDA, MIGRATIONS_WHATSAPP, MIGRATIONS_WHATSAPP_27,
-  MIGRATIONS_WHATSAPP_26,
+  MIGRATIONS_WHATSAPP_26, MIGRATIONS_PUSH_30,
   JOAO, PEDRO, INATIVO, CORTE_30, COMBO_60, SEM_VINCULO, BARBA_30, SOBRANCELHA_30, CLIENTE_A, CLIENTE_B, CLIENTE_C, ADMIN, USUARIO_JOAO,
 };

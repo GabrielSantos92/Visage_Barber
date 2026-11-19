@@ -2,8 +2,9 @@
 //
 //   WhatsApp: NOTIFICACOES_WHATSAPP_ATIVO=true E todas as credenciais da Meta
 //             do ambiente escolhido.
-//   Push:     NOTIFICACOES_PUSH_ATIVO=true E EXPO_ACCESS_TOKEN (o push foi
-//             cancelado; a chave existe so para o codigo antigo nao ligar sozinho).
+//   Push:     NOTIFICACOES_PUSH_ATIVO=true E EXPO_ACCESS_TOKEN. No banco, o
+//             marcador notificacao_config.push_ativo (migration 30) tambem
+//             precisa estar ligado: sem ele nada e reservado nem enviado.
 //
 // Ambiente do WhatsApp (WHATSAPP_AMBIENTE), sempre explicito e IGUAL ao do
 // backend (BACKEND_AMBIENTE, services/ambienteServidor.js):

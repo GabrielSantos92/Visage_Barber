@@ -15,6 +15,7 @@ import VisagismoResultadoScreen from '../screens/cliente/VisagismoResultadoScree
 import VisagismoSalvosScreen from '../screens/cliente/VisagismoSalvosScreen';
 import AvisoPrivacidadeScreen from '../screens/cliente/AvisoPrivacidadeScreen';
 import ChatScreen from '../screens/chat/ChatScreen';
+import NotificacoesScreen from '../screens/NotificacoesScreen';
 import { AnaliseSalva } from '../lib/visagismoSalvos';
 import { usePushToken } from '../hooks/usePushToken';
 import { useTheme } from '../contexts/ThemeContext';
@@ -40,6 +41,7 @@ export type ClienteStackParamList = {
   // "pagamentos": abre direto na parte de pagamentos online
   AvisoPrivacidade: { parte?: 'pagamentos' } | undefined;
   Chat: { outroNome: string; barbeiroId: string; clienteId: string };
+  Notificacoes: { papel: 'cliente' };
 };
 
 const Tab = createBottomTabNavigator<ClienteTabParamList>();
@@ -187,6 +189,20 @@ export default function ClienteNavigator() {
         options={{
           headerShown: true,
           title: 'PRIVACIDADE',
+          headerStyle: { backgroundColor: C.bg },
+          headerTintColor: C.primary,
+          headerTitleStyle: { fontFamily: F.mono, fontSize: 11, letterSpacing: 2 },
+          headerShadowVisible: false,
+          headerBackTitle: '',
+        }}
+      />
+      <Stack.Screen
+        name="Notificacoes"
+        component={NotificacoesScreen}
+        initialParams={{ papel: 'cliente' }}
+        options={{
+          headerShown: true,
+          title: 'NOTIFICAÇÕES',
           headerStyle: { backgroundColor: C.bg },
           headerTintColor: C.primary,
           headerTitleStyle: { fontFamily: F.mono, fontSize: 11, letterSpacing: 2 },
