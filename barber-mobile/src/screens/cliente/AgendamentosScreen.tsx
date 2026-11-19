@@ -12,6 +12,7 @@ import ErroFetch from '../../components/ErroFetch';
 import ConfirmarCancelamentoModal from '../../components/ConfirmarCancelamentoModal';
 import { linkWhatsAppAgendamento } from '../../lib/whatsapp';
 import { Pagamento, ROTULO_STATUS, buscarPagamentos, pagamentoAtual, pago } from '../../lib/pagamentos';
+import { buscarSituacoesWhatsapp, idsComSituacao, whatsappParaCliente, SituacaoPresenca } from '../../lib/whatsappAgendamentos';
 
 type Nav = StackNavigationProp<ClienteStackParamList>;
 
@@ -50,6 +51,8 @@ export default function AgendamentosScreen() {
   const [telefones, setTelefones] = useState<Record<string, string>>({});
   // Pagamento que vale para cada agendamento (status proprio, separado do agendamento)
   const [pagamentos, setPagamentos] = useState<Record<string, Pagamento>>({});
+  // Situacao no WhatsApp (cancelamento pedido ou feito por la), por agendamento
+  const [situacoesWhatsapp, setSituacoesWhatsapp] = useState<Record<string, SituacaoPresenca>>({});
   // Agendamento aguardando confirmacao de cancelamento no modal
   const [cancelando, setCancelando] = useState<Agendamento | null>(null);
   const [processando, setProcessando] = useState(false);
@@ -114,6 +117,7 @@ export default function AgendamentosScreen() {
         (await buscarPagamentos(ids)).forEach((p) => { (porAgendamento[p.agendamento_id] ??= []).push(p); });
         setPagamentos(Object.fromEntries(Object.entries(porAgendamento).map(([id, ps]) => [id, pagamentoAtual(ps)!])));
       } catch { /* sem o modulo financeiro no banco: a lista segue sem pagamentos */ }
+      setSituacoesWhatsapp(await buscarSituacoesWhatsapp(idsComSituacao((data ?? []) as { id: string; status: string }[])));
     } catch (e: any) {
       setErro(e.message ?? 'Erro ao carregar agendamentos.');
     }
@@ -183,6 +187,7 @@ export default function AgendamentosScreen() {
           const d = new Date(item.data_hora);
           const pagamento = pagamentos[item.id];
           const pagarPendente = item.status !== 'cancelado' && !pago(pagamento) && pagamento?.status !== 'refunded';
+          const avisoWhatsapp = whatsappParaCliente({ status: item.status, presenca: situacoesWhatsapp[item.id], data_hora: item.data_hora });
           const whatsapp = linkWhatsAppAgendamento({
             telefone: telefones[item.barbeiro_id],
             barbeiroNome: item.barbeiros?.nome,
@@ -210,6 +215,12 @@ export default function AgendamentosScreen() {
                 <Text style={[s.pagamentoStatus, { color: pago(pagamento) ? C.success : C.mutedFg }]}>
                   {pagamento.metodo === 'presencial' && pagamento.status === 'pending' ? 'PAGAR NA BARBEARIA' : ROTULO_STATUS[pagamento.status].toUpperCase()}
                 </Text>
+              )}
+              {!!avisoWhatsapp && (
+                <View style={s.whatsappAviso}>
+                  <Feather name="message-square" size={11} color={C.accent} />
+                  <Text style={[s.pagamentoStatus, { color: C.accent, marginTop: 0, flex: 1 }]}>{avisoWhatsapp.toUpperCase()}</Text>
+                </View>
               )}
 
               <View style={s.actions}>
@@ -312,6 +323,7 @@ function makeStyles(C: Theme) {
     barbeiro:    { fontFamily: F.sansMedium, fontSize: 16, color: C.primary, marginBottom: 2 },
     servico:     { fontFamily: F.sans, fontSize: 13, color: C.mutedFg },
     pagamentoStatus: { fontFamily: F.mono, fontSize: 9, letterSpacing: 1.2, marginTop: 6 },
+    whatsappAviso:   { flexDirection: 'row', alignItems: 'flex-start', gap: 6, marginTop: 8 },
     actions:         { flexDirection: 'row', flexWrap: 'wrap', marginTop: 14, gap: 12 },
     actionBtn:       { flexDirection: 'row', alignItems: 'center', gap: 6 },
     actionText:      { fontFamily: F.mono, fontSize: 10, letterSpacing: 1.5 },

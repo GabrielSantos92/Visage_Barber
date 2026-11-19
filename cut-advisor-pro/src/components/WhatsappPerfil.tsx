@@ -4,12 +4,14 @@ import { format } from "date-fns";
 import { MessageSquare, Loader2, RotateCcw } from "lucide-react";
 import { toast } from "@/components/ui/sonner";
 import {
-  AVISO_WHATSAPP_CONCORDANCIA, AVISO_WHATSAPP_RESUMO, buscarConsentimentoWhatsapp, celularParaWhatsapp,
+  AVISO_WHATSAPP_CONCORDANCIA, AVISO_WHATSAPP_NOVA_VERSAO, AVISO_WHATSAPP_RESUMO, buscarConsentimentoWhatsapp, celularParaWhatsapp,
   concederConsentimentoWhatsapp, revogarConsentimentoWhatsapp, type SituacaoConsentimento,
 } from "@/lib/privacidade";
 
 // Secao "Mensagens pelo WhatsApp" do perfil: o usuario autoriza (ou deixa de
-// autorizar) a confirmacao de presenca enviada 2 horas antes do atendimento.
+// autorizar) a confirmacao de presenca enviada 2 horas antes do atendimento e
+// o cancelamento pelo WhatsApp com segunda confirmacao. Quem autorizou a
+// versao anterior do aviso ve que precisa autorizar de novo.
 // `telefone` e o numero SALVO no cadastro: sem celular valido nao da para ativar.
 export default function WhatsappPerfil({ telefone }: { telefone: string | null | undefined }) {
   const [situacao, setSituacao] = useState<SituacaoConsentimento | null>(null);
@@ -83,6 +85,9 @@ export default function WhatsappPerfil({ telefone }: { telefone: string | null |
         </>
       ) : (
         <>
+          {situacao.versao_anterior && (
+            <p data-testid="whatsapp-nova-versao" className="text-sm text-accent leading-relaxed mb-2">{AVISO_WHATSAPP_NOVA_VERSAO}</p>
+          )}
           <p className="text-sm text-foreground leading-relaxed">Desativadas. Nenhuma mensagem é enviada.</p>
           {temCelular ? (
             <label className="flex items-start gap-3 mt-3 text-sm text-foreground leading-relaxed cursor-pointer">

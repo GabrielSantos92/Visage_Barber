@@ -5,13 +5,15 @@ import { useFocusEffect } from '@react-navigation/native';
 import { useTheme } from '../contexts/ThemeContext';
 import { F, Theme } from '../lib/theme';
 import {
-  AVISO_WHATSAPP_CONCORDANCIA, AVISO_WHATSAPP_RESUMO, buscarConsentimentoWhatsapp, celularParaWhatsapp,
+  AVISO_WHATSAPP_CONCORDANCIA, AVISO_WHATSAPP_NOVA_VERSAO, AVISO_WHATSAPP_RESUMO, buscarConsentimentoWhatsapp, celularParaWhatsapp,
   concederConsentimentoWhatsapp, revogarConsentimentoWhatsapp, SituacaoConsentimento,
 } from '../lib/privacidade';
 
 // Secao "Mensagens pelo WhatsApp" do perfil (igual a do site): o usuario
 // autoriza, ou deixa de autorizar, a confirmacao de presenca enviada 2 horas
-// antes do atendimento. `telefone` e o numero SALVO no cadastro.
+// antes do atendimento e o cancelamento pelo WhatsApp com segunda
+// confirmacao. Quem autorizou a versao anterior do aviso ve que precisa
+// autorizar de novo. `telefone` e o numero SALVO no cadastro.
 export default function WhatsappPerfil({ telefone, onConsultarAviso }: { telefone: string | null | undefined; onConsultarAviso: () => void }) {
   const { C } = useTheme();
   const s = React.useMemo(() => makeStyles(C), [C]);
@@ -74,6 +76,9 @@ export default function WhatsappPerfil({ telefone, onConsultarAviso }: { telefon
         </>
       ) : (
         <>
+          {situacao.versao_anterior && (
+            <Text style={[s.texto, { color: C.accent, marginBottom: 6 }]}>{AVISO_WHATSAPP_NOVA_VERSAO}</Text>
+          )}
           <Text style={s.texto}>Desativadas. Nenhuma mensagem é enviada.</Text>
           {temCelular ? (
             <TouchableOpacity

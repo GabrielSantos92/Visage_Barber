@@ -12,6 +12,7 @@ import type { Enums } from "@/integrations/supabase/types";
 import { buscarResumo, intervaloDoPeriodo } from "@/lib/financeiro";
 import { formatarReais } from "@/lib/pagamentos";
 import PainelBarbeiro from "@/components/barbeiro/PainelBarbeiro";
+import { buscarSituacoesWhatsapp, idsComSituacao, whatsappParaAdmin, type SituacaoPresenca } from "@/lib/whatsappAgendamentos";
 
 type Status = Enums<"agendamento_status">;
 
@@ -33,6 +34,8 @@ interface Agendamento {
   profiles: { nome: string } | null;
   servicos: { nome: string; preco: number } | null;
   barbeiros?: { nome: string } | null;
+  // Situacao no WhatsApp (ex.: cancelado pelo cliente pelo WhatsApp)
+  presenca?: SituacaoPresenca | null;
 }
 
 const statusConfig: Record<Status, { label: string; color: string; icon: React.ElementType }> = {
@@ -140,7 +143,9 @@ function PainelAdmin() {
       { label: "CLIENTES", value: totalClientes ?? 0, sub: "cadastrados", icon: Users },
       { label: "BARBEIROS ATIVOS", value: barbeirosAtivos?.length ?? 0, sub: "em operação", icon: Scissors },
     ]);
-    setRecentes(await withClientes(recentsData as any));
+    const comClientes = await withClientes(recentsData as any);
+    const situacoes = await buscarSituacoesWhatsapp(idsComSituacao(comClientes));
+    setRecentes(comClientes.map((a) => ({ ...a, presenca: situacoes[a.id] ?? null })));
     setStatusCounts(counts);
     setLoading(false);
   }
@@ -256,6 +261,11 @@ function PainelAdmin() {
                             <span className="text-foreground/30"> · {(a.barbeiros as any).nome}</span>
                           )}
                         </p>
+                        {whatsappParaAdmin(a) && (
+                          <p data-testid="whatsapp-admin" className="font-mono text-[9px] uppercase tracking-wider text-accent mt-0.5">
+                            {whatsappParaAdmin(a)}
+                          </p>
+                        )}
                       </div>
                       <div className="text-right flex-shrink-0">
                         <p className="font-mono text-[10px] text-foreground/70">

@@ -9,11 +9,13 @@ import { ordenarAgendamentos } from './ordemAgendamentos';
 import { formatarReais } from './pagamentos';
 import { PERIODOS, buscarMeuDesempenho, buscarMeuFinanceiro, percentual } from './financeiro';
 import type { MeuDesempenho, MeuFinanceiro } from './financeiro';
+import { ROTULO_PRESENCA, buscarSituacoesWhatsapp, idsComSituacao, presencaParaBarbeiro } from './whatsappAgendamentos';
+import type { SituacaoPresenca, TomPresenca } from './whatsappAgendamentos';
 
 export type StatusAgendamento = 'confirmado' | 'concluido' | 'cancelado';
 
-// Resposta do cliente ao pedido de confirmacao de presenca pelo WhatsApp
-export type SituacaoPresenca = 'confirmada' | 'recusada' | 'sem_resposta' | 'pendente' | 'nao_enviada';
+// Situacao do WhatsApp (confirmacao de presenca e cancelamento pelo WhatsApp)
+export type { SituacaoPresenca, TomPresenca };
 
 export interface AgendamentoPainel {
   id: string;
@@ -91,21 +93,12 @@ async function comClientes(lista: AgendamentoPainel[]): Promise<AgendamentoPaine
   return lista.map((a) => ({ ...a, profiles: clientes[a.cliente_id] ?? null }));
 }
 
-// Situacao da confirmacao de presenca dos atendimentos confirmados. Opcional:
-// se a funcao nao existir no banco ou falhar, a agenda segue igual.
+// Situacao do WhatsApp dos atendimentos confirmados e cancelados (o cancelado
+// pode ter sido pelo WhatsApp). Opcional: se a funcao nao existir no banco ou
+// falhar, a agenda segue igual.
 async function comPresenca(lista: AgendamentoPainel[]): Promise<AgendamentoPainel[]> {
-  const ids = lista.filter((a) => a.status === 'confirmado').map((a) => a.id);
-  if (ids.length === 0) return lista;
-  try {
-    const { data, error } = await banco().rpc<{ agendamento_id: string; situacao: SituacaoPresenca }>(
-      'presenca_dos_agendamentos', { p_ids: ids });
-    if (error || !Array.isArray(data)) return lista;
-    const mapa: Record<string, SituacaoPresenca> = {};
-    data.forEach((p) => { mapa[p.agendamento_id] = p.situacao; });
-    return lista.map((a) => (mapa[a.id] ? { ...a, presenca: mapa[a.id] } : a));
-  } catch {
-    return lista;
-  }
+  const mapa = await buscarSituacoesWhatsapp(idsComSituacao(lista));
+  return lista.map((a) => (mapa[a.id] ? { ...a, presenca: mapa[a.id] } : a));
 }
 
 // Mensagens nao lidas de cada cliente (selo no botao de chat)
@@ -196,21 +189,11 @@ export const ROTULO_STATUS_AGENDAMENTO: Record<StatusAgendamento, string> = {
   cancelado: 'Cancelado',
 };
 
-// Confirmacao de presenca pelo WhatsApp, no cartao do atendimento. Responder
-// 'nao' nao cancela: o barbeiro decide se libera o horario.
-export type TomPresenca = 'ok' | 'alerta' | 'neutro';
-export const ROTULO_PRESENCA: Record<'confirmada' | 'recusada' | 'sem_resposta', string> = {
-  confirmada: 'Presença confirmada pelo WhatsApp',
-  recusada: 'Cliente avisou que não virá',
-  sem_resposta: 'Sem resposta no WhatsApp',
-};
-export function presencaDoAgendamento(a: { status: string; presenca?: SituacaoPresenca | null }): { texto: string; tom: TomPresenca } | null {
-  if (a.status !== 'confirmado') return null;
-  if (a.presenca === 'confirmada') return { texto: ROTULO_PRESENCA.confirmada, tom: 'ok' };
-  if (a.presenca === 'recusada') return { texto: ROTULO_PRESENCA.recusada, tom: 'alerta' };
-  if (a.presenca === 'sem_resposta') return { texto: ROTULO_PRESENCA.sem_resposta, tom: 'neutro' };
-  return null;
-}
+// WhatsApp no cartao do atendimento: resposta da confirmacao de presenca e,
+// separados, o cancelamento pedido (ainda nao vale) e o cancelamento
+// confirmado pelo cliente (lib/whatsappAgendamentos.ts)
+export { ROTULO_PRESENCA };
+export const presencaDoAgendamento = presencaParaBarbeiro;
 
 export interface SituacaoDoDia { aAtender: number; concluidos: number; cancelados: number }
 
