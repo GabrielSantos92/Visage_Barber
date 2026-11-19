@@ -82,6 +82,11 @@ function textoDoAviso(item, agora) {
 
   switch (item.tipo) {
     case 'novo_agendamento':
+      // Para o cliente so quando outra pessoa agendou (migration 30)
+      if (d.papel === 'cliente') {
+        const quem = d.ator === 'barbeiro' ? barbeiro : 'A barbearia';
+        return { titulo: 'Agendamento marcado para você', corpo: `${quem} agendou ${servico} para você ${quando(dataHora(), agora)}.` };
+      }
       return { titulo: 'Novo agendamento', corpo: `${cliente} agendou ${servico} para ${quando(dataHora(), agora)}.` };
     case 'cancelamento': {
       const q = quando(dataHora(), agora);

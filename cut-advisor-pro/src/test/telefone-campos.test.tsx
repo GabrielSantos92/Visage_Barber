@@ -167,6 +167,11 @@ describe("Perfil", () => {
     expect(sb.updates).toEqual([{ nome: "Ana", telefone: "2133334444" }]);
   });
 
+  it("a opção de mensagens pelo WhatsApp não aparece no Perfil (canal abandonado)", async () => {
+    await abrir();
+    expect(document.querySelector('[aria-labelledby="whatsapp-titulo"]')).toBeNull();
+  });
+
   it("numero antigo salvo com mascara continua aparecendo certo", async () => {
     sb.perfil = { nome: "Ana", telefone: "(11) 3333-4444" };
     expect((await abrir()).value).toBe("(11) 3333-4444");

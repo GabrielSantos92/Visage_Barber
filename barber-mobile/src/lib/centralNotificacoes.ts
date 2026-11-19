@@ -106,6 +106,11 @@ export function textoDaNotificacao(n: Pick<Notificacao, 'tipo' | 'dados'>): { ti
   const servico = d.servico || 'atendimento';
   switch (n.tipo) {
     case 'novo_agendamento':
+      // Para o cliente so quando outra pessoa agendou (migration 30)
+      if (d.papel === 'cliente') {
+        const quem = d.ator === 'barbeiro' ? (d.barbeiro_nome || 'O barbeiro') : 'A barbearia';
+        return { titulo: 'Agendamento marcado para você', corpo: `${quem} agendou ${servico} para você em ${quando(d.data_hora)}.` };
+      }
       return { titulo: 'Novo agendamento', corpo: `${cliente} agendou ${servico} para ${quando(d.data_hora)}.` };
     case 'cancelamento': {
       const q = quando(d.data_hora);
@@ -125,6 +130,13 @@ export function textoDaNotificacao(n: Pick<Notificacao, 'tipo' | 'dados'>): { ti
     default:
       return { titulo: 'Visage Barber', corpo: 'Você tem uma nova notificação.' };
   }
+}
+
+// Push recebido com o app aberto: so aparece para a conta logada que e a
+// destinataria (sem conta logada, ou aviso de outra conta, nao aparece)
+export function deveExibirNoApp(dados: { destinatario?: string } | undefined, usuarioAtual: string | null): boolean {
+  if (!usuarioAtual) return false;
+  return !dados?.destinatario || dados.destinatario === usuarioAtual;
 }
 
 // Para onde o toque leva: o chat da conversa ou a agenda (cliente: seus

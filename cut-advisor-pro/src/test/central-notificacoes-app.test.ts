@@ -7,8 +7,11 @@ import path from "node:path";
 
 vi.mock("../../../barber-mobile/src/lib/supabase", () => ({ supabase: {} }));
 import {
-  textoDaNotificacao, destinoDaNotificacao, quando,
+  textoDaNotificacao, destinoDaNotificacao, quando, deveExibirNoApp,
 } from "../../../barber-mobile/src/lib/centralNotificacoes";
+vi.mock("../../../barber-mobile/src/lib/api", () => ({ api: {} }));
+import * as appPriv from "../../../barber-mobile/src/lib/privacidade";
+import * as webPriv from "@/lib/privacidade";
 
 const RAIZ = path.resolve(__dirname, "../../..");
 const HORA = "2026-11-20T17:30:00Z"; // 14h30 em Sao Paulo
@@ -34,6 +37,39 @@ describe("central de notificações do app", () => {
       .toEqual({ titulo: "Seu atendimento está próximo", corpo: "Corte com João às 14h30." });
     expect(textoDaNotificacao({ tipo: "lembrete", dados: { ...base, papel: "barbeiro" } }).corpo).toBe("Ana às 14h30 (Corte).");
     expect(textoDaNotificacao({ tipo: "mensagem", dados: { outro_nome: "João" } }).corpo).toBe("Você recebeu uma mensagem de João.");
+  });
+
+  it("novo agendamento para o cliente: diz quem agendou para ele", () => {
+    const base = { data_hora: HORA, servico: "Corte", cliente_nome: "Ana", barbeiro_nome: "João", papel: "cliente" as const };
+    expect(textoDaNotificacao({ tipo: "novo_agendamento", dados: { ...base, ator: "barbeiro" } }))
+      .toEqual({ titulo: "Agendamento marcado para você", corpo: "João agendou Corte para você em 20/11 às 14h30." });
+    expect(textoDaNotificacao({ tipo: "novo_agendamento", dados: { ...base, ator: "barbearia" } }).corpo)
+      .toBe("A barbearia agendou Corte para você em 20/11 às 14h30.");
+  });
+
+  it("com o app aberto, só aparece o aviso da conta logada (nada sem login)", () => {
+    expect(deveExibirNoApp({ destinatario: "u1" }, "u1")).toBe(true);
+    expect(deveExibirNoApp({ destinatario: "u1" }, "u2")).toBe(false);
+    expect(deveExibirNoApp({ destinatario: "u1" }, null)).toBe(false);
+    expect(deveExibirNoApp({}, null)).toBe(false);
+    expect(deveExibirNoApp({}, "u1")).toBe(true);
+  });
+
+  it("tela bloqueada: todos os canais escondem o conteúdo; o logout limpa a barra e invalida o token", () => {
+    const app = fs.readFileSync(path.join(RAIZ, "barber-mobile/src/lib/pushNotificacoes.ts"), "utf8");
+    expect(app).toMatch(/lockscreenVisibility: Notifications\.AndroidNotificationVisibility\.PRIVATE/);
+    const remover = app.slice(app.indexOf("export async function removerAparelho"));
+    expect(remover).toMatch(/dismissAllNotificationsAsync/);
+    expect(remover).toMatch(/unregisterForNotificationsAsync/);
+    expect(fs.readFileSync(path.join(RAIZ, "barber-mobile/src/contexts/AuthContext.tsx"), "utf8"))
+      .toMatch(/await removerAparelho\(\);\s*await supabase\.auth\.signOut\(\)/);
+  });
+
+  it("WhatsApp fora do Perfil no site e no app (mesma chave nas duas plataformas)", () => {
+    expect(webPriv.WHATSAPP_NO_PERFIL).toBe(false);
+    expect(appPriv.WHATSAPP_NO_PERFIL).toBe(webPriv.WHATSAPP_NO_PERFIL);
+    const tela = fs.readFileSync(path.join(RAIZ, "barber-mobile/src/screens/cliente/PerfilScreen.tsx"), "utf8");
+    expect(tela).toMatch(/\{WHATSAPP_NO_PERFIL && \(\s*<WhatsappPerfil/);
   });
 
   it("o toque abre o chat da conversa ou a agenda; sem dados, nenhuma tela", () => {

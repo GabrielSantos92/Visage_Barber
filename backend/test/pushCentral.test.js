@@ -72,13 +72,13 @@ async function montar() {
   return { db, expo, servico, agendar, statusPush, ligar, central };
 }
 
-test('push desligado no banco: o backend ligado não envia nada, e o aviso fica na central', async () => {
+test('push desligado no banco: o backend ligado não envia nada (a central só começa na ativação)', async () => {
   const { expo, servico, agendar, statusPush, central } = await montar();
   const ag = await agendar();
   await servico.processarFila();
   assert.equal(expo.mensagens.length, 0);
   assert.equal((await statusPush(ag)).status, 'pendente');
-  assert.deepEqual((await central(USUARIO_JOAO)).map((l) => l.agendamento_id), [ag]);
+  assert.deepEqual(await central(USUARIO_JOAO), []);
 });
 
 test('ao ligar: nada antigo sai; o aviso novo sai uma vez, com os dados para abrir a tela certa', async () => {
@@ -109,4 +109,21 @@ test('Expo fora do ar: o aviso continua na central e volta para a fila (nova ten
   assert.equal(expo.mensagens.length, 0);
   assert.equal((await statusPush(ag)).status, 'pendente');
   assert.deepEqual((await central(USUARIO_JOAO)).map((l) => l.agendamento_id), [ag]);
+});
+
+test('o barbeiro agenda para o cliente: só o cliente recebe, com o texto de quem agendou', async () => {
+  const { db, expo, servico, ligar } = await montar();
+  const TOKEN_ANA = 'ExponentPushToken[ana-celular]';
+  await db.query('INSERT INTO public.dispositivos_push (user_id, token) VALUES ($1, $2)', [CLIENTE_A, TOKEN_ANA]);
+  await ligar();
+  await db.query("SELECT set_config('test.uid', $1, false)", [USUARIO_JOAO]);
+  const { rows: [{ id }] } = await db.query(
+    `INSERT INTO public.agendamentos (cliente_id, barbeiro_id, servico_id, data_hora, status)
+     VALUES ($1, $2, $3, date_trunc('minute', now()) + interval '3 days', 'confirmado') RETURNING id`, [CLIENTE_A, JOAO, CORTE_30]);
+  await db.query("SELECT set_config('test.uid', '', false)");
+  await servico.processarFila();
+  assert.deepEqual(expo.mensagens.map((m) => m.to), [TOKEN_ANA], 'quem agendou (o barbeiro) nao recebe');
+  assert.equal(expo.mensagens[0].title, 'Agendamento marcado para você');
+  assert.match(expo.mensagens[0].body, /^João agendou Corte .*para você dia \d\d\/\d\d às /);
+  assert.deepEqual(expo.mensagens[0].data, { tipo: 'novo_agendamento', destinatario: CLIENTE_A, agendamento_id: id });
 });

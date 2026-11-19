@@ -7,6 +7,13 @@
 //                         outra conta entrar no mesmo aparelho)
 //   removerAparelho()     no logout, ANTES de sair: o aparelho deixa de
 //                         receber os avisos da conta (remover_dispositivo_push)
+//                         e o token deste aparelho e invalidado
+//                         (unregisterForNotificationsAsync, melhor esforco; o
+//                         comportamento sem internet precisa ser conferido no
+//                         celular): o proximo envio falha com
+//                         DeviceNotRegistered e o backend desativa o aparelho
+// Privacidade: os canais escondem o conteudo na tela bloqueada (PRIVATE), e com
+// o app aberto so aparece o aviso da conta logada.
 //
 // Requer o build com o Firebase (google-services.json) para o Android gerar o
 // token; sem ele, o registro falha em silencio e o app segue igual (a central
@@ -15,7 +22,7 @@ import { Platform } from 'react-native';
 import * as Notifications from 'expo-notifications';
 import Constants from 'expo-constants';
 import { supabase } from './supabase';
-import { avisarMudanca } from './centralNotificacoes';
+import { avisarMudanca, deveExibirNoApp } from './centralNotificacoes';
 
 // Os mesmos ids do backend (CANAIS em backend/src/services/notificacoes.js)
 export const CANAIS_ANDROID = [
@@ -28,11 +35,16 @@ export const CANAIS_ANDROID = [
 type ComRpc = { rpc: (fn: string, args: Record<string, unknown>) => PromiseLike<{ error: { message: string } | null }> };
 const rpc = (fn: string, args: Record<string, unknown>) => (supabase as unknown as ComRpc).rpc(fn, args);
 
-// App aberto: mostra o aviso e atualiza o sino
+// Conta logada agora (o hook usePushToken mantem; null depois do logout)
+let usuarioAtual: string | null = null;
+export function definirUsuarioAtual(id: string | null) { usuarioAtual = id; }
+
+// App aberto: so mostra o aviso da conta logada; atualiza o sino
 Notifications.setNotificationHandler({
-  handleNotification: async () => {
-    avisarMudanca();
-    return { shouldShowBanner: true, shouldShowList: true, shouldPlaySound: true, shouldSetBadge: false };
+  handleNotification: async (n) => {
+    const exibir = deveExibirNoApp(n.request.content.data as { destinatario?: string }, usuarioAtual);
+    if (exibir) avisarMudanca();
+    return { shouldShowBanner: exibir, shouldShowList: exibir, shouldPlaySound: exibir, shouldSetBadge: false };
   },
 });
 
@@ -45,6 +57,8 @@ async function criarCanais() {
     await Notifications.setNotificationChannelAsync(c.id, {
       name: c.nome,
       importance: Notifications.AndroidImportance.HIGH,
+      // Tela bloqueada (com senha): so "Visage Barber", sem nomes nem horario
+      lockscreenVisibility: Notifications.AndroidNotificationVisibility.PRIVATE,
       vibrationPattern: [0, 250, 250, 250],
     });
   }
@@ -89,13 +103,20 @@ export function aoRenovarToken(): () => void {
 export async function removerAparelho(): Promise<void> {
   const token = tokenAtual;
   tokenAtual = null;
-  if (!token) return;
-  try {
-    await Promise.race([
-      rpc('remover_dispositivo_push', { p_token: token }),
-      new Promise((resolve) => setTimeout(resolve, 4000)),
-    ]);
-  } catch {
-    // sem rede: o aparelho sera reatribuido no proximo login
+  usuarioAtual = null;
+  // Some da barra o que era da conta que esta saindo
+  await Notifications.dismissAllNotificationsAsync().catch(() => {});
+  if (token) {
+    try {
+      await Promise.race([
+        rpc('remover_dispositivo_push', { p_token: token }),
+        new Promise((resolve) => setTimeout(resolve, 4000)),
+      ]);
+    } catch {
+      // sem rede: o passo abaixo protege a conta mesmo assim
+    }
   }
+  // Invalida o token deste aparelho (nao depende da sessao nem do banco;
+  // melhor esforco): o proximo login gera outro token
+  await Notifications.unregisterForNotificationsAsync().catch(() => {});
 }

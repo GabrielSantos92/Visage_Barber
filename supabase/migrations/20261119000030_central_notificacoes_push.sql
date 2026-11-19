@@ -11,7 +11,12 @@
 --   2. Central (app): minhas_notificacoes, contar_notificacoes_nao_lidas,
 --      marcar_notificacoes_lidas e marcar_todas_notificacoes_lidas. So o
 --      proprio usuario logado (auth.uid()), so o canal push, nunca o tipo
---      teste. Nenhum acesso direto a tabela (continua sem policy).
+--      teste, e so o que foi criado a partir da PRIMEIRA ativacao do push
+--      (push_ativado_em; antes dela a central fica vazia). Nenhum acesso
+--      direto a tabela (continua sem policy).
+--   5. Novo agendamento: o cliente tambem e avisado quando OUTRA pessoa
+--      agenda para ele (barbeiro ou barbearia); quem agenda nunca e avisado
+--      (avisar_agendamento da 22 sem a regra "so o barbeiro").
 --   3. Marcador do push NO BANCO: notificacao_config.push_ativo, DESLIGADO.
 --      Desligado, o push nao acorda o backend (rotina_notificacoes) e
 --      reservar_notificacoes nao entrega nada, mesmo com o backend ligado.
@@ -75,6 +80,17 @@ AS $$
                    'minutos', 'conversa_id', 'barbeiro_id', 'cliente_id', 'outro_nome')
 $$;
 
+-- Inicio da central: a primeira ativacao do push (sem ela, nada aparece)
+CREATE OR REPLACE FUNCTION public.central_desde()
+RETURNS timestamptz
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = pg_catalog, pg_temp
+AS $$
+  SELECT coalesce((SELECT c.push_ativado_em FROM public.notificacao_config c WHERE c.id), 'infinity'::timestamptz)
+$$;
+
 -- Mais novas primeiro; p_antes pagina pela data (criada_em < p_antes)
 CREATE OR REPLACE FUNCTION public.minhas_notificacoes(p_limite integer DEFAULT 30, p_antes timestamptz DEFAULT NULL)
 RETURNS TABLE (id uuid, tipo text, dados jsonb, agendamento_id uuid, conversa_id uuid,
@@ -89,6 +105,7 @@ AS $$
    WHERE n.destinatario_id = auth.uid()
      AND n.canal = 'push'
      AND n.tipo <> 'teste'
+     AND n.criada_em >= public.central_desde()
      AND (p_antes IS NULL OR n.criada_em < p_antes)
    ORDER BY n.criada_em DESC, n.id DESC
    LIMIT greatest(1, least(coalesce(p_limite, 30), 100))
@@ -106,6 +123,7 @@ AS $$
    WHERE n.destinatario_id = auth.uid()
      AND n.canal = 'push'
      AND n.tipo <> 'teste'
+     AND n.criada_em >= public.central_desde()
      AND n.lida_em IS NULL
 $$;
 
@@ -134,6 +152,7 @@ BEGIN
    WHERE n.id = ANY (p_ids)
      AND n.destinatario_id = v_uid
      AND n.canal = 'push'
+     AND n.criada_em >= public.central_desde()
      AND n.lida_em IS NULL;
   GET DIAGNOSTICS v_total = ROW_COUNT;
   RETURN v_total;
@@ -158,6 +177,7 @@ BEGIN
    WHERE n.destinatario_id = v_uid
      AND n.canal = 'push'
      AND n.tipo <> 'teste'
+     AND n.criada_em >= public.central_desde()
      AND n.lida_em IS NULL;
   GET DIAGNOSTICS v_total = ROW_COUNT;
   RETURN v_total;
@@ -175,7 +195,8 @@ SET search_path = pg_catalog, pg_temp
 AS $$
 BEGIN
   IF NEW.push_ativo AND NOT coalesce(OLD.push_ativo, false) THEN
-    NEW.push_ativado_em := now();
+    -- A central comeca na PRIMEIRA ativacao (religar nao esconde o historico)
+    NEW.push_ativado_em := coalesce(OLD.push_ativado_em, now());
     UPDATE public.notificacoes
        SET status = 'ignorada', motivo = 'antes_da_ativacao', reservada_ate = NULL, atualizada_em = now()
      WHERE canal = 'push' AND status IN ('pendente', 'enviando');
@@ -189,6 +210,63 @@ DROP TRIGGER IF EXISTS push_ao_ativar ON public.notificacao_config;
 CREATE TRIGGER push_ao_ativar
   BEFORE UPDATE OF push_ativo ON public.notificacao_config
   FOR EACH ROW EXECUTE FUNCTION public.push_ao_ativar();
+
+-- ---------------------------------------------------------------
+-- 3b. Novo agendamento tambem para o cliente quando outra pessoa agenda: a
+--     funcao da migration 22 sem a linha que pulava o cliente
+-- ---------------------------------------------------------------
+CREATE OR REPLACE FUNCTION public.avisar_agendamento(p_tipo text, p_agendamento_id uuid, p_ator uuid)
+RETURNS integer
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  a record;
+  v_ator text;
+  v_dest uuid;
+  v_papel text;
+  v_total integer := 0;
+BEGIN
+  SELECT ag.id, ag.cliente_id, ag.data_hora, b.user_id AS barbeiro_user, s.nome AS servico,
+         public.primeiro_nome(b.nome, 'Barbeiro') AS barbeiro_nome,
+         public.primeiro_nome(pr.nome, 'Cliente') AS cliente_nome
+    INTO a
+    FROM public.agendamentos ag
+    JOIN public.barbeiros b ON b.id = ag.barbeiro_id
+    JOIN public.servicos s ON s.id = ag.servico_id
+    LEFT JOIN public.profiles pr ON pr.user_id = ag.cliente_id
+   WHERE ag.id = p_agendamento_id;
+  -- Horario ja passou: nao ha o que avisar (no cancelamento, e falta)
+  IF NOT FOUND OR a.data_hora <= now() THEN
+    RETURN 0;
+  END IF;
+
+  v_ator := CASE WHEN p_ator = a.cliente_id THEN 'cliente'
+                 WHEN p_ator = a.barbeiro_user THEN 'barbeiro'
+                 ELSE 'barbearia' END;
+
+  FOR v_dest, v_papel IN
+    SELECT d.uid, d.papel FROM (VALUES (a.cliente_id, 'cliente'), (a.barbeiro_user, 'barbeiro')) AS d(uid, papel)
+  LOOP
+    CONTINUE WHEN v_dest IS NULL OR v_dest = p_ator;
+    IF public.inserir_notificacao(
+         p_tipo,
+         format('%s:%s:%s', p_tipo, a.id, v_dest),
+         v_dest,
+         p_ator,
+         jsonb_build_object(
+           'agendamento_id', a.id, 'data_hora', a.data_hora, 'servico', a.servico,
+           'cliente_nome', a.cliente_nome, 'barbeiro_nome', a.barbeiro_nome,
+           'papel', v_papel, 'ator', v_ator),
+         a.data_hora,
+         a.id) THEN
+      v_total := v_total + 1;
+    END IF;
+  END LOOP;
+  RETURN v_total;
+END;
+$$;
 
 -- ---------------------------------------------------------------
 -- 4. Reserva do push: a da migration 25 + o marcador
@@ -349,6 +427,8 @@ $$;
 -- 6. Permissoes
 -- ---------------------------------------------------------------
 REVOKE ALL ON FUNCTION public.central_dados(jsonb) FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.central_desde() FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.avisar_agendamento(text, uuid, uuid) FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION public.minhas_notificacoes(integer, timestamptz) FROM PUBLIC, anon;
 REVOKE ALL ON FUNCTION public.contar_notificacoes_nao_lidas() FROM PUBLIC, anon;
 REVOKE ALL ON FUNCTION public.marcar_notificacoes_lidas(uuid[]) FROM PUBLIC, anon;

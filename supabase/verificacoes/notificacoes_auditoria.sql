@@ -180,6 +180,7 @@ funcoes(assinatura, publico) AS (
     ('public.marcar_notificacoes_lidas(uuid[])', 'app30'),
     ('public.marcar_todas_notificacoes_lidas()', 'app30'),
     ('public.central_dados(jsonb)', 'interna30'),
+    ('public.central_desde()', 'interna30'),
     ('public.push_ao_ativar()', 'interna30')
 ),
 f_estado AS (

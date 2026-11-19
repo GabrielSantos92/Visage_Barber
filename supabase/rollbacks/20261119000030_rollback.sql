@@ -39,6 +39,63 @@ DROP FUNCTION IF EXISTS public.contar_notificacoes_nao_lidas();
 DROP FUNCTION IF EXISTS public.marcar_notificacoes_lidas(uuid[]);
 DROP FUNCTION IF EXISTS public.marcar_todas_notificacoes_lidas();
 DROP FUNCTION IF EXISTS public.central_dados(jsonb);
+DROP FUNCTION IF EXISTS public.central_desde();
+
+-- Aviso de agendamento: exatamente o da migration 22
+CREATE OR REPLACE FUNCTION public.avisar_agendamento(p_tipo text, p_agendamento_id uuid, p_ator uuid)
+RETURNS integer
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  a record;
+  v_ator text;
+  v_dest uuid;
+  v_papel text;
+  v_total integer := 0;
+BEGIN
+  SELECT ag.id, ag.cliente_id, ag.data_hora, b.user_id AS barbeiro_user, s.nome AS servico,
+         public.primeiro_nome(b.nome, 'Barbeiro') AS barbeiro_nome,
+         public.primeiro_nome(pr.nome, 'Cliente') AS cliente_nome
+    INTO a
+    FROM public.agendamentos ag
+    JOIN public.barbeiros b ON b.id = ag.barbeiro_id
+    JOIN public.servicos s ON s.id = ag.servico_id
+    LEFT JOIN public.profiles pr ON pr.user_id = ag.cliente_id
+   WHERE ag.id = p_agendamento_id;
+  -- Horario ja passou: nao ha o que avisar (no cancelamento, e falta)
+  IF NOT FOUND OR a.data_hora <= now() THEN
+    RETURN 0;
+  END IF;
+
+  v_ator := CASE WHEN p_ator = a.cliente_id THEN 'cliente'
+                 WHEN p_ator = a.barbeiro_user THEN 'barbeiro'
+                 ELSE 'barbearia' END;
+
+  FOR v_dest, v_papel IN
+    SELECT d.uid, d.papel FROM (VALUES (a.cliente_id, 'cliente'), (a.barbeiro_user, 'barbeiro')) AS d(uid, papel)
+  LOOP
+    CONTINUE WHEN v_dest IS NULL OR v_dest = p_ator;
+    CONTINUE WHEN p_tipo = 'novo_agendamento' AND v_papel <> 'barbeiro';
+    IF public.inserir_notificacao(
+         p_tipo,
+         format('%s:%s:%s', p_tipo, a.id, v_dest),
+         v_dest,
+         p_ator,
+         jsonb_build_object(
+           'agendamento_id', a.id, 'data_hora', a.data_hora, 'servico', a.servico,
+           'cliente_nome', a.cliente_nome, 'barbeiro_nome', a.barbeiro_nome,
+           'papel', v_papel, 'ator', v_ator),
+         a.data_hora,
+         a.id) THEN
+      v_total := v_total + 1;
+    END IF;
+  END LOOP;
+  RETURN v_total;
+END;
+$$;
+REVOKE ALL ON FUNCTION public.avisar_agendamento(text, uuid, uuid) FROM PUBLIC, anon, authenticated;
 
 -- Reserva do push: exatamente a da migration 25
 CREATE OR REPLACE FUNCTION public.reservar_notificacoes(p_limite integer DEFAULT 50)

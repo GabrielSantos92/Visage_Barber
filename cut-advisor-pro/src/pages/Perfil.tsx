@@ -10,6 +10,7 @@ import TelefoneInput from "@/components/TelefoneInput";
 import { telefoneParaCampo, telefoneParaSalvar, validarTelefone } from "@/lib/telefone";
 import PrivacidadePerfil from "@/components/PrivacidadePerfil";
 import WhatsappPerfil from "@/components/WhatsappPerfil";
+import { WHATSAPP_NO_PERFIL } from "@/lib/privacidade";
 
 const Perfil = () => {
   const navigate = useNavigate();
@@ -195,7 +196,7 @@ const Perfil = () => {
         )}
 
         <PrivacidadePerfil />
-        {!loading && <WhatsappPerfil telefone={telefoneSalvo} />}
+        {!loading && WHATSAPP_NO_PERFIL && <WhatsappPerfil telefone={telefoneSalvo} />}
       </main>
     </div>
   );

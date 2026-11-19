@@ -213,6 +213,11 @@ export const AVISO_PAGAMENTOS: { titulo: string; paragrafos: string[]; itens?: s
 // 20261116000026 e backend/src/services/confirmacaoPresenca.js). Texto sujeito
 // a validacao juridica.
 // ---------------------------------------------------------------
+
+// WhatsApp (Meta) abandonado: a opcao de mensagens pelo WhatsApp fica fora do
+// Perfil. O banco (migrations 25 a 29) e o componente continuam como estao;
+// para voltar, basta true aqui e na outra plataforma (o teste de paridade confere).
+export const WHATSAPP_NO_PERFIL = false;
 export const FINALIDADE_WHATSAPP = 'whatsapp_avisos';
 export const VERSAO_AVISO_WHATSAPP = '2026-11-16';
 

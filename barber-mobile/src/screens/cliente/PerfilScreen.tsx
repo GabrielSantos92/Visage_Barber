@@ -9,6 +9,7 @@ import TelefoneInput from '../../components/TelefoneInput';
 import { telefoneParaCampo, telefoneParaSalvar, validarTelefone } from '../../lib/telefone';
 import PrivacidadePerfil from '../../components/PrivacidadePerfil';
 import WhatsappPerfil from '../../components/WhatsappPerfil';
+import { WHATSAPP_NO_PERFIL } from '../../lib/privacidade';
 import { useNavigation } from '@react-navigation/native';
 import { StackNavigationProp } from '@react-navigation/stack';
 import { ClienteStackParamList } from '../../navigation/ClienteNavigator';
@@ -102,7 +103,9 @@ export default function PerfilScreen() {
         </TouchableOpacity>
 
         <PrivacidadePerfil onConsultarAviso={() => navigation.navigate('AvisoPrivacidade')} />
-        <WhatsappPerfil telefone={telefoneSalvo} onConsultarAviso={() => navigation.navigate('AvisoPrivacidade')} />
+        {WHATSAPP_NO_PERFIL && (
+          <WhatsappPerfil telefone={telefoneSalvo} onConsultarAviso={() => navigation.navigate('AvisoPrivacidade')} />
+        )}
 
         <TouchableOpacity style={s.btnSecondary} onPress={signOut}>
           <Feather name="log-out" size={14} color={C.mutedFg} />

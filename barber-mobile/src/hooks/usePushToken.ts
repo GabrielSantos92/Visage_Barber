@@ -4,7 +4,7 @@
 import { useEffect, useRef } from 'react';
 import * as Notifications from 'expo-notifications';
 import { useAuth } from '../contexts/AuthContext';
-import { registrarAparelho, aoRenovarToken } from '../lib/pushNotificacoes';
+import { registrarAparelho, aoRenovarToken, definirUsuarioAtual } from '../lib/pushNotificacoes';
 import { avisarMudanca, destinoDaNotificacao, DadosNotificacao } from '../lib/centralNotificacoes';
 import { navegacaoRef } from '../navigation/navegacao';
 
@@ -31,6 +31,7 @@ export function usePushToken(papel: PapelNoApp) {
 
   // Registro do aparelho para esta conta (e de novo se o token mudar)
   useEffect(() => {
+    definirUsuarioAtual(user?.id ?? null);
     if (!user) return undefined;
     registrarAparelho();
     return aoRenovarToken();

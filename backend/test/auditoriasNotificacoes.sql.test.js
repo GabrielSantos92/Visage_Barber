@@ -321,7 +321,7 @@ test('coluna canal ausente (com a 25) ou inesperada (antes da 25, ou diferente d
 const ROLLBACK30 = ler('supabase/rollbacks/20261119000030_rollback.sql');
 const ITEM_MARCADOR = 'marcador do push no banco (notificacao_config.push_ativo)';
 const CENTRAL = ['public.minhas_notificacoes(integer,timestamp with time zone)', 'public.contar_notificacoes_nao_lidas()',
-  'public.marcar_notificacoes_lidas(uuid[])', 'public.marcar_todas_notificacoes_lidas()', 'public.central_dados(jsonb)', 'public.push_ao_ativar()'];
+  'public.marcar_notificacoes_lidas(uuid[])', 'public.marcar_todas_notificacoes_lidas()', 'public.central_dados(jsonb)', 'public.central_desde()', 'public.push_ao_ativar()'];
 async function linhas(db) {
   const aud = (await db.query(AUDITORIA)).rows;
   const pre = (await db.query(PRE)).rows;
