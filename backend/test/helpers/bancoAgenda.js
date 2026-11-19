@@ -27,6 +27,20 @@ const MIGRATIONS_WHATSAPP = [
   '20261113000025_whatsapp_confirmacao_presenca.sql',
 ];
 
+// Com a migration 27: so o canal whatsapp acorda o backend (sem o gatilho de
+// INSERT na fila). Vem antes da 26 (prefixo de data 20261115).
+const MIGRATIONS_WHATSAPP_27 = [
+  ...MIGRATIONS_WHATSAPP,
+  '20261115000027_despertar_so_whatsapp.sql',
+];
+
+// Com o cancelamento pelo WhatsApp com confirmacao dupla (migration 26, que
+// exige a 27 aplicada antes)
+const MIGRATIONS_WHATSAPP_26 = [
+  ...MIGRATIONS_WHATSAPP_27,
+  '20261116000026_whatsapp_cancelamento_confirmado.sql',
+];
+
 const JOAO = 'b0000000-0000-4000-8000-000000000001';
 const PEDRO = 'b0000000-0000-4000-8000-000000000002';
 const INATIVO = 'b0000000-0000-4000-8000-000000000003';
@@ -119,9 +133,14 @@ async function criarBanco({ antesDasMigrations = '', migracoes = MIGRATIONS_AGEN
   const db = new PGlite();
   await db.exec(ESQUEMA);
   if (antesDasMigrations) await db.exec(antesDasMigrations);
-  for (const nome of migracoes) await db.exec(migration(nome));
-  // As migrations precisam poder ser executadas de novo
-  for (const nome of migracoes) await db.exec(migration(nome));
+  // Cada migration precisa poder ser executada de novo, logo em seguida. Uma
+  // migration antiga nunca e reexecutada depois das novas: a 21, a 22 e a 25
+  // depois da 27 trariam de volta o gatilho de INSERT ou a rotina sem o filtro
+  // de canal, e a 27 depois da 26 para de proposito.
+  for (const nome of migracoes) {
+    await db.exec(migration(nome));
+    await db.exec(migration(nome));
+  }
   return db;
 }
 
@@ -157,6 +176,7 @@ async function recusa(promessa) {
 }
 
 module.exports = {
-  criarBanco, auxiliares, recusa, migration, as, DIA, MIGRATIONS_AGENDA, MIGRATIONS_WHATSAPP,
+  criarBanco, auxiliares, recusa, migration, as, DIA, MIGRATIONS_AGENDA, MIGRATIONS_WHATSAPP, MIGRATIONS_WHATSAPP_27,
+  MIGRATIONS_WHATSAPP_26,
   JOAO, PEDRO, INATIVO, CORTE_30, COMBO_60, SEM_VINCULO, BARBA_30, SOBRANCELHA_30, CLIENTE_A, CLIENTE_B, CLIENTE_C, ADMIN, USUARIO_JOAO,
 };
