@@ -1,0 +1,3 @@
+# Finais de linha: LF no repositorio e na copia de trabalho (o core.autocrlf
+# do Git para Windows convertia para CRLF e quebrava as comparacoes dos testes)
+* text=auto eol=lf
