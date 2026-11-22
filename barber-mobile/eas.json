@@ -2,6 +2,7 @@
   "cli": { "appVersionSource": "local" },
   "build": {
     "preview": {
+      "environment": "preview",
       "distribution": "internal",
       "android": { "buildType": "apk" },
       "env": {
