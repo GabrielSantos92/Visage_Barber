@@ -43,3 +43,6 @@ yarn-error.*
 
 # Documentation
 /docs/
+# Firebase (FCM) do Android: no EAS vai como variavel do tipo arquivo
+# (GOOGLE_SERVICES_JSON); localmente fica so na sua maquina
+google-services.json

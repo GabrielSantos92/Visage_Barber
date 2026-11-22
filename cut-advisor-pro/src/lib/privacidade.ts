@@ -19,6 +19,8 @@ export type SituacaoConsentimento = {
   consentido: boolean;
   concedido_em: string | null;
   origem: "web" | "mobile" | null;
+  // Autorizou uma versao anterior do aviso, que nao vale mais (backend novo)
+  versao_anterior?: boolean;
 };
 
 const URL = `/api/privacidade/consentimentos/${FINALIDADE_VISAGISMO}`;
@@ -125,16 +127,24 @@ export const AVISO_PAGAMENTOS: { titulo: string; paragrafos: string[]; itens?: s
 ];
 
 // ---------------------------------------------------------------
-// WhatsApp: confirmacao de presenca 2 horas antes do atendimento. Depende da
-// concordancia do titular, dada no Perfil, e pode ser desfeita la ou
-// respondendo PARAR. A versao deve ser igual a
-// FINALIDADES.whatsapp_avisos.versaoAviso em backend/src/services/consentimento.js
-// (e a da outra plataforma). So descreve o que o sistema faz de fato (migration
-// 20261113000025 e backend/src/services/confirmacaoPresenca.js). Texto sujeito
+// WhatsApp: confirmacao de presenca 2 horas antes do atendimento e
+// cancelamento com confirmacao dupla. Depende da concordancia do titular, dada
+// no Perfil, e pode ser desfeita la ou respondendo PARAR. A versao deve ser
+// igual a FINALIDADES.whatsapp_avisos.versaoAviso em
+// backend/src/services/consentimento.js, a public.whatsapp_versao_aviso() no
+// banco e a da outra plataforma. A versao 2026-11-13 dizia que responder Nao
+// nao cancelava: quem autorizou aquela versao precisa autorizar de novo. So
+// descreve o que o sistema faz de fato (migrations 20261113000025 e
+// 20261116000026 e backend/src/services/confirmacaoPresenca.js). Texto sujeito
 // a validacao juridica.
 // ---------------------------------------------------------------
+
+// WhatsApp (Meta) abandonado: a opcao de mensagens pelo WhatsApp fica fora do
+// Perfil. O banco (migrations 25 a 29) e o componente continuam como estao;
+// para voltar, basta true aqui e na outra plataforma (o teste de paridade confere).
+export const WHATSAPP_NO_PERFIL = false;
 export const FINALIDADE_WHATSAPP = "whatsapp_avisos";
-export const VERSAO_AVISO_WHATSAPP = "2026-11-13";
+export const VERSAO_AVISO_WHATSAPP = "2026-11-16";
 
 const URL_WHATSAPP = `/api/privacidade/consentimentos/${FINALIDADE_WHATSAPP}`;
 
@@ -152,10 +162,14 @@ export const celularParaWhatsapp = (telefone: string | null | undefined) =>
 
 // Resumo exibido no Perfil, junto da opcao de ativar
 export const AVISO_WHATSAPP_RESUMO =
-  "Duas horas antes de cada atendimento, enviamos uma mensagem ao celular do seu cadastro perguntando se você confirma a presença. Você responde Sim ou Não. Responder Não não cancela o agendamento.";
+  "Duas horas antes de cada atendimento, enviamos uma mensagem ao celular do seu cadastro perguntando se você confirma a presença. Se você responder Não, enviamos uma segunda mensagem perguntando se quer mesmo cancelar: o agendamento só é cancelado se você tocar em SIM, CANCELAR. Se tocou em Não por engano, toque em NÃO, MANTER ou não responda, e o agendamento continua.";
 
 export const AVISO_WHATSAPP_CONCORDANCIA =
-  "Autorizo o Visage Barber a enviar mensagens sobre os meus agendamentos para o celular do meu cadastro pelo WhatsApp, conforme o Aviso de Privacidade.";
+  "Autorizo o Visage Barber a enviar mensagens sobre os meus agendamentos para o celular do meu cadastro pelo WhatsApp, inclusive a confirmação de presença e a confirmação de cancelamento, e entendo que um agendamento só é cancelado pelo WhatsApp depois da segunda confirmação, conforme o Aviso de Privacidade.";
+
+// Quem tinha autorizado a versao anterior do aviso (em que Nao nao cancelava)
+export const AVISO_WHATSAPP_NOVA_VERSAO =
+  "O aviso das mensagens pelo WhatsApp mudou: agora você também pode cancelar um agendamento por lá, com uma segunda confirmação. Sua autorização anterior não vale para esse novo funcionamento. Para continuar recebendo, leia o aviso e ative de novo.";
 
 export const AVISO_WHATSAPP: { titulo: string; paragrafos: string[]; itens?: string[] }[] = [
   {
@@ -171,14 +185,23 @@ export const AVISO_WHATSAPP: { titulo: string; paragrafos: string[]; itens?: str
     itens: [
       "O número do celular do seu cadastro.",
       "O texto da mensagem: seu primeiro nome, o serviço, o primeiro nome do barbeiro, a data e o horário.",
+      "Se você pedir o cancelamento, a segunda mensagem leva de novo o serviço, o primeiro nome do barbeiro, a data e o horário, para você saber qual agendamento está cancelando.",
       "Não enviamos valores, pagamentos, fotos nem mensagens do chat.",
     ],
   },
   {
-    titulo: "A sua resposta",
+    titulo: "A sua resposta e o cancelamento pelo WhatsApp",
     paragrafos: [
-      "Sua resposta (Sim ou Não) é registrada e mostrada ao barbeiro do atendimento. Responder Não não cancela o agendamento: o horário continua reservado até que você ou a barbearia o cancele.",
-      "Se você não responder, o agendamento continua valendo e o barbeiro vê “Sem resposta”.",
+      "Sim confirma a sua presença, e o barbeiro vê a confirmação.",
+      "Não, sozinho, não cancela nada. Ele só abre um pedido de cancelamento: enviamos uma segunda mensagem perguntando se você tem certeza de que deseja cancelar, com os botões SIM, CANCELAR e NÃO, MANTER. Enquanto você não responder, o horário continua reservado.",
+    ],
+    itens: [
+      "SIM, CANCELAR: cancela somente esse agendamento, libera o horário para outros clientes e avisa o barbeiro de que o cancelamento foi feito por você pelo WhatsApp.",
+      "NÃO, MANTER: o agendamento continua confirmado. Use esse botão se tocou em Não por engano.",
+      "Sem resposta: o agendamento continua confirmado. Nada é cancelado automaticamente.",
+      "A segunda mensagem vale até o horário do atendimento. Depois disso, ou se o agendamento for cancelado ou mudar de horário por outro caminho, o botão não cancela mais nada.",
+      "Mensagens escritas (como “não” ou “cancelar”) nunca cancelam um agendamento: só os botões.",
+      "Cancelar pelo WhatsApp não devolve automaticamente um pagamento feito online: a devolução é tratada pela barbearia.",
     ],
   },
   {
@@ -188,6 +211,7 @@ export const AVISO_WHATSAPP: { titulo: string; paragrafos: string[]; itens?: str
       "A situação do envio (enviada, entregue, lida ou com falha) e as datas.",
       "O código da mensagem na Meta e o número pelo qual ela foi entregue.",
       "A sua resposta e quando ela chegou.",
+      "Se você pedir o cancelamento: o pedido, a sua resposta na segunda mensagem (cancelar ou manter), as datas e, se cancelar, que o cancelamento foi feito pela resposta no WhatsApp. Esse registro não é apagado, para demonstrar quem cancelou e quando.",
       "O registro da sua autorização e, se houver, da revogação.",
     ],
   },
@@ -200,7 +224,14 @@ export const AVISO_WHATSAPP: { titulo: string; paragrafos: string[]; itens?: str
   {
     titulo: "Barbeiros",
     paragrafos: [
-      "O barbeiro que ativa a opção recebe pelo WhatsApp um aviso quando um cliente informa que não virá, com o primeiro nome do cliente, o serviço, a data e o horário.",
+      "O barbeiro do atendimento vê na agenda a situação no WhatsApp: presença confirmada, sem resposta, cancelamento pedido e ainda não confirmado, desistência do cancelamento ou cancelamento confirmado pelo cliente pelo WhatsApp.",
+      "O barbeiro que ativa a opção também recebe pelo WhatsApp um aviso quando um cliente confirma o cancelamento, com o primeiro nome do cliente, o serviço, a data e o horário.",
+    ],
+  },
+  {
+    titulo: "Mudança neste aviso",
+    paragrafos: [
+      "Em 16/11/2026 este aviso mudou: antes, responder Não não cancelava o agendamento; agora dá para cancelar pelo WhatsApp, com a segunda confirmação. Por isso, quem já tinha ativado as mensagens precisa ler este aviso e ativar de novo no Perfil para continuar recebendo.",
     ],
   },
 ];

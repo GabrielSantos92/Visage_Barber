@@ -2,8 +2,9 @@
 //
 //   WhatsApp: NOTIFICACOES_WHATSAPP_ATIVO=true E todas as credenciais da Meta
 //             do ambiente escolhido.
-//   Push:     NOTIFICACOES_PUSH_ATIVO=true E EXPO_ACCESS_TOKEN (o push foi
-//             cancelado; a chave existe so para o codigo antigo nao ligar sozinho).
+//   Push:     NOTIFICACOES_PUSH_ATIVO=true E EXPO_ACCESS_TOKEN. No banco, o
+//             marcador notificacao_config.push_ativo (migration 30) tambem
+//             precisa estar ligado: sem ele nada e reservado nem enviado.
 //
 // Ambiente do WhatsApp (WHATSAPP_AMBIENTE), sempre explicito e IGUAL ao do
 // backend (BACKEND_AMBIENTE, services/ambienteServidor.js):
@@ -108,6 +109,14 @@ function lerConfiguracao(env = process.env) {
       // (variaveis: data, hora). Sem ele, vai como texto, que so chega com a
       // janela de 24 h aberta.
       templateCancelamentoNaoConcluido: valor(doAmbiente('TEMPLATE_CANCELAMENTO_NAO_CONCLUIDO')) || null,
+      // Opcionais: confirmacao de novo agendamento (migration 28) ao cliente e
+      // ao barbeiro. Sem eles, o aviso termina como nao enviado (sem template).
+      templateNovoAgendamentoCliente: valor(doAmbiente('TEMPLATE_NOVO_AGENDAMENTO_CLIENTE')) || null,
+      templateNovoAgendamentoBarbeiro: valor(doAmbiente('TEMPLATE_NOVO_AGENDAMENTO_BARBEIRO')) || null,
+      // Opcionais: aviso de cancelamento efetivado (migration 29) ao cliente e
+      // ao barbeiro. Sem eles, o aviso termina como nao enviado (sem template).
+      templateCancelamentoCliente: valor(doAmbiente('TEMPLATE_CANCELAMENTO_CLIENTE')) || null,
+      templateCancelamentoBarbeiro: valor(doAmbiente('TEMPLATE_CANCELAMENTO_BARBEIRO')) || null,
       // Modo teste: so estes celulares recebem e so as mensagens deles sao
       // processadas. null = producao (sem essa lista)
       destinatariosTeste: teste ? destinatariosTeste : null,

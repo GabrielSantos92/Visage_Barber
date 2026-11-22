@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
-import { Calendar, Clock, User, X, ArrowLeft, MessageCircle, Loader2, Wallet } from "lucide-react";
+import { Calendar, Clock, User, X, ArrowLeft, MessageCircle, MessageSquare, Loader2, Wallet } from "lucide-react";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { supabase } from "@/integrations/supabase/client";
@@ -15,6 +15,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { linkWhatsAppAgendamento } from "@/lib/whatsapp";
 import { Pagamento, ROTULO_STATUS, buscarPagamentos, pagamentoAtual, pago } from "@/lib/pagamentos";
+import { buscarSituacoesWhatsapp, idsComSituacao, whatsappParaCliente, type SituacaoPresenca } from "@/lib/whatsappAgendamentos";
 
 type Agendamento = {
   id: string;
@@ -48,6 +49,8 @@ const MeusAgendamentos = () => {
   const [telefones, setTelefones] = useState<Record<string, string>>({});
   // Pagamento que vale para cada agendamento (status proprio, separado do agendamento)
   const [pagamentos, setPagamentos] = useState<Record<string, Pagamento>>({});
+  // Situacao no WhatsApp (cancelamento pedido ou feito por la), por agendamento
+  const [situacoesWhatsapp, setSituacoesWhatsapp] = useState<Record<string, SituacaoPresenca>>({});
   // Agendamento aguardando confirmacao de cancelamento no Popup
   const [cancelando, setCancelando] = useState<Agendamento | null>(null);
   const [processando, setProcessando] = useState(false);
@@ -71,6 +74,8 @@ const MeusAgendamentos = () => {
         lista.forEach((p) => { (porAgendamento[p.agendamento_id] ??= []).push(p); });
         setPagamentos(Object.fromEntries(Object.entries(porAgendamento).map(([id, ps]) => [id, pagamentoAtual(ps)!])));
       } catch { /* sem o modulo financeiro no banco: a lista segue sem pagamentos */ }
+
+      setSituacoesWhatsapp(await buscarSituacoesWhatsapp(idsComSituacao((data ?? []) as { id: string; status: string }[])));
 
       // Telefone do barbeiro (cadastrado pelo admin em profiles.telefone), por barbeiro_id
       const { data: tels } = await (supabase as any).rpc("telefones_barbeiros_do_cliente");
@@ -192,6 +197,7 @@ const MeusAgendamentos = () => {
               const pagamento = pagamentos[a.id];
               const pagarPendente = a.status !== "cancelado" && !pago(pagamento) && pagamento?.status !== "refunded";
               const isPast = new Date(a.data_hora) < new Date();
+              const avisoWhatsapp = whatsappParaCliente({ status: a.status, presenca: situacoesWhatsapp[a.id], data_hora: a.data_hora });
               const whatsapp = linkWhatsAppAgendamento({
                 telefone: telefones[a.barbeiro_id],
                 barbeiroNome: a.barbeiros?.nome,
@@ -223,6 +229,11 @@ const MeusAgendamentos = () => {
                       )}
                     </div>
                   </div>
+                  {avisoWhatsapp && (
+                    <p data-testid="whatsapp-cliente" className="flex items-start gap-1 mb-3 font-mono text-[10px] text-accent">
+                      <MessageSquare className="size-3 mt-px flex-shrink-0" /> {avisoWhatsapp}
+                    </p>
+                  )}
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-4 font-mono text-[10px] text-foreground">
                       <span className="flex items-center gap-1">

@@ -1,5 +1,4 @@
 import { supabase as _supabase } from './supabase';
-import { sendPushNotification } from './notifications';
 import { analiseEmPtBR } from './nomesCortes';
 
 // visagismo_analises / conversas / mensagens nao estao nos types gerados do Supabase
@@ -126,7 +125,5 @@ export async function enviarAnaliseNoChat(clienteId: string, barbeiroId: string,
     imagem_path: analise.imagem_path,
   });
   if (error) throw error;
-
-  const { data: barb } = await db.from('barbeiros').select('push_token').eq('id', barbeiroId).single();
-  sendPushNotification(barb?.push_token, 'Visagismo', conteudo);
+  // O aviso ao barbeiro sai pelo banco (gatilho notificar_mensagem)
 }

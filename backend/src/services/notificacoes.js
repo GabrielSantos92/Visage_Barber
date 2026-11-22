@@ -82,6 +82,11 @@ function textoDoAviso(item, agora) {
 
   switch (item.tipo) {
     case 'novo_agendamento':
+      // Para o cliente so quando outra pessoa agendou (migration 30)
+      if (d.papel === 'cliente') {
+        const quem = d.ator === 'barbeiro' ? barbeiro : 'A barbearia';
+        return { titulo: 'Agendamento marcado para você', corpo: `${quem} agendou ${servico} para você ${quando(dataHora(), agora)}.` };
+      }
       return { titulo: 'Novo agendamento', corpo: `${cliente} agendou ${servico} para ${quando(dataHora(), agora)}.` };
     case 'cancelamento': {
       const q = quando(dataHora(), agora);
@@ -113,25 +118,33 @@ function textoDoAviso(item, agora) {
   }
 }
 
-// So o necessario para o app abrir a tela certa (e conferir se a conta logada
-// e a destinataria). Nada de token, texto de mensagem ou dado de terceiros.
-function dadosDoAviso(item) {
-  const d = item.dados ?? {};
-  const base = { tipo: item.tipo, destinatario: item.destinatario_id };
-  if (item.tipo === 'mensagem') {
-    return { ...base, conversa_id: d.conversa_id, barbeiro_id: d.barbeiro_id, cliente_id: d.cliente_id, outro_nome: d.outro_nome };
-  }
-  if (item.tipo === 'teste') return base;
-  return { ...base, agendamento_id: d.agendamento_id };
+// O PUSH E GENERICO. O aparelho pode continuar vinculado a uma conta que ja
+// saiu (logout sem internet, celular emprestado), e a notificacao aparece na
+// barra e na tela bloqueada sem passar pelo app. Por isso nada de nome,
+// servico, data, horario, texto de mensagem nem identificador de pessoa,
+// conversa ou agendamento no payload: so o tipo e o id opaco do aviso. Os
+// detalhes ficam na central (migration 30), lida pelo app logado e so com os
+// avisos da propria conta (auth.uid()).
+const TEXTO_PUSH = {
+  mensagem: 'Você tem uma nova mensagem. Abra o app para ver.',
+  agendamento: 'Há uma atualização nos seus agendamentos. Abra o app para ver.',
+};
+function textoDoPush(item) {
+  if (item.tipo === 'teste') return textoDoAviso(item);
+  if (!CANAIS[item.tipo]) throw new Error(`tipo desconhecido: ${item.tipo}`);
+  return { titulo: 'Visage Barber', corpo: item.tipo === 'mensagem' ? TEXTO_PUSH.mensagem : TEXTO_PUSH.agendamento };
 }
 
-// Avisos da mesma conversa (ou do mesmo agendamento) se substituem na barra do
-// Android: uma notificacao por conversa, atualizada a cada mensagem
+// So o tipo e o id do aviso (o app busca o resto na central, autenticado)
+function dadosDoAviso(item) {
+  if (item.tipo === 'teste') return { tipo: 'teste' };
+  return { tipo: item.tipo, notificacao_id: item.id };
+}
+
+// Avisos do mesmo tipo se substituem na barra do Android (sem id de conversa
+// ou agendamento no payload)
 function tagDoAviso(item) {
-  const d = item.dados ?? {};
-  if (item.tipo === 'mensagem') return `conversa:${d.conversa_id}`;
-  if (item.tipo === 'teste') return 'teste';
-  return `agendamento:${d.agendamento_id}`;
+  return item.tipo === 'mensagem' ? 'mensagens' : item.tipo === 'teste' ? 'teste' : 'agendamentos';
 }
 
 function ttlDoAviso(item, agora) {
@@ -142,7 +155,10 @@ function ttlDoAviso(item, agora) {
 }
 
 function montarMensagem(item, token, agora) {
-  const { titulo, corpo } = textoDoAviso(item, agora);
+  // Valida os dados do aviso (aviso quebrado falha aqui, sem travar a fila);
+  // o texto detalhado fica so na central, nunca no push
+  textoDoAviso(item, agora);
+  const { titulo, corpo } = textoDoPush(item);
   return {
     to: token,
     title: titulo,
@@ -425,5 +441,5 @@ function criarServicoNotificacoes({
 }
 
 module.exports = {
-  criarServicoNotificacoes, NotificacaoErro, textoDoAviso, dadosDoAviso, montarMensagem, quando, horaCurta, CANAIS,
+  criarServicoNotificacoes, NotificacaoErro, textoDoAviso, textoDoPush, dadosDoAviso, montarMensagem, TEXTO_PUSH, quando, horaCurta, CANAIS,
 };

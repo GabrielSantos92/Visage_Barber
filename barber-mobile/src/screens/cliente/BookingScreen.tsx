@@ -11,7 +11,6 @@ import { useTheme } from '../../contexts/ThemeContext';
 import { F, Theme } from '../../lib/theme';
 import ErroFetch from '../../components/ErroFetch';
 import { ClienteStackParamList, ClienteTabParamList } from '../../navigation/ClienteNavigator';
-import { sendPushNotification } from '../../lib/notifications';
 import { buscarHorariosDisponiveis, RestricaoDiaria, verificarRegraDiaria } from '../../lib/disponibilidade';
 import { interpretarErroAgendamento } from '../../lib/horarios';
 import { servicoAgendavel } from '../../lib/etapas';
@@ -153,14 +152,7 @@ export default function BookingScreen() {
       return;
     }
 
-    const { data: barb } = await supabase
-      .from('barbeiros').select('push_token').eq('id', selectedBarbeiro.id).single();
-    const data_fmt = selectedData.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' });
-    sendPushNotification(
-      (barb as any)?.push_token,
-      'Novo agendamento!',
-      `${selectedServico.nome} — ${data_fmt} às ${selectedHorario}`,
-    );
+    // O aviso ao barbeiro sai pelo banco (gatilho notificar_novo_agendamento)
 
     // Agendado: segue para escolher como pagar (PIX, cartao ou na barbearia)
     Alert.alert('Agendado!', 'Seu horário foi reservado. Agora escolha como pagar.', [{

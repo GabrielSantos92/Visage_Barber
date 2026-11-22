@@ -14,6 +14,7 @@ import ErroFetch from '../../components/ErroFetch';
 import { ClienteStackParamList, ClienteTabParamList } from '../../navigation/ClienteNavigator';
 import LogoMark from '../../components/LogoMark';
 import { buscarNotasBarbeiros, formatarNota, NotaBarbeiro } from '../../lib/notasBarbeiros';
+import SinoNotificacoes from '../../components/SinoNotificacoes';
 
 type Nav = CompositeNavigationProp<
   BottomTabNavigationProp<ClienteTabParamList, 'Inicio'>,
@@ -180,6 +181,7 @@ export default function HomeScreen() {
           <Text style={s.logoText}>VISAGE BARBER</Text>
         </View>
         <View style={s.headerActions}>
+          <SinoNotificacoes papel="cliente" />
           <TouchableOpacity style={s.iconBtn} onPress={() => navigation.navigate('MeusAgendamentos')}>
             <Feather name="message-circle" size={18} color={C.primary} />
             {naoLidas > 0 && (

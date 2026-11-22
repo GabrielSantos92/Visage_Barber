@@ -8,6 +8,7 @@ import AgendaScreen from '../screens/barbeiro/AgendaScreen';
 import ServicosScreen from '../screens/barbeiro/ServicosScreen';
 import BarbeiroPerfilScreen from '../screens/barbeiro/BarbeiroPerfilScreen';
 import ChatScreen from '../screens/chat/ChatScreen';
+import NotificacoesScreen from '../screens/NotificacoesScreen';
 import { usePushToken } from '../hooks/usePushToken';
 import { useTheme } from '../contexts/ThemeContext';
 import { F } from '../lib/theme';
@@ -24,6 +25,7 @@ export type BarbeiroTabParamList = {
 export type BarbeiroStackParamList = {
   BarbeiroTabs: undefined;
   Chat: { outroNome: string; barbeiroId: string; clienteId: string };
+  Notificacoes: { papel: 'barbeiro' };
 };
 
 const Tab = createBottomTabNavigator<BarbeiroTabParamList>();
@@ -88,6 +90,20 @@ export default function BarbeiroNavigator() {
   return (
     <Stack.Navigator screenOptions={{ headerShown: false }}>
       <Stack.Screen name="BarbeiroTabs" component={BarbeiroTabs} />
+      <Stack.Screen
+        name="Notificacoes"
+        component={NotificacoesScreen}
+        initialParams={{ papel: 'barbeiro' }}
+        options={{
+          headerShown: true,
+          title: 'NOTIFICAÇÕES',
+          headerStyle: { backgroundColor: C.bg },
+          headerTintColor: C.primary,
+          headerTitleStyle: { fontFamily: F.mono, fontSize: 11, letterSpacing: 2 },
+          headerShadowVisible: false,
+          headerBackTitle: '',
+        }}
+      />
       <Stack.Screen
         name="Chat"
         component={ChatScreen}

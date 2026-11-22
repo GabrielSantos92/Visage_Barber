@@ -25,8 +25,10 @@ function consulta(tabela: string) {
   return b;
 }
 
+// Funcoes do banco: por padrao, sem dados
+const rpc = vi.hoisted(() => ({ responder: async (_fn: string, _args?: any) => ({ data: [] as any, error: null as any }) }));
 vi.mock("@/integrations/supabase/client", () => ({
-  supabase: { rpc: async () => ({ data: [], error: null }), from: (t: string) => consulta(t) },
+  supabase: { rpc: (fn: string, args?: any) => rpc.responder(fn, args), from: (t: string) => consulta(t) },
 }));
 // Objeto estavel, como no app: a pagina recarrega a lista quando `user` muda
 const auth = vi.hoisted(() => ({ user: { id: "u1" } }));
@@ -51,6 +53,7 @@ beforeEach(() => {
   toast.success.mockClear();
   toast.error.mockClear();
   respostaUpdate = async () => ({ data: [{ id: "a1" }], error: null });
+  rpc.responder = async () => ({ data: [], error: null });
   responder = async (ctx) => {
     if (ctx.tabela === "agendamentos" && ctx.op === "update") return respostaUpdate();
     if (ctx.tabela === "agendamentos" && ctx.filtros.some(([, c]) => c === "id")) return { data: { status: "cancelado" }, error: null };
@@ -140,5 +143,42 @@ describe("MeusAgendamentos - confirmacao de cancelamento", () => {
   it("agendamento cancelado nao oferece cancelar de novo", async () => {
     await renderTela();
     expect(within(cartao("Barba")).queryByRole("button", { name: /cancelar/i })).not.toBeInTheDocument();
+  });
+});
+
+describe("MeusAgendamentos - cancelamento pelo WhatsApp", () => {
+  it("mostra o pedido pendente (ainda confirmado) e o cancelado pelo WhatsApp, sem misturar", async () => {
+    const pedidos: any[] = [];
+    rpc.responder = async (fn, args) => {
+      if (fn !== "presenca_dos_agendamentos") return { data: [], error: null };
+      pedidos.push(args);
+      return { data: [{ agendamento_id: "a1", situacao: "cancelamento_pendente" }, { agendamento_id: "a2", situacao: "cancelada_whatsapp" }], error: null };
+    };
+    await renderTela();
+    await screen.findByText("Cancelado por você pelo WhatsApp");
+    expect(pedidos).toEqual([{ p_ids: ["a1", "a2"] }]);
+    expect(within(cartao("Corte")).getByText("CONFIRMADO")).toBeInTheDocument();
+    expect(within(cartao("Corte")).getByTestId("whatsapp-cliente")).toHaveTextContent("o horário continua reservado");
+    // O pedido pendente nao tira o botao de cancelar pelo site
+    expect(within(cartao("Corte")).getByRole("button", { name: /cancelar/i })).toBeInTheDocument();
+    expect(within(cartao("Barba")).getByTestId("whatsapp-cliente")).toHaveTextContent("Cancelado por você pelo WhatsApp");
+  });
+
+  it("pedido pelo WhatsApp não concluído: o cliente lê que nada foi cancelado e pode cancelar pelo site", async () => {
+    rpc.responder = async (fn) => (fn === "presenca_dos_agendamentos"
+      ? { data: [{ agendamento_id: "a1", situacao: "cancelamento_nao_confirmado" }], error: null }
+      : { data: [], error: null });
+    await renderTela();
+    const aviso = await within(cartao("Corte")).findByTestId("whatsapp-cliente");
+    expect(aviso).toHaveTextContent("Seu pedido de cancelamento pelo WhatsApp não foi concluído");
+    expect(aviso).toHaveTextContent("o cancelamento NÃO foi feito e o horário continua reservado");
+    expect(within(cartao("Corte")).getByText("CONFIRMADO")).toBeInTheDocument();
+    expect(within(cartao("Corte")).getByRole("button", { name: /cancelar/i })).toBeInTheDocument();
+  });
+
+  it("sem a função no banco (ou com erro), a lista segue igual", async () => {
+    rpc.responder = async (fn) => (fn === "presenca_dos_agendamentos" ? { data: null, error: { message: "função não existe" } } : { data: [], error: null });
+    await renderTela();
+    expect(screen.queryByTestId("whatsapp-cliente")).not.toBeInTheDocument();
   });
 });
