@@ -7,6 +7,8 @@ import { useAuth } from '../../contexts/AuthContext';
 import { supabase } from '../../lib/supabase';
 import { useTheme } from '../../contexts/ThemeContext';
 import { F, Theme } from '../../lib/theme';
+import { invalidarCache } from '../../lib/cacheLocal';
+import { mensagemDeErro } from '../../lib/conexao';
 
 type Route = RouteProp<ClienteStackParamList, 'Avaliacao'>;
 
@@ -35,7 +37,14 @@ export default function AvaliacaoScreen() {
     if (nota === 0) { Alert.alert('Atenção', 'Selecione uma nota.'); return; }
     if (!user) return;
     setLoading(true);
-    const { data: agendamento } = await supabase.from('agendamentos').select('barbeiro_id, status').eq('id', agendamentoId).single();
+    const { data: agendamento, error: erroAgendamento } = await supabase.from('agendamentos').select('barbeiro_id, status').eq('id', agendamentoId).single();
+    // Sem resposta do banco nao da para saber a situacao do atendimento: avisa
+    // (antes dizia que ele ainda nao estava concluido e voltava)
+    if (erroAgendamento && erroAgendamento.code !== 'PGRST116') {
+      setLoading(false);
+      Alert.alert('Avaliação não enviada', mensagemDeErro(erroAgendamento, 'Não foi possível verificar o atendimento. Tente novamente.'));
+      return;
+    }
     // So atendimento concluido pode ser avaliado (o banco tambem garante isso)
     if (agendamento?.status !== 'concluido') {
       setLoading(false);
@@ -56,8 +65,13 @@ export default function AvaliacaoScreen() {
       comentario: comentario || null,
     });
     setLoading(false);
-    if (error) Alert.alert('Erro', error.message);
-    else Alert.alert('Obrigado!', 'Avaliação enviada.', [{ text: 'OK', onPress: () => navigation.goBack() }]);
+    if (error) {
+      Alert.alert('Erro', mensagemDeErro(error, 'Não foi possível enviar a avaliação.'));
+      return;
+    }
+    // Confirmada pelo banco: Inicio e Meus Agendamentos salvos buscam de novo
+    invalidarCache(user.id, ['cliente:inicio', 'cliente:agendamentos']);
+    Alert.alert('Obrigado!', 'Avaliação enviada.', [{ text: 'OK', onPress: () => navigation.goBack() }]);
   }
 
   return (

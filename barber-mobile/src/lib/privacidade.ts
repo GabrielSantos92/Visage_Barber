@@ -218,6 +218,10 @@ export const AVISO_PAGAMENTOS: { titulo: string; paragrafos: string[]; itens?: s
 // Perfil. O banco (migrations 25 a 29) e o componente continuam como estao;
 // para voltar, basta true aqui e na outra plataforma (o teste de paridade confere).
 export const WHATSAPP_NO_PERFIL = false;
+// Situacao do WhatsApp nas agendas do app (cliente e barbeiro): so com o
+// WhatsApp visivel. Oculto, ninguem autoriza a versao atual do aviso e o banco
+// nao gera situacao nova; a consulta e pulada (uma ida a menos ao banco).
+export const WHATSAPP_NAS_AGENDAS = WHATSAPP_NO_PERFIL;
 export const FINALIDADE_WHATSAPP = 'whatsapp_avisos';
 export const VERSAO_AVISO_WHATSAPP = '2026-11-16';
 

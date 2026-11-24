@@ -1,11 +1,17 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, ScrollView, TextInput, ActivityIndicator, Alert, RefreshControl } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
+import { idDoBarbeiro } from '../../lib/barbeiroAtual';
 import { useAuth } from '../../contexts/AuthContext';
 import { supabase } from '../../lib/supabase';
 import { useTheme } from '../../contexts/ThemeContext';
 import { F, Theme } from '../../lib/theme';
+import ErroFetch from '../../components/ErroFetch';
+import AvisoDadosSalvos from '../../components/AvisoDadosSalvos';
+import { useCacheDaTela } from '../../hooks/useCacheDaTela';
+import { VALIDADE } from '../../lib/cacheLocal';
+import { mensagemDeErro } from '../../lib/conexao';
 
 const DIAS = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
 
@@ -21,16 +27,33 @@ export default function AgendaScreen() {
   const [loading, setLoading]         = useState(true);
   const [saving, setSaving]           = useState(false);
   const [novoHorario, setNovoHorario] = useState({ dia_semana: 1, hora_inicio: '09:00', hora_fim: '18:00' });
+  const [erro, setErro]               = useState<string | null>(null);
+
+  // Horarios salvos da ultima carga (desta conta): aparecem na hora; o banco
+  // atualiza em seguida. Adicionar e remover continuam dependendo do banco.
+  const cache = useCacheDaTela<Horario[]>(user ? 'barbeiro:horarios' : null, VALIDADE.catalogo);
+  useEffect(() => {
+    cache.restaurar((lista) => { setHorarios(lista); setLoading(false); });
+  }, [cache.restaurar]);
 
   useFocusEffect(useCallback(() => { fetchDados(); }, []));
 
   async function fetchDados() {
     if (!user) return;
-    const { data: b } = await supabase.from('barbeiros').select('id').eq('user_id', user.id).single();
-    if (!b) { setLoading(false); return; }
-    setBarbeiroId(b.id);
-    const { data } = await supabase.from('horarios_disponiveis').select('*').eq('barbeiro_id', b.id).order('dia_semana');
-    setHorarios(data ?? []);
+    try {
+      // lib/barbeiroAtual: guardado na sessao e no aparelho
+      const id = await idDoBarbeiro(user.id);
+      if (!id) { setLoading(false); return; }
+      setBarbeiroId(id);
+      const { data, error } = await supabase.from('horarios_disponiveis').select('*').eq('barbeiro_id', id).order('dia_semana');
+      if (error) throw error;
+      setHorarios(data ?? []);
+      setErro(null);
+      cache.salvar(data ?? []);
+    } catch (e) {
+      // Antes, sem rede, a tela dizia "Nenhum horario cadastrado"
+      if (!cache.falhou(e)) setErro(mensagemDeErro(e, 'Não foi possível carregar os horários.'));
+    }
     setLoading(false);
   }
 
@@ -40,13 +63,13 @@ export default function AgendaScreen() {
     setSaving(true);
     const { error } = await supabase.from('horarios_disponiveis').insert({ ...novoHorario, barbeiro_id: barbeiroId });
     setSaving(false);
-    if (error) Alert.alert('Erro', error.message);
+    if (error) Alert.alert('Erro', mensagemDeErro(error, 'Não foi possível adicionar o horário.'));
     else fetchDados();
   }
 
   async function remover(id: string) {
     const { error } = await supabase.from('horarios_disponiveis').delete().eq('id', id);
-    if (error) Alert.alert('Erro', error.message);
+    if (error) Alert.alert('Erro', mensagemDeErro(error, 'Não foi possível remover o horário.'));
     else fetchDados();
   }
 
@@ -63,12 +86,15 @@ export default function AgendaScreen() {
         <Text style={s.pageTitle}>Minha Agenda</Text>
       </View>
 
+      {!!erro && <ErroFetch message={erro} onRetry={() => { setErro(null); fetchDados(); }} />}
+      <AvisoDadosSalvos salvoEm={cache.salvoEm} falha={cache.falha} onTentar={fetchDados} />
+
       <View style={s.section}>
         <Text style={s.sectionLabel}>HORÁRIOS CADASTRADOS</Text>
         <View style={s.sectionLine} />
       </View>
 
-      {horarios.length === 0 && (
+      {horarios.length === 0 && !erro && (
         <Text style={{ fontFamily: F.sans, color: C.mutedFg, paddingHorizontal: 24, fontSize: 13 }}>Nenhum horário cadastrado.</Text>
       )}
       {horarios.map((h, i) => (

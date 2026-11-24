@@ -13,6 +13,11 @@ import ConfirmarCancelamentoModal from '../../components/ConfirmarCancelamentoMo
 import { linkWhatsAppAgendamento } from '../../lib/whatsapp';
 import { Pagamento, ROTULO_STATUS, buscarPagamentos, pagamentoAtual, pago } from '../../lib/pagamentos';
 import { buscarSituacoesWhatsapp, idsComSituacao, whatsappParaCliente, SituacaoPresenca } from '../../lib/whatsappAgendamentos';
+import { WHATSAPP_NAS_AGENDAS } from '../../lib/privacidade';
+import AvisoDadosSalvos from '../../components/AvisoDadosSalvos';
+import { useCacheDaTela } from '../../hooks/useCacheDaTela';
+import { VALIDADE, invalidarCache } from '../../lib/cacheLocal';
+import { mensagemDeErro } from '../../lib/conexao';
 
 type Nav = StackNavigationProp<ClienteStackParamList>;
 
@@ -26,6 +31,15 @@ interface Agendamento {
   barbeiros: { nome: string } | null;
   servicos: { nome: string; preco: number } | null;
   avaliado?: boolean;
+}
+
+// O que a tela guarda no aparelho (lib/cacheLocal). Pagar, cancelar e avaliar
+// continuam dependendo do banco: com dado salvo antigo, o banco recusa ou a
+// tela de pagamento mostra a situacao real.
+interface AgendamentosSalvos {
+  agendamentos: Agendamento[];
+  pagamentos: Record<string, Pagamento>;
+  situacoes: Record<string, SituacaoPresenca>;
 }
 
 function getStatus(C: Theme): Record<string, { label: string; color: string }> {
@@ -65,6 +79,16 @@ export default function AgendamentosScreen() {
     return () => clearTimeout(t);
   }, [aviso]);
 
+  // Dados salvos da ultima carga (desta conta): a lista aparece na hora e o
+  // banco atualiza em seguida
+  const cache = useCacheDaTela<AgendamentosSalvos>(user ? 'cliente:agendamentos' : null, VALIDADE.agenda);
+  useEffect(() => {
+    cache.restaurar((d) => {
+      setAgendamentos(d.agendamentos); setPagamentos(d.pagamentos); setSituacoesWhatsapp(d.situacoes);
+      setLoading(false);
+    });
+  }, [cache.restaurar]);
+
   useFocusEffect(useCallback(() => { fetchAgendamentos(); }, []));
 
   async function fetchUnread() {
@@ -93,9 +117,12 @@ export default function AgendamentosScreen() {
 
   async function fetchAgendamentos() {
     if (!user) return;
+    // Selos do chat e telefones dos barbeiros nao dependem da lista: comecam
+    // junto com ela (antes, so depois de a lista carregar)
+    fetchUnread();
+    fetchTelefones();
     try {
-      // Conclui automaticamente os agendamentos cujo horario ja terminou
-      await supabase.rpc('concluir_agendamentos_passados');
+      // A conclusao dos horarios que ja terminaram fica com o pg_cron (a cada 5 minutos)
       const { data, error } = await supabase
         .from('agendamentos')
         .select('*, barbeiros(nome), servicos(nome, preco)')
@@ -104,27 +131,41 @@ export default function AgendamentosScreen() {
 
       if (error) throw error;
 
-      const ids = (data ?? []).map((a) => a.id);
-      let avaliadosSet = new Set<string>();
-      if (ids.length > 0) {
-        const { data: avals } = await supabase.from('avaliacoes').select('agendamento_id').in('agendamento_id', ids);
-        avaliadosSet = new Set((avals ?? []).map((a) => a.agendamento_id));
-      }
-      setAgendamentos((data ?? []).map((a) => ({ ...a, avaliado: avaliadosSet.has(a.id) })) as unknown as Agendamento[]);
+      const lista = data ?? [];
+      const ids = lista.map((a) => a.id);
+      // Avaliacoes, pagamentos e situacao do WhatsApp dependem so da lista: em
+      // paralelo. Como antes, falha nas avaliacoes conta como "nao avaliado" e
+      // falha nos pagamentos mantem os anteriores, sem derrubar a lista.
+      const [avals, pagamentosLista, situacoes] = await Promise.all([
+        ids.length > 0
+          // null: a consulta falhou (a lista mostra "nao avaliado", como antes, mas nao e guardada)
+          ? supabase.from('avaliacoes').select('agendamento_id').in('agendamento_id', ids).then(({ data: d, error: e }) => (e ? null : d ?? []))
+          : Promise.resolve([] as { agendamento_id: string }[]),
+        // Sem o modulo financeiro no banco: a lista segue sem pagamentos
+        buscarPagamentos(ids).catch(() => null),
+        WHATSAPP_NAS_AGENDAS
+          ? buscarSituacoesWhatsapp(idsComSituacao(lista as { id: string; status: string }[]))
+          : Promise.resolve({} as Record<string, SituacaoPresenca>),
+      ]);
+      const avaliadosSet = new Set((avals ?? []).map((a) => a.agendamento_id));
+      const comAvaliacao = lista.map((a) => ({ ...a, avaliado: avaliadosSet.has(a.id) })) as unknown as Agendamento[];
+      setAgendamentos(comAvaliacao);
       setErro(null);
-      try {
+      if (pagamentosLista) {
         const porAgendamento: Record<string, Pagamento[]> = {};
-        (await buscarPagamentos(ids)).forEach((p) => { (porAgendamento[p.agendamento_id] ??= []).push(p); });
-        setPagamentos(Object.fromEntries(Object.entries(porAgendamento).map(([id, ps]) => [id, pagamentoAtual(ps)!])));
-      } catch { /* sem o modulo financeiro no banco: a lista segue sem pagamentos */ }
-      setSituacoesWhatsapp(await buscarSituacoesWhatsapp(idsComSituacao((data ?? []) as { id: string; status: string }[])));
+        pagamentosLista.forEach((p) => { (porAgendamento[p.agendamento_id] ??= []).push(p); });
+        const atuais = Object.fromEntries(Object.entries(porAgendamento).map(([id, ps]) => [id, pagamentoAtual(ps)!]));
+        setPagamentos(atuais);
+        // So guarda uma carga completa (lista, avaliacoes e pagamentos)
+        if (avals) cache.salvar({ agendamentos: comAvaliacao, pagamentos: atuais, situacoes });
+      }
+      setSituacoesWhatsapp(situacoes);
     } catch (e: any) {
-      setErro(e.message ?? 'Erro ao carregar agendamentos.');
+      // Com dados salvos na tela, o aviso de dados salvos cuida da falha
+      if (!cache.falhou(e)) setErro(mensagemDeErro(e, 'Erro ao carregar agendamentos.'));
     }
     setLoading(false);
     setRefreshing(false);
-    fetchUnread();
-    fetchTelefones();
   }
 
   // "ok" so quando o banco confirma a alteracao. O .select() revela o caso em
@@ -133,8 +174,15 @@ export default function AgendamentosScreen() {
     const { data, error } = await supabase.from('agendamentos')
       .update({ status: 'cancelado' as any }).eq('id', id).neq('status', 'cancelado' as any).select('id');
     if (error) return 'erro';
-    await fetchAgendamentos();
-    return data?.length ? 'ok' : 'inalterado';
+    const ok = !!data?.length;
+    // O banco confirmou: a tela mostra o cancelamento na hora. O resto (status
+    // real quando nada mudou, pagamentos, avaliacao) chega pela recarga em
+    // segundo plano, sem prender o modal.
+    if (ok) setAgendamentos((prev) => prev.map((a) => (a.id === id ? { ...a, status: 'cancelado' } : a)));
+    // O "proximo horario" salvo da Inicio pode ser este: ela busca de novo no banco
+    if (ok && user) invalidarCache(user.id, ['cliente:inicio']);
+    fetchAgendamentos();
+    return ok ? 'ok' : 'inalterado';
   }
 
   function pedirCancelamento(item: Agendamento) {
@@ -169,6 +217,7 @@ export default function AgendamentosScreen() {
       </View>
 
       {erro && <ErroFetch message={erro} onRetry={() => { setErro(null); fetchAgendamentos(); }} />}
+      <AvisoDadosSalvos salvoEm={cache.salvoEm} falha={cache.falha} onTentar={fetchAgendamentos} />
 
       {aviso && (
         <View style={[s.aviso, { borderColor: aviso.tipo === 'sucesso' ? C.success : C.destructive }]} accessibilityLiveRegion="polite">

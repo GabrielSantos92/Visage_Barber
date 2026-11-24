@@ -290,8 +290,9 @@ export default function PagamentoScreen() {
         <Text style={[s.aviso, { borderColor: C.destructive, color: C.destructive }]} accessibilityRole="alert">{erro}</Text>
       )}
 
+      {/* pop: volta as abas que ja estao na pilha, em vez de empilhar outra copia */}
       {(pago(pagamento) || pagamento?.metodo === 'presencial') && !trocando && (
-        <TouchableOpacity style={s.btnSecundario} onPress={() => navigation.navigate('ClienteTabs', { screen: 'MeusAgendamentos' } as never)}>
+        <TouchableOpacity style={s.btnSecundario} onPress={() => navigation.navigate('ClienteTabs', { screen: 'MeusAgendamentos' } as never, { pop: true })}>
           <Text style={s.btnSecundarioText}>VER MEUS AGENDAMENTOS</Text>
         </TouchableOpacity>
       )}

@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { View, Text, StyleSheet, FlatList, TouchableOpacity, ActivityIndicator, RefreshControl } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { CompositeNavigationProp, useFocusEffect, useNavigation } from '@react-navigation/native';
@@ -17,6 +17,13 @@ import {
 } from '../../lib/painelBarbeiro';
 import DesempenhoFinanceiro from './painel/DesempenhoFinanceiro';
 import SinoNotificacoes from '../../components/SinoNotificacoes';
+import { WHATSAPP_NAS_AGENDAS } from '../../lib/privacidade';
+import { esquecerBarbeiro, idDoBarbeiro } from '../../lib/barbeiroAtual';
+import AvisoDadosSalvos from '../../components/AvisoDadosSalvos';
+import { useCacheDaTela } from '../../hooks/useCacheDaTela';
+import { VALIDADE, invalidarCache } from '../../lib/cacheLocal';
+import { dataIso } from '../../lib/financeiro';
+import { mensagemDeErro } from '../../lib/conexao';
 
 type Nav = CompositeNavigationProp<
   BottomTabNavigationProp<BarbeiroTabParamList, 'BarbeiroHome'>,
@@ -36,6 +43,9 @@ export default function BarbeiroHomeScreen() {
   const userId = user?.id;
   const navigation = useNavigation<Nav>();
   const [agenda, setAgenda]         = useState<AgendaDoBarbeiro | null>(null);
+  // Id do barbeiro: com ele a tela ja aparece (financeiro e sino carregam junto
+  // com a agenda, em vez de esperar por ela)
+  const [barbeiroId, setBarbeiroId] = useState<string | null>(null);
   const [loading, setLoading]       = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [erro, setErro]             = useState<string | null>(null);
@@ -43,16 +53,38 @@ export default function BarbeiroHomeScreen() {
   // Muda para o bloco financeiro recarregar
   const [versao, setVersao]         = useState(0);
 
+  // Atendimentos de hoje salvos da ultima carga (desta conta, chave com a data:
+  // os de ontem nunca aparecem como de hoje). O banco atualiza em seguida.
+  const cache = useCacheDaTela<AgendaDoBarbeiro>(userId ? `barbeiro:hoje:${dataIso(new Date())}` : null, VALIDADE.agenda);
+  useEffect(() => {
+    cache.restaurar((d) => setAgenda(d));
+  }, [cache.restaurar]);
+
   const carregar = useCallback(async () => {
     if (!userId) return;
     try {
-      // So os atendimentos de hoje: o resto fica na Agenda
-      const dados = await buscarAgendaDoBarbeiro(userId, new Date());
-      setAgenda(dados);
-      setErro(null);
-      if (dados.barbeiroId) buscarNaoLidas(dados.barbeiroId, userId).then(setNaoLidas).catch(() => {});
+      // Guardado durante a sessao (lib/barbeiroAtual): so a primeira carga pergunta ao banco
+      const id = await idDoBarbeiro(userId);
+      setBarbeiroId(id);
+      if (!id) {
+        setAgenda({ barbeiroId: null, agendamentos: [] });
+        setErro(null);
+      } else {
+        setLoading(false);
+        // Selos de mensagens nao lidas: so dependem do barbeiro, em paralelo com a agenda
+        buscarNaoLidas(id, userId).then(setNaoLidas).catch(() => {});
+        // So os atendimentos de hoje: o resto fica na Agenda
+        // A conclusao dos horarios passados fica com o pg_cron (a cada 5 minutos)
+        const dados = await buscarAgendaDoBarbeiro(userId, new Date(), {
+          concluirPassados: false, situacoesWhatsapp: WHATSAPP_NAS_AGENDAS, barbeiroId: id,
+        });
+        setAgenda(dados);
+        setErro(null);
+        cache.salvar(dados);
+      }
     } catch (e: any) {
-      setErro(e?.message ?? TEXTOS_PAINEL.erroAgenda);
+      // Com os atendimentos salvos na tela, o aviso de dados salvos cuida da falha
+      if (!cache.falhou(e)) setErro(mensagemDeErro(e, TEXTOS_PAINEL.erroAgenda));
     }
     setLoading(false);
     setRefreshing(false);
@@ -67,14 +99,20 @@ export default function BarbeiroHomeScreen() {
   useFocusEffect(recarregarTudo);
 
   const { pedirCancelamento, abrirChat, modal, aviso } = useAcoesAtendimento({
-    barbeiroId: agenda?.barbeiroId ?? null,
+    barbeiroId,
     // Cancelar ou registrar falta muda o resumo e, se o atendimento ja estava
-    // concluido e pago, tambem o financeiro (estorno): recarrega os dois
-    onAlterado: () => recarregarTudo(),
+    // concluido e pago, tambem o financeiro (estorno): recarrega os dois. A
+    // agenda e o financeiro salvos no aparelho ficaram antigos: saem tambem.
+    onAlterado: () => {
+      if (userId) invalidarCache(userId, ['barbeiro:agenda', 'barbeiro:financeiro']);
+      recarregarTudo();
+    },
   });
 
   const hoje = agenda?.agendamentos ?? [];
   const situacao = situacaoDe(hoje);
+  // Primeira carga: a tela ja aparece e a lista de hoje mostra o carregamento
+  const carregandoHoje = agenda === null && !erro;
 
   if (loading) return <ActivityIndicator style={{ flex: 1, backgroundColor: C.bg }} color={C.accent} />;
 
@@ -93,7 +131,7 @@ export default function BarbeiroHomeScreen() {
     </View>
   );
 
-  if (!agenda?.barbeiroId) return (
+  if (!barbeiroId) return (
     <View style={s.screen}>
       {cabecalhoDaPagina}
       {erro ? (
@@ -114,6 +152,7 @@ export default function BarbeiroHomeScreen() {
     <View>
       {aviso}
       {erro && <ErroFetch message={erro} onRetry={() => { setErro(null); carregar(); }} />}
+      <AvisoDadosSalvos salvoEm={cache.salvoEm} falha={cache.falha} onTentar={recarregarTudo} />
 
       <View style={s.secaoTopo}>
         <View style={{ flex: 1 }}>
@@ -131,7 +170,7 @@ export default function BarbeiroHomeScreen() {
         {ITENS_SITUACAO.map(({ chave, rotulo, status }) => (
           <View key={chave} style={s.situacaoItem} accessible accessibilityLabel={`${rotulo}: ${situacao[chave]}`}>
             <Text style={[s.situacaoRotulo, { color: cor[status] }]}>{rotulo.toUpperCase()}</Text>
-            <Text style={s.situacaoValor}>{situacao[chave]}</Text>
+            <Text style={s.situacaoValor}>{agenda === null ? '–' : situacao[chave]}</Text>
           </View>
         ))}
       </View>
@@ -147,7 +186,7 @@ export default function BarbeiroHomeScreen() {
       <FlatList
         data={hoje}
         keyExtractor={(item) => item.id}
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); recarregarTudo(); }} tintColor={C.accent} />}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); esquecerBarbeiro(userId); recarregarTudo(); }} tintColor={C.accent} />}
         contentContainerStyle={{ paddingBottom: 40 }}
         keyboardShouldPersistTaps="handled"
         ListHeaderComponent={resumoDoDia}
@@ -163,7 +202,10 @@ export default function BarbeiroHomeScreen() {
           />
         )}
         ItemSeparatorComponent={() => <View style={{ height: 1, backgroundColor: C.border }} />}
-        ListEmptyComponent={<Text style={s.vazio}>{TEXTOS_PAINEL.hojeVazio}</Text>}
+        ListEmptyComponent={carregandoHoje
+          ? <ActivityIndicator color={C.accent} style={{ marginTop: 24, marginBottom: 8 }} />
+          // Falha na primeira carga: o erro (com "tentar de novo") ja aparece no topo
+          : agenda === null ? null : <Text style={s.vazio}>{TEXTOS_PAINEL.hojeVazio}</Text>}
         ListFooterComponent={<DesempenhoFinanceiro C={C} versao={versao} />}
       />
 

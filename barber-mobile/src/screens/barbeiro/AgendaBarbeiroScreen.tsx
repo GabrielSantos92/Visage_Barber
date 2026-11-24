@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { View, Text, StyleSheet, FlatList, TouchableOpacity, ActivityIndicator, RefreshControl } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
@@ -8,6 +8,13 @@ import { F, Theme } from '../../lib/theme';
 import ErroFetch from '../../components/ErroFetch';
 import CartaoAtendimento from '../../components/barbeiro/CartaoAtendimento';
 import { useAcoesAtendimento } from '../../components/barbeiro/useAcoesAtendimento';
+import { WHATSAPP_NAS_AGENDAS } from '../../lib/privacidade';
+import { esquecerBarbeiro, idDoBarbeiro } from '../../lib/barbeiroAtual';
+import AvisoDadosSalvos from '../../components/AvisoDadosSalvos';
+import { useCacheDaTela } from '../../hooks/useCacheDaTela';
+import { VALIDADE, invalidarCache } from '../../lib/cacheLocal';
+import { dataIso } from '../../lib/financeiro';
+import { mensagemDeErro } from '../../lib/conexao';
 import {
   AgendamentoPainel, ITENS_SITUACAO, MODOS_AGENDA, ModoAgenda, StatusAgendamento, TEXTOS_AGENDA, TEXTOS_PAINEL, VAZIO_MODO,
   buscarAgendaDoBarbeiro, buscarNaoLidas, inicioDoDia, listaDoModo, rotuloDoDia, situacaoDe, somarDias,
@@ -35,27 +42,61 @@ export default function AgendaBarbeiroScreen() {
   const [naoLidas, setNaoLidas]         = useState<Record<string, number>>({});
   const pedido = useRef(0);
 
+  // Agenda salva da ultima carga (desta conta): por dia, ou a lista completa de
+  // Proximos e Historico. Dia ja visto aparece na hora; o banco atualiza em seguida.
+  const chave = userId ? (modo === 'dia' ? `barbeiro:agenda:dia:${dataIso(dia)}` : 'barbeiro:agenda:todos') : null;
+  const cache = useCacheDaTela<AgendamentoPainel[]>(chave, VALIDADE.agenda);
+  // Chave (dia ou lista completa) dos atendimentos que estao na tela
+  const chaveNaTela = useRef<string | null>(null);
+  useEffect(() => {
+    cache.restaurar((lista) => {
+      chaveNaTela.current = chave;
+      setAgendamentos(lista);
+      setCarregando(false);
+    });
+  }, [cache.restaurar]);
+
   // Por dia: so o dia escolhido; Proximos e Historico: todos os agendamentos.
-  // A busca conclui antes os horarios que ja terminaram.
+  // A conclusao dos horarios que ja terminaram fica com o pg_cron (a cada 5 minutos).
   const carregar = useCallback(async () => {
     if (!userId) return;
     const atual = ++pedido.current;
     try {
-      const dados = await buscarAgendaDoBarbeiro(userId, modo === 'dia' ? dia : undefined);
-      // Resposta de um modo ou dia que ja foi trocado: descarta
+      // Guardado durante a sessao (lib/barbeiroAtual): so a primeira carga pergunta ao banco
+      const id = await idDoBarbeiro(userId);
       if (atual !== pedido.current) return;
-      setSemVinculo(!dados.barbeiroId);
-      setBarbeiroId(dados.barbeiroId);
-      setAgendamentos(dados.agendamentos);
-      setErro(null);
-      if (dados.barbeiroId) buscarNaoLidas(dados.barbeiroId, userId).then(setNaoLidas).catch(() => {});
+      if (!id) {
+        setSemVinculo(true);
+        setBarbeiroId(null);
+        setAgendamentos([]);
+        setErro(null);
+      } else {
+        // Selos de mensagens nao lidas: so dependem do barbeiro, em paralelo com a agenda
+        buscarNaoLidas(id, userId).then(setNaoLidas).catch(() => {});
+        const dados = await buscarAgendaDoBarbeiro(userId, modo === 'dia' ? dia : undefined, {
+          concluirPassados: false, situacoesWhatsapp: WHATSAPP_NAS_AGENDAS, barbeiroId: id,
+        });
+        // Resposta de um modo ou dia que ja foi trocado: descarta
+        if (atual !== pedido.current) return;
+        setSemVinculo(false);
+        setBarbeiroId(id);
+        chaveNaTela.current = chave;
+        setAgendamentos(dados.agendamentos);
+        setErro(null);
+        cache.salvar(dados.agendamentos);
+      }
     } catch (e: any) {
       if (atual !== pedido.current) return;
-      setErro(e?.message ?? TEXTOS_AGENDA.erro);
+      // Com a agenda salva deste dia (ou modo) na tela, o aviso cuida da falha
+      if (!cache.falhou(e)) {
+        // Nunca mostrar os atendimentos de outro dia sob a data escolhida
+        if (chaveNaTela.current !== chave) setAgendamentos([]);
+        setErro(mensagemDeErro(e, TEXTOS_AGENDA.erro));
+      }
     }
     setCarregando(false);
     setRefreshing(false);
-  }, [userId, modo, dia]);
+  }, [userId, modo, dia, chave, cache.salvar, cache.falhou]);
 
   // Ao abrir a aba e a cada troca de modo ou de dia
   useFocusEffect(useCallback(() => { carregar(); }, [carregar]));
@@ -65,6 +106,8 @@ export default function AgendaBarbeiroScreen() {
     // Mostra o status gravado (ou o real, se ja tinha sido cancelado em outro aparelho)
     onAlterado: (id, status) => {
       if (status) setAgendamentos((prev) => prev.map((a) => (a.id === id ? { ...a, status } : a)));
+      // Agenda, resumo de hoje e financeiro salvos ficaram antigos: buscam de novo no banco
+      if (userId) invalidarCache(userId, ['barbeiro:agenda', 'barbeiro:hoje', 'barbeiro:financeiro']);
     },
   });
 
@@ -80,6 +123,7 @@ export default function AgendaBarbeiroScreen() {
     <View>
       {aviso}
       {erro && <ErroFetch message={erro} onRetry={() => { setErro(null); carregar(); }} />}
+      <AvisoDadosSalvos salvoEm={cache.salvoEm} falha={cache.falha} onTentar={carregar} />
 
       <View style={s.modos} accessibilityRole="tablist">
         {MODOS_AGENDA.map((m) => (
@@ -137,7 +181,7 @@ export default function AgendaBarbeiroScreen() {
       <FlatList
         data={carregando || semVinculo ? [] : lista}
         keyExtractor={(item) => item.id}
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); carregar(); }} tintColor={C.accent} />}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); esquecerBarbeiro(userId); carregar(); }} tintColor={C.accent} />}
         contentContainerStyle={{ paddingBottom: 40 }}
         ListHeaderComponent={topo}
         renderItem={({ item }) => (

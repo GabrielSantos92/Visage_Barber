@@ -15,6 +15,10 @@ import { buscarHorariosDisponiveis, RestricaoDiaria, verificarRegraDiaria } from
 import { interpretarErroAgendamento } from '../../lib/horarios';
 import { servicoAgendavel } from '../../lib/etapas';
 import { buscarNotasBarbeiros, formatarNota, NotaBarbeiro } from '../../lib/notasBarbeiros';
+import AvisoDadosSalvos from '../../components/AvisoDadosSalvos';
+import { FalhaAtualizacao, useCacheDaTela } from '../../hooks/useCacheDaTela';
+import { VALIDADE, gravarCache, invalidarCache, lerCache } from '../../lib/cacheLocal';
+import { MENSAGEM_SEM_CONEXAO, ehFalhaDeConexao, mensagemDeErro } from '../../lib/conexao';
 
 type Barbeiro = Tables<'barbeiros'>;
 type Servico  = Tables<'servicos'>;
@@ -46,6 +50,20 @@ export default function BookingScreen() {
   const [verificandoData, setVerificandoData] = useState(false);
   const verificacaoRef = useRef(0);
   const scrollRef = useRef<ScrollView>(null);
+  // Servicos do barbeiro escolhido e horarios livres: com estado de carga e de
+  // erro proprios (antes, sem internet, apareciam como "nenhum disponivel")
+  const [carregandoServicos, setCarregandoServicos] = useState(false);
+  const [erroServicos, setErroServicos]     = useState<string | null>(null);
+  const [avisoServicos, setAvisoServicos]   = useState<{ salvoEm: number | null; falha: FalhaAtualizacao }>({ salvoEm: null, falha: null });
+  const pedidoServicos = useRef(0);
+  const [erroHorarios, setErroHorarios]     = useState<string | null>(null);
+
+  // Barbeiros salvos da ultima carga (catalogo, desta conta): a lista aparece na
+  // hora e o banco atualiza em seguida. Horarios livres nunca vem do aparelho.
+  const cacheBarbeiros = useCacheDaTela<Barbeiro[]>(user ? 'agendar:barbeiros' : null, VALIDADE.catalogo);
+  useEffect(() => {
+    cacheBarbeiros.restaurar((lista) => { setBarbeiros(lista); setLoadingBarbeiros(false); });
+  }, [cacheBarbeiros.restaurar]);
 
   useEffect(() => { fetchBarbeiros(); }, []);
 
@@ -69,15 +87,17 @@ export default function BookingScreen() {
     }
   }, [route.params?.initialBarbeiroId, barbeiros]);
 
+  // O carregamento inicial ja comeca ligado; com barbeiros salvos na tela, a
+  // atualizacao acontece sem esconder a lista
   async function fetchBarbeiros() {
-    setLoadingBarbeiros(true);
     try {
       const { data, error } = await supabase.from('barbeiros').select('*').eq('ativo', true);
       if (error) throw error;
       setBarbeiros(data ?? []);
       setErroBarbeiros(null);
+      cacheBarbeiros.salvar(data ?? []);
     } catch (e: any) {
-      setErroBarbeiros(e.message ?? 'Erro ao carregar barbeiros.');
+      if (!cacheBarbeiros.falhou(e)) setErroBarbeiros(mensagemDeErro(e, 'Erro ao carregar barbeiros.'));
     }
     setLoadingBarbeiros(false);
   }
@@ -85,10 +105,36 @@ export default function BookingScreen() {
   useEffect(() => {
     if (!selectedBarbeiro) return;
     setSelectedServico(null); setSelectedData(null); setSelectedHorario(null);
-    supabase.from('barbeiro_servicos').select('servico_id, servicos(*)').eq('barbeiro_id', selectedBarbeiro.id)
-      // Servico com pausa ainda sem os tempos configurados nao e oferecido
-      .then(({ data }) => setServicos((data ?? []).map((bs: any) => bs.servicos).filter((sv: Servico | null) => sv && servicoAgendavel(sv))));
+    carregarServicos(selectedBarbeiro.id);
   }, [selectedBarbeiro]);
+
+  // Servicos do barbeiro: os salvos aparecem na hora; o banco atualiza em seguida
+  async function carregarServicos(barbeiroId: string) {
+    const pedido = ++pedidoServicos.current;
+    const chave = `agendar:servicos:${barbeiroId}`;
+    setErroServicos(null);
+    setAvisoServicos({ salvoEm: null, falha: null });
+    setServicos([]);
+    setCarregandoServicos(true);
+    const salvo = user ? await lerCache<Servico[]>(user.id, chave, VALIDADE.catalogo) : null;
+    if (pedido !== pedidoServicos.current) return;
+    if (salvo) {
+      setServicos(salvo.dados);
+      setCarregandoServicos(false);
+    }
+    const { data, error } = await supabase.from('barbeiro_servicos').select('servico_id, servicos(*)').eq('barbeiro_id', barbeiroId);
+    if (pedido !== pedidoServicos.current) return;
+    setCarregandoServicos(false);
+    if (error) {
+      if (salvo) setAvisoServicos({ salvoEm: salvo.salvoEm, falha: ehFalhaDeConexao(error) ? 'conexao' : 'outra' });
+      else setErroServicos(mensagemDeErro(error, 'Não foi possível carregar os serviços.'));
+      return;
+    }
+    // Servico com pausa ainda sem os tempos configurados nao e oferecido
+    const lista = (data ?? []).map((bs: any) => bs.servicos).filter((sv: Servico | null) => sv && servicoAgendavel(sv));
+    setServicos(lista);
+    if (user) gravarCache(user.id, chave, lista);
+  }
 
   useEffect(() => {
     if (!selectedBarbeiro || !selectedServico || !selectedData) return;
@@ -99,10 +145,14 @@ export default function BookingScreen() {
   // presente (pausas de coloracao ficam livres) e os outros agendamentos do cliente
   async function fetchHorarios(barbeiroId: string, servico: Servico, data: Date) {
     setLoading(true);
+    setErroHorarios(null);
     try {
       setHorarios(await buscarHorariosDisponiveis(barbeiroId, servico, data));
-    } catch {
+    } catch (e) {
       setHorarios([]);
+      // Sem resposta do banco nao da para saber os horarios livres: diz isso,
+      // em vez de "sem horarios disponiveis"
+      setErroHorarios(mensagemDeErro(e, 'Não foi possível consultar os horários deste dia.'));
     }
     setLoading(false);
   }
@@ -133,6 +183,12 @@ export default function BookingScreen() {
       status: 'confirmado',
     }).select('id').single();
     setSubmitting(false);
+    // Sem conexao o agendamento nao e dado como feito. Se a conexao caiu durante
+    // o envio, o banco pode ter registrado: o cliente confere antes de repetir.
+    if (error && ehFalhaDeConexao(error)) {
+      Alert.alert('Sem conexão', `${MENSAGEM_SEM_CONEXAO} Se a conexão caiu durante o envio, confira em Meus Agendamentos antes de tentar de novo.`);
+      return;
+    }
     // O banco recusa horarios sobrepostos (do barbeiro ou do proprio cliente)
     if (error) {
       const { mensagem, horarioIndisponivel } = interpretarErroAgendamento(error);
@@ -154,6 +210,9 @@ export default function BookingScreen() {
 
     // O aviso ao barbeiro sai pelo banco (gatilho notificar_novo_agendamento)
 
+    // Inicio e Meus Agendamentos salvos ficaram antigos: buscam de novo no banco
+    invalidarCache(user.id, ['cliente:inicio', 'cliente:agendamentos']);
+
     // Agendado: segue para escolher como pagar (PIX, cartao ou na barbearia)
     Alert.alert('Agendado!', 'Seu horário foi reservado. Agora escolha como pagar.', [{
       text: 'ESCOLHER PAGAMENTO',
@@ -166,7 +225,7 @@ export default function BookingScreen() {
 
   function reset() {
     setStep(0); setSelectedBarbeiro(null); setSelectedServico(null);
-    setSelectedData(null); setSelectedHorario(null); setHorarios([]);
+    setSelectedData(null); setSelectedHorario(null); setHorarios([]); setErroHorarios(null);
     setRestricao(null); setVerificandoData(false);
     // Descarta a checagem de data ainda em andamento: ela nao pode avancar a etapa depois
     verificacaoRef.current++;
@@ -207,7 +266,8 @@ export default function BookingScreen() {
 
         {step === 0 && (
           <>
-            {erroBarbeiros && <ErroFetch message={erroBarbeiros} onRetry={() => { setErroBarbeiros(null); fetchBarbeiros(); }} />}
+            {erroBarbeiros && <ErroFetch message={erroBarbeiros} onRetry={() => { setErroBarbeiros(null); setLoadingBarbeiros(true); fetchBarbeiros(); }} />}
+            <AvisoDadosSalvos salvoEm={cacheBarbeiros.salvoEm} falha={cacheBarbeiros.falha} onTentar={fetchBarbeiros} />
             {loadingBarbeiros && <ActivityIndicator color={C.accent} style={{ marginTop: 24 }} />}
             {!loadingBarbeiros && !erroBarbeiros && barbeiros.length === 0 && (
               <View style={{ alignItems: 'center', marginTop: 40 }}>
@@ -249,7 +309,14 @@ export default function BookingScreen() {
 
         {step === 1 && (
           <>
-            {servicos.length === 0 && <Text style={s.empty}>Nenhum serviço disponível.</Text>}
+            {carregandoServicos && <ActivityIndicator color={C.accent} style={{ marginTop: 8 }} />}
+            {!!erroServicos && selectedBarbeiro && (
+              <ErroFetch message={erroServicos} onRetry={() => carregarServicos(selectedBarbeiro.id)} />
+            )}
+            {selectedBarbeiro && (
+              <AvisoDadosSalvos salvoEm={avisoServicos.salvoEm} falha={avisoServicos.falha} onTentar={() => carregarServicos(selectedBarbeiro.id)} />
+            )}
+            {!carregandoServicos && !erroServicos && servicos.length === 0 && <Text style={s.empty}>Nenhum serviço disponível.</Text>}
             {servicos.map((sv, i) => (
               <TouchableOpacity key={sv.id} style={[s.option, i < servicos.length - 1 && s.optionBorder]}
                 onPress={() => { setSelectedServico(sv); setRestricao(null); setStep(2); }}>
@@ -297,7 +364,10 @@ export default function BookingScreen() {
           <>
             {loading ? <ActivityIndicator color={C.accent} /> : (
               <>
-                {horarios.length === 0 && <Text style={s.empty}>Sem horários disponíveis neste dia.</Text>}
+                {!!erroHorarios && selectedBarbeiro && selectedServico && selectedData && (
+                  <ErroFetch message={erroHorarios} onRetry={() => fetchHorarios(selectedBarbeiro.id, selectedServico, selectedData)} />
+                )}
+                {!erroHorarios && horarios.length === 0 && <Text style={s.empty}>Sem horários disponíveis neste dia.</Text>}
                 <View style={s.horariosGrid}>
                   {horarios.map((h) => {
                     const ativo = selectedHorario === h;

@@ -60,25 +60,44 @@ const banco = () => supabase as unknown as Banco;
 
 export interface AgendaDoBarbeiro { barbeiroId: string | null; agendamentos: AgendamentoPainel[] }
 
-// Conclui os horarios que ja terminaram e traz os agendamentos do barbeiro
-// logado, com nome e telefone de cada cliente: todos, ou so os de `dia`
-// (Painel: hoje; Agenda: o dia escolhido na navegacao por datas)
-export async function buscarAgendaDoBarbeiro(userId: string, dia?: Date): Promise<AgendaDoBarbeiro> {
-  await banco().rpc('concluir_agendamentos_passados');
-  const { data: barbeiro, error: erroBarbeiro } = await banco().from<{ id: string }>('barbeiros')
-    .select('id').eq('user_id', userId).maybeSingle();
-  if (erroBarbeiro) throw new Error(erroBarbeiro.message);
-  // Conta ainda nao vinculada a um barbeiro
-  if (!barbeiro) return { barbeiroId: null, agendamentos: [] };
+// concluirPassados: conclui antes os horarios que ja terminaram (o pg_cron ja
+// faz isso a cada 5 minutos; o app deixa so com ele e economiza uma ida ao
+// banco). situacoesWhatsapp: busca a situacao do WhatsApp de cada atendimento
+// (o app pula enquanto o WhatsApp esta oculto). Sem opcoes, as duas acontecem.
+// barbeiroId: id do barbeiro ja conhecido (o app guarda durante a sessao e
+// economiza a consulta a barbeiros); sem ele, busca pelo usuario.
+export interface OpcoesAgenda { concluirPassados?: boolean; situacoesWhatsapp?: boolean; barbeiroId?: string }
+
+// Traz os agendamentos do barbeiro logado, com nome e telefone de cada
+// cliente: todos, ou so os de `dia` (Painel: hoje; Agenda: o dia escolhido na
+// navegacao por datas)
+export async function buscarAgendaDoBarbeiro(userId: string, dia?: Date, opcoes: OpcoesAgenda = {}): Promise<AgendaDoBarbeiro> {
+  const { concluirPassados = true, situacoesWhatsapp = true } = opcoes;
+  if (concluirPassados) await banco().rpc('concluir_agendamentos_passados');
+  let barbeiroId = opcoes.barbeiroId;
+  if (!barbeiroId) {
+    const { data: barbeiro, error: erroBarbeiro } = await banco().from<{ id: string }>('barbeiros')
+      .select('id').eq('user_id', userId).maybeSingle();
+    if (erroBarbeiro) throw new Error(erroBarbeiro.message);
+    // Conta ainda nao vinculada a um barbeiro
+    if (!barbeiro) return { barbeiroId: null, agendamentos: [] };
+    barbeiroId = barbeiro.id;
+  }
 
   let consulta = banco().from<AgendamentoPainel>('agendamentos')
     // '*' traz o preco congelado quando a coluna existe, sem falhar antes da migration
     .select('*, servicos(nome, preco, duracao_min)')
-    .eq('barbeiro_id', barbeiro.id);
+    .eq('barbeiro_id', barbeiroId);
   if (dia) consulta = consulta.gte('data_hora', inicioDoDia(dia).toISOString()).lte('data_hora', fimDoDia(dia).toISOString());
   const { data, error } = await consulta.order('data_hora', { ascending: true });
   if (error) throw new Error(error.message);
-  return { barbeiroId: barbeiro.id, agendamentos: await comPresenca(await comClientes(data ?? [])) };
+  // Nomes dos clientes e situacao do WhatsApp dependem so da lista: em paralelo
+  const lista = data ?? [];
+  const [comNomes, situacoes] = await Promise.all([
+    comClientes(lista),
+    situacoesWhatsapp ? buscarSituacoesWhatsapp(idsComSituacao(lista)) : Promise.resolve({} as Record<string, SituacaoPresenca>),
+  ]);
+  return { barbeiroId, agendamentos: comPresenca(comNomes, situacoes) };
 }
 
 // cliente_id aponta para auth.users; em profiles a coluna equivalente e user_id
@@ -96,8 +115,7 @@ async function comClientes(lista: AgendamentoPainel[]): Promise<AgendamentoPaine
 // Situacao do WhatsApp dos atendimentos confirmados e cancelados (o cancelado
 // pode ter sido pelo WhatsApp). Opcional: se a funcao nao existir no banco ou
 // falhar, a agenda segue igual.
-async function comPresenca(lista: AgendamentoPainel[]): Promise<AgendamentoPainel[]> {
-  const mapa = await buscarSituacoesWhatsapp(idsComSituacao(lista));
+function comPresenca(lista: AgendamentoPainel[], mapa: Record<string, SituacaoPresenca>): AgendamentoPainel[] {
   return lista.map((a) => (mapa[a.id] ? { ...a, presenca: mapa[a.id] } : a));
 }
 

@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { View, Text, StyleSheet, TextInput, TouchableOpacity, Alert, ActivityIndicator, ScrollView } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { useAuth } from '../../contexts/AuthContext';
@@ -13,6 +13,14 @@ import { WHATSAPP_NO_PERFIL } from '../../lib/privacidade';
 import { useNavigation } from '@react-navigation/native';
 import { StackNavigationProp } from '@react-navigation/stack';
 import { ClienteStackParamList } from '../../navigation/ClienteNavigator';
+import ErroFetch from '../../components/ErroFetch';
+import AvisoDadosSalvos from '../../components/AvisoDadosSalvos';
+import { useCacheDaTela } from '../../hooks/useCacheDaTela';
+import { VALIDADE, invalidarCache } from '../../lib/cacheLocal';
+import { MENSAGEM_SEM_CONEXAO, mensagemDeErro } from '../../lib/conexao';
+
+// O que a tela guarda no aparelho (lib/cacheLocal)
+interface PerfilSalvo { nome: string; telefone: string | null; formato: string | null }
 
 export default function PerfilScreen() {
   const { C } = useTheme();
@@ -27,21 +35,54 @@ export default function PerfilScreen() {
   const [formatoRosto, setFormatoRosto] = useState('');
   const [loading, setLoading]   = useState(true);
   const [saving, setSaving]     = useState(false);
+  // Salvar so depois de o perfil vir do banco: com o perfil salvo no aparelho
+  // (ou sem carregar), salvar poderia gravar dados antigos ou vazios por cima
+  // dos atuais (ex.: o formato do rosto atualizado pelo visagismo)
+  const [doBanco, setDoBanco]   = useState(false);
+  const [erroCarga, setErroCarga] = useState<string | null>(null);
+  // O cliente ja mexeu no formulario: a resposta do banco nao apaga o que ele digitou
+  const editou = useRef(false);
+
+  const cache = useCacheDaTela<PerfilSalvo>(user ? 'cliente:perfil' : null, VALIDADE.catalogo);
+  useEffect(() => {
+    cache.restaurar((d) => { aplicar(d); setLoading(false); });
+  }, [cache.restaurar]);
 
   useEffect(() => { fetchPerfil(); }, []);
 
+  function aplicar(d: PerfilSalvo) {
+    if (!editou.current) {
+      setNome(d.nome);
+      setTelefone(telefoneParaCampo(d.telefone));
+    }
+    setTelefoneSalvo(d.telefone);
+    setFormatoRosto(d.formato ?? '');
+  }
+
   async function fetchPerfil() {
     if (!user) return;
-    const { data } = await supabase.from('profiles').select('*').eq('user_id', user.id).single();
-    setNome(data?.nome ?? '');
-    setTelefone(telefoneParaCampo(data?.telefone));
-    setTelefoneSalvo(data?.telefone ?? null);
-    setFormatoRosto(data?.formato_rosto ?? '');
+    setErroCarga(null);
+    const { data, error } = await supabase.from('profiles').select('*').eq('user_id', user.id).single();
+    if (error && error.code !== 'PGRST116') {
+      // Sem resposta: mantem o que estiver na tela e avisa
+      if (!cache.falhou(error)) setErroCarga(mensagemDeErro(error, 'Não foi possível carregar o perfil.'));
+      setLoading(false);
+      return;
+    }
+    const dados: PerfilSalvo = { nome: data?.nome ?? '', telefone: data?.telefone ?? null, formato: data?.formato_rosto ?? null };
+    aplicar(dados);
+    setDoBanco(true);
+    if (data) cache.salvar(dados);
     setLoading(false);
   }
 
   async function salvar() {
     if (!user) return;
+    if (!doBanco) {
+      Alert.alert('Perfil não atualizado', `${MENSAGEM_SEM_CONEXAO} O perfil precisa ser carregado do servidor antes de salvar.`);
+      fetchPerfil();
+      return;
+    }
     const erroTelefone = validarTelefone(telefone);
     if (erroTelefone) { Alert.alert('Telefone inválido', `${erroTelefone}.`); return; }
     setSaving(true);
@@ -49,9 +90,13 @@ export default function PerfilScreen() {
       .update({ nome, telefone: telefoneParaSalvar(telefone), formato_rosto: formatoRosto || null })
       .eq('user_id', user.id);
     setSaving(false);
-    if (error) Alert.alert('Erro', error.message);
+    if (error) Alert.alert('Erro', mensagemDeErro(error, 'Não foi possível salvar o perfil.'));
     else {
       setTelefoneSalvo(telefoneParaSalvar(telefone) || null);
+      editou.current = false;
+      // Confirmado pelo banco: atualiza o salvo do perfil e a Inicio (nome) busca de novo
+      cache.salvar({ nome, telefone: telefoneParaSalvar(telefone) || null, formato: formatoRosto || null });
+      invalidarCache(user.id, ['cliente:inicio']);
       Alert.alert('Salvo!', 'Perfil atualizado.');
     }
   }
@@ -65,6 +110,9 @@ export default function PerfilScreen() {
         <Text style={s.pageTitle}>Meu Perfil</Text>
       </View>
 
+      {!!erroCarga && <ErroFetch message={erroCarga} onRetry={fetchPerfil} />}
+      <AvisoDadosSalvos salvoEm={cache.salvoEm} falha={cache.falha} onTentar={fetchPerfil} />
+
       <View style={s.section}>
         <Text style={s.sectionLabel}>INFORMAÇÕES PESSOAIS</Text>
         <View style={s.sectionLine} />
@@ -74,13 +122,13 @@ export default function PerfilScreen() {
         <Label C={C}>NOME</Label>
         <View style={s.inputRow}>
           <Feather name="user" size={14} color={C.mutedFg} style={s.icon} />
-          <TextInput style={s.input} value={nome} onChangeText={setNome} placeholder="Seu nome" placeholderTextColor={C.mutedFg} />
+          <TextInput style={s.input} value={nome} onChangeText={(v) => { editou.current = true; setNome(v); }} placeholder="Seu nome" placeholderTextColor={C.mutedFg} />
         </View>
 
         <Label C={C}>TELEFONE</Label>
         <View style={s.inputRow}>
           <Feather name="phone" size={14} color={C.mutedFg} style={s.icon} />
-          <TelefoneInput style={s.input} value={telefone} onChangeText={setTelefone} placeholder="(11) 99999-9999" placeholderTextColor={C.mutedFg} />
+          <TelefoneInput style={s.input} value={telefone} onChangeText={(v) => { editou.current = true; setTelefone(v); }} placeholder="(11) 99999-9999" placeholderTextColor={C.mutedFg} />
         </View>
 
         <Label C={C}>EMAIL</Label>

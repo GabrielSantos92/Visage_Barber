@@ -1,4 +1,9 @@
 import React, { useEffect, useState } from 'react';
+import { useAuth } from '../../contexts/AuthContext';
+import AvisoDadosSalvos from '../../components/AvisoDadosSalvos';
+import { useCacheDaTela } from '../../hooks/useCacheDaTela';
+import { VALIDADE } from '../../lib/cacheLocal';
+import { mensagemDeErro } from '../../lib/conexao';
 import {
   View, Text, StyleSheet, FlatList, ActivityIndicator,
   TouchableOpacity, Alert, TextInput, Modal, ScrollView, Image,
@@ -77,16 +82,26 @@ export default function BarbeariasScreen() {
   const [loadingAgenda, setLoadingAgenda]     = useState(false);
   const [savingAgenda, setSavingAgenda]       = useState(false);
 
+  // Barbeiros salvos da ultima carga (desta conta): aparecem na hora; o banco
+  // atualiza em seguida. Criar, editar, inativar e excluir dependem do servidor.
+  const { user } = useAuth();
+  const cache = useCacheDaTela<Barbeiro[]>(user ? 'admin:barbeiros' : null, VALIDADE.catalogo);
+  useEffect(() => {
+    cache.restaurar((lista) => { setBarbeiros(lista); setLoading(false); });
+  }, [cache.restaurar]);
+
   useEffect(() => { fetchBarbeiros(); }, []);
 
   async function fetchBarbeiros() {
     try {
       const { data, error } = await supabase.from('barbeiros').select('*').order('nome');
       if (error) throw error;
-setBarbeiros(data ?? []);
+      setBarbeiros(data ?? []);
       setErro(null);
+      cache.salvar(data ?? []);
     } catch (e: any) {
-      setErro(e.message ?? 'Erro ao carregar barbeiros.');
+      // Com a lista salva na tela, o aviso de dados salvos cuida da falha
+      if (!cache.falhou(e)) setErro(mensagemDeErro(e, 'Erro ao carregar barbeiros.'));
     }
     setLoading(false);
   }
@@ -133,7 +148,7 @@ setBarbeiros(data ?? []);
         .update({ nome: nome.trim(), especialidade: especialidade.trim() || null })
         .eq('id', editando.id);
       setSaving(false);
-      if (error) { Alert.alert('Erro', error.message); return; }
+      if (error) { Alert.alert('Erro', mensagemDeErro(error, 'Não foi possível salvar o barbeiro.')); return; }
     }
 
     setSaving(false);
@@ -179,7 +194,7 @@ setBarbeiros(data ?? []);
     setExcluindoId(b.id);
     const { data, error } = await supabase.from('agendamentos').select('id').eq('barbeiro_id', b.id).limit(1);
     setExcluindoId(null);
-    if (error) { Alert.alert('Erro', error.message); return; }
+    if (error) { Alert.alert('Erro', mensagemDeErro(error, 'Não foi possível verificar os agendamentos do barbeiro.')); return; }
     if (data && data.length > 0) { Alert.alert('Exclusão não permitida', MSG_TEM_AGENDAMENTOS); return; }
 
     Alert.alert(
@@ -313,7 +328,7 @@ setBarbeiros(data ?? []);
 
     if (inserts.length > 0) {
       const { error } = await supabase.from('horarios_disponiveis').insert(inserts);
-      if (error) { setSavingAgenda(false); Alert.alert('Erro', error.message); return; }
+      if (error) { setSavingAgenda(false); Alert.alert('Erro', mensagemDeErro(error, 'Não foi possível salvar a agenda.')); return; }
     }
 
     setSavingAgenda(false);
@@ -336,6 +351,7 @@ setBarbeiros(data ?? []);
       </View>
 
       {erro && <ErroFetch message={erro} onRetry={() => { setErro(null); fetchBarbeiros(); }} />}
+      <AvisoDadosSalvos salvoEm={cache.salvoEm} falha={cache.falha} onTentar={fetchBarbeiros} />
 
       <FlatList
         data={barbeiros}

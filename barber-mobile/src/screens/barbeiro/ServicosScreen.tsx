@@ -1,15 +1,20 @@
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import {
   View, Text, StyleSheet, FlatList, ActivityIndicator, RefreshControl, TouchableOpacity, Modal, TextInput, Switch, Alert, ScrollView,
 } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
+import { idDoBarbeiro } from '../../lib/barbeiroAtual';
 import { useAuth } from '../../contexts/AuthContext';
 import { supabase } from '../../lib/supabase';
 import { useTheme } from '../../contexts/ThemeContext';
 import { F, Theme } from '../../lib/theme';
 import ErroFetch from '../../components/ErroFetch';
 import { duracaoTotal, pausaAproveitavel, validarEtapas } from '../../lib/etapas';
+import AvisoDadosSalvos from '../../components/AvisoDadosSalvos';
+import { useCacheDaTela } from '../../hooks/useCacheDaTela';
+import { VALIDADE } from '../../lib/cacheLocal';
+import { mensagemDeErro } from '../../lib/conexao';
 
 interface Servico {
   id: string;
@@ -39,21 +44,30 @@ export default function ServicosScreen() {
   const [erro, setErro]         = useState<string | null>(null);
   const [configurando, setConfigurando] = useState<Servico | null>(null);
 
+  // Servicos salvos da ultima carga (desta conta): aparecem na hora; o banco
+  // atualiza em seguida. Configurar os tempos continua dependendo do banco.
+  const cache = useCacheDaTela<Servico[]>(user ? 'barbeiro:servicos' : null, VALIDADE.catalogo);
+  useEffect(() => {
+    cache.restaurar((lista) => { setServicos(lista); setLoading(false); });
+  }, [cache.restaurar]);
+
   useFocusEffect(useCallback(() => { fetchServicos(); }, []));
 
   async function fetchServicos() {
     if (!user) return;
     try {
-      const { data: b, error: errB } = await supabase.from('barbeiros').select('id').eq('user_id', user.id).single();
-      if (errB) throw errB;
-      if (!b) { setLoading(false); setRefreshing(false); return; }
-      const { data, error } = await supabase.from('barbeiro_servicos').select('servico_id, servicos(*)').eq('barbeiro_id', b.id);
+      // Guardado durante a sessao (lib/barbeiroAtual): so a primeira carga pergunta ao banco
+      const id = await idDoBarbeiro(user.id);
+      if (!id) { setLoading(false); setRefreshing(false); return; }
+      const { data, error } = await supabase.from('barbeiro_servicos').select('servico_id, servicos(*)').eq('barbeiro_id', id);
       if (error) throw error;
       const srvs = (data ?? []).map((bs: any) => bs.servicos).filter(Boolean);
       setServicos(srvs);
       setErro(null);
+      cache.salvar(srvs);
     } catch (e: any) {
-      setErro(e.message ?? 'Erro ao carregar serviços.');
+      // Com os servicos salvos na tela, o aviso de dados salvos cuida da falha
+      if (!cache.falhou(e)) setErro(mensagemDeErro(e, 'Erro ao carregar serviços.'));
     }
     setLoading(false); setRefreshing(false);
   }
@@ -68,6 +82,7 @@ export default function ServicosScreen() {
       </View>
 
       {erro && <ErroFetch message={erro} onRetry={() => { setErro(null); fetchServicos(); }} />}
+      <AvisoDadosSalvos salvoEm={cache.salvoEm} falha={cache.falha} onTentar={fetchServicos} />
 
       <FlatList
         data={servicos}
@@ -150,7 +165,7 @@ function ConfigurarTempos({ servico, onClose, onSaved, C }: { servico: Servico; 
       p_margem: comPausa ? etapas.margem ?? 0 : 0,
     });
     setSaving(false);
-    if (error) { Alert.alert('Erro', error.message); return; }
+    if (error) { Alert.alert('Erro', mensagemDeErro(error, 'Não foi possível salvar os tempos.')); return; }
     if (futuros && futuros > 0) {
       Alert.alert('Tempos salvos', `${futuros} agendamento(s) futuro(s) deste serviço mantêm os tempos com que foram marcados.`);
     }

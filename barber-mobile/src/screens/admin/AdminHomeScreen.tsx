@@ -1,4 +1,4 @@
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { View, Text, StyleSheet, ScrollView, ActivityIndicator, RefreshControl, TouchableOpacity } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
@@ -6,6 +6,9 @@ import { useAuth } from '../../contexts/AuthContext';
 import { supabase } from '../../lib/supabase';
 import { useTheme } from '../../contexts/ThemeContext';
 import { F, Theme } from '../../lib/theme';
+import AvisoDadosSalvos from '../../components/AvisoDadosSalvos';
+import { useCacheDaTela } from '../../hooks/useCacheDaTela';
+import { VALIDADE } from '../../lib/cacheLocal';
 
 interface Metricas {
   totalAgendamentos: number;
@@ -20,10 +23,17 @@ export default function AdminHomeScreen() {
   const { C } = useTheme();
   const s = React.useMemo(() => makeStyles(C), [C]);
 
-  const { signOut } = useAuth();
+  const { user, signOut } = useAuth();
   const [metricas, setMetricas]     = useState<Metricas | null>(null);
   const [loading, setLoading]       = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+
+  // Metricas salvas da ultima carga (so contagens, desta conta): aparecem na
+  // hora; o banco atualiza em seguida
+  const cache = useCacheDaTela<Metricas>(user ? 'admin:metricas' : null, VALIDADE.agenda);
+  useEffect(() => {
+    cache.restaurar((m) => { setMetricas(m); setLoading(false); });
+  }, [cache.restaurar]);
 
   useFocusEffect(useCallback(() => { fetchMetricas(); }, []));
 
@@ -34,6 +44,10 @@ export default function AdminHomeScreen() {
         supabase.from('barbeiros').select('id, nome').eq('ativo', true),
         supabase.from('profiles').select('id', { count: 'exact', head: true }),
       ]);
+      // Sem resposta do banco: antes as metricas apareciam zeradas; agora
+      // ficam as salvas (com aviso) ou o cartao "sem dados"
+      const falha = agendamentosRes.error ?? barbRes.error ?? clientesRes.error;
+      if (falha) throw falha;
 
       const agendamentos = agendamentosRes.data ?? [];
       const barbeiros = barbRes.data ?? [];
@@ -59,15 +73,20 @@ export default function AdminHomeScreen() {
         ? (barbeiros.find((b) => b.id === maxId)?.nome ?? null)
         : null;
 
-      setMetricas({
+      const novas: Metricas = {
         totalAgendamentos: agendamentos.length,
         agendamentosDoMes,
         porStatus,
         barbeiroMaisRequisitado,
         totalBarbeiros: barbeiros.length,
         totalClientes: clientesRes.count ?? 0,
-      });
-    } catch { /* erro de rede */ }
+      };
+      setMetricas(novas);
+      cache.salvar(novas);
+    } catch (e) {
+      // Com metricas salvas na tela, o aviso de dados salvos mostra a falha
+      cache.falhou(e);
+    }
     setLoading(false); setRefreshing(false);
   }
 
@@ -87,6 +106,8 @@ export default function AdminHomeScreen() {
           <Feather name="log-out" size={18} color={C.mutedFg} />
         </TouchableOpacity>
       </View>
+
+      <AvisoDadosSalvos salvoEm={cache.salvoEm} falha={cache.falha} onTentar={fetchMetricas} />
 
       {!metricas ? (
         <>

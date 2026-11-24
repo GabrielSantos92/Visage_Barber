@@ -8,6 +8,10 @@ import {
   notaSaldo, saldoAReceber,
 } from '../../../lib/painelBarbeiro';
 import GraficoDiasSemana from './GraficoDiasSemana';
+import AvisoDadosSalvos from '../../../components/AvisoDadosSalvos';
+import { useCacheDaTela } from '../../../hooks/useCacheDaTela';
+import { VALIDADE } from '../../../lib/cacheLocal';
+import { mensagemDeErro } from '../../../lib/conexao';
 
 const DATA_RX = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -25,9 +29,21 @@ export default function DesempenhoFinanceiro({ C, versao }: { C: Theme; versao: 
   const [dados, setDados] = useState<PainelFinanceiro | null>(null);
   const [carregando, setCarregando] = useState(true);
   const pedido = useRef(0);
+  // Tentar de novo pelo aviso de dados salvos
+  const [recarga, setRecarga] = useState(0);
 
   const personalizado = DATA_RX.test(inicio) && DATA_RX.test(fim) ? { inicio, fim } : undefined;
   const intervalo = intervaloDoPeriodo(periodo, new Date(), personalizado);
+
+  // Valores salvos da ultima carga do periodo (desta conta; o periodo
+  // personalizado nao e guardado). Sao os mesmos que o banco devolveu, mostrados
+  // com a data em que foram salvos se a atualizacao falhar.
+  const cache = useCacheDaTela<PainelFinanceiro>(
+    periodo === 'personalizado' ? null : `barbeiro:financeiro:${intervalo.inicio}:${intervalo.fim}`, VALIDADE.agenda,
+  );
+  useEffect(() => {
+    cache.restaurar((d) => { setDados(d); setCarregando(false); });
+  }, [cache.restaurar]);
 
   useEffect(() => {
     const atual = ++pedido.current;
@@ -35,10 +51,17 @@ export default function DesempenhoFinanceiro({ C, versao }: { C: Theme; versao: 
     buscarPainelFinanceiro(intervalo.inicio, intervalo.fim).then((d) => {
       // Resposta de um periodo que ja foi trocado: descarta
       if (atual !== pedido.current) return;
-      setDados(d);
       setCarregando(false);
+      if (d.financeiro && d.desempenho) {
+        setDados(d);
+        cache.salvar(d);
+        return;
+      }
+      // Falhou: com os valores salvos do periodo na tela, ficam eles e o aviso
+      if (cache.falhou(new Error(d.erroFinanceiro ?? d.erroDesempenho ?? ''))) return;
+      setDados(d);
     });
-  }, [intervalo.inicio, intervalo.fim, versao]);
+  }, [intervalo.inicio, intervalo.fim, versao, recarga]);
 
   const fin = dados?.financeiro ?? null;
   const pct = cartaoPercentual(dados?.desempenho ?? null);
@@ -69,6 +92,7 @@ export default function DesempenhoFinanceiro({ C, versao }: { C: Theme; versao: 
       )}
       <Text style={[s.legenda, s.margem]}>{dataCurta(intervalo.inicio, true)} a {dataCurta(intervalo.fim, true)}</Text>
       <Text style={[s.nota, s.margem]}>{TEXTOS_PAINEL.periodoNota}</Text>
+      <AvisoDadosSalvos salvoEm={cache.salvoEm} falha={cache.falha} onTentar={() => setRecarga((n) => n + 1)} />
 
       {carregando && !dados ? (
         <ActivityIndicator color={C.primary} style={{ marginTop: 32 }} />
@@ -87,7 +111,7 @@ export default function DesempenhoFinanceiro({ C, versao }: { C: Theme; versao: 
                 </View>
               </>
             ) : (
-              <Text style={s.erroBloco} accessibilityRole="alert">{dados.erroFinanceiro}</Text>
+              <Text style={s.erroBloco} accessibilityRole="alert">{mensagemDeErro({ message: dados.erroFinanceiro }, dados.erroFinanceiro ?? '')}</Text>
             )}
           </View>
 
@@ -98,7 +122,7 @@ export default function DesempenhoFinanceiro({ C, versao }: { C: Theme; versao: 
             {dados.desempenho ? (
               <GraficoDiasSemana dias={dados.desempenho.dias_semana} C={C} />
             ) : (
-              <Text style={s.erroBloco} accessibilityRole="alert">{dados.erroDesempenho}</Text>
+              <Text style={s.erroBloco} accessibilityRole="alert">{mensagemDeErro({ message: dados.erroDesempenho }, dados.erroDesempenho ?? '')}</Text>
             )}
           </View>
 

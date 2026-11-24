@@ -1,4 +1,4 @@
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator, Image, ImageBackground, RefreshControl } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import Svg, { Defs, LinearGradient, Stop, Rect } from 'react-native-svg';
@@ -15,6 +15,10 @@ import { ClienteStackParamList, ClienteTabParamList } from '../../navigation/Cli
 import LogoMark from '../../components/LogoMark';
 import { buscarNotasBarbeiros, formatarNota, NotaBarbeiro } from '../../lib/notasBarbeiros';
 import SinoNotificacoes from '../../components/SinoNotificacoes';
+import AvisoDadosSalvos from '../../components/AvisoDadosSalvos';
+import { useCacheDaTela } from '../../hooks/useCacheDaTela';
+import { VALIDADE } from '../../lib/cacheLocal';
+import { mensagemDeErro } from '../../lib/conexao';
 
 type Nav = CompositeNavigationProp<
   BottomTabNavigationProp<ClienteTabParamList, 'Inicio'>,
@@ -41,6 +45,17 @@ interface UltimoCorte {
   barbeiros: { nome: string } | null;
   servicos: { nome: string } | null;
   nota: number | null; // null = ainda nao avaliado
+}
+
+// O que a tela guarda no aparelho (lib/cacheLocal): o mesmo que ela mostra
+interface InicioSalvo {
+  nome: string;
+  formato: string | null;
+  proximo: Proximo | null;
+  ultimoCorte: UltimoCorte | null;
+  barbeiros: Barbeiro[];
+  notas: Record<string, NotaBarbeiro>;
+  servicos: Servico[];
 }
 
 const HERO = require('../../../assets/home/hero-barbershop.jpg');
@@ -95,15 +110,29 @@ export default function HomeScreen() {
   const [refreshing, setRefreshing]   = useState(false);
   const [erro, setErro]               = useState<string | null>(null);
 
+  // Dados salvos da ultima carga (desta conta): a tela aparece na hora, mesmo
+  // com internet ruim, e o banco atualiza em seguida
+  const cache = useCacheDaTela<InicioSalvo>(user ? 'cliente:inicio' : null, VALIDADE.agenda);
+  useEffect(() => {
+    cache.restaurar((d) => {
+      setNome(d.nome); setFormato(d.formato); setProximo(d.proximo); setUltimoCorte(d.ultimoCorte);
+      setBarbeiros(d.barbeiros); setNotas(d.notas); setServicos(d.servicos);
+      setLoading(false);
+    });
+  }, [cache.restaurar]);
+
   useFocusEffect(useCallback(() => { carregar(); }, [user?.id]));
 
   async function carregar() {
     if (!user) return;
+    // Selo de mensagens nao lidas: independe do resto, comeca junto (antes, so
+    // depois de a tela carregar)
+    carregarNaoLidas();
     try {
-      // Conclui automaticamente os agendamentos cujo horario ja terminou
-      await supabase.rpc('concluir_agendamentos_passados');
-
-      const [perfil, prox, ultimo, barbs, servs, notasBarbs] = await Promise.all([
+      // A conclusao dos horarios que ja terminaram fica com o pg_cron (a cada 5 minutos)
+      // As avaliacoes do cliente vem junto (o RLS so devolve as dele): a nota do
+      // ultimo corte sai daqui, sem uma segunda ida ao banco depois do corte
+      const [perfil, prox, ultimo, barbs, servs, notasBarbs, avals] = await Promise.all([
         supabase.from('profiles').select('nome, formato_rosto').eq('user_id', user.id).single(),
         supabase.from('agendamentos')
           .select('id, data_hora, barbeiro_id, duracao_min, barbeiros(nome), servicos(nome, preco, duracao_min)')
@@ -117,50 +146,59 @@ export default function HomeScreen() {
         supabase.from('barbeiros').select('*').eq('ativo', true).order('nome'),
         supabase.from('servicos').select('*').eq('ativo', true).order('preco').limit(4),
         buscarNotasBarbeiros(),
+        supabase.from('avaliacoes').select('agendamento_id, nota').eq('cliente_id', user.id),
       ]);
 
       const falha = prox.error ?? barbs.error ?? servs.error;
       if (falha) throw falha;
 
-      setNome(perfil.data?.nome ?? '');
-      setFormato(perfil.data?.formato_rosto ?? null);
-      setProximo(((prox.data ?? [])[0] as unknown as Proximo) ?? null);
-      setBarbeiros(barbs.data ?? []);
-      setNotas(notasBarbs);
-      setServicos(servs.data ?? []);
-
       // Considera apenas o corte concluido mais recente: se ja foi avaliado,
       // mostra a nota e oferece repetir o agendamento em vez de pedir avaliacao
       const corte = (ultimo.data ?? [])[0];
-      if (corte) {
-        const { data: aval } = await supabase.from('avaliacoes').select('nota')
-          .eq('agendamento_id', corte.id).maybeSingle();
-        setUltimoCorte({ ...(corte as unknown as UltimoCorte), nota: aval?.nota ?? null });
-      } else {
-        setUltimoCorte(null);
-      }
+      const aval = corte ? (avals.data ?? []).find((a) => a.agendamento_id === corte.id) : undefined;
+      const dados: InicioSalvo = {
+        nome: perfil.data?.nome ?? '',
+        formato: perfil.data?.formato_rosto ?? null,
+        proximo: ((prox.data ?? [])[0] as unknown as Proximo) ?? null,
+        ultimoCorte: corte ? { ...(corte as unknown as UltimoCorte), nota: aval?.nota ?? null } : null,
+        barbeiros: barbs.data ?? [],
+        notas: notasBarbs,
+        servicos: servs.data ?? [],
+      };
+      setNome(dados.nome);
+      setFormato(dados.formato);
+      setProximo(dados.proximo);
+      setBarbeiros(dados.barbeiros);
+      setNotas(dados.notas);
+      setServicos(dados.servicos);
+      setUltimoCorte(dados.ultimoCorte);
       setErro(null);
+      // So guarda uma carga completa: com falha em parte dela, o salvo continua o anterior
+      if (!ultimo.error && !perfil.error && !avals.error) cache.salvar(dados);
     } catch (e: any) {
-      setErro(e.message ?? 'Erro ao carregar a tela inicial.');
+      // Com dados salvos na tela, o aviso de dados salvos cuida da falha
+      if (!cache.falhou(e)) setErro(mensagemDeErro(e, 'Erro ao carregar a tela inicial.'));
     }
     setLoading(false);
     setRefreshing(false);
-    carregarNaoLidas();
   }
 
   async function carregarNaoLidas() {
     if (!user) return;
     // So conta conversas que o cliente consegue abrir: as dos barbeiros com
     // agendamento nao cancelado (onde "Meus Agendamentos" mostra o botao CHAT)
-    const { data: ags } = await supabase.from('agendamentos').select('barbeiro_id')
-      .eq('cliente_id', user.id).neq('status', 'cancelado');
-    const barbeiroIds = [...new Set((ags ?? []).map((a) => a.barbeiro_id))];
-    if (!barbeiroIds.length) { setNaoLidas(0); return; }
-
+    // Agendamentos e conversas do cliente em paralelo; o filtro pelos barbeiros
+    // com agendamento nao cancelado e feito aqui (mesmo resultado de antes)
     const db = supabase as any;
-    const { data: conversas } = await db.from('conversas').select('id')
-      .eq('cliente_id', user.id).in('barbeiro_id', barbeiroIds);
-    if (!conversas?.length) { setNaoLidas(0); return; }
+    const [{ data: ags }, { data: todas }] = await Promise.all([
+      supabase.from('agendamentos').select('barbeiro_id').eq('cliente_id', user.id).neq('status', 'cancelado'),
+      db.from('conversas').select('id, barbeiro_id').eq('cliente_id', user.id),
+    ]);
+    const barbeiroIds = new Set((ags ?? []).map((a) => a.barbeiro_id));
+    if (!barbeiroIds.size) { setNaoLidas(0); return; }
+
+    const conversas = ((todas ?? []) as { id: string; barbeiro_id: string }[]).filter((c) => barbeiroIds.has(c.barbeiro_id));
+    if (!conversas.length) { setNaoLidas(0); return; }
     const { count } = await db.from('mensagens').select('id', { count: 'exact', head: true })
       .in('conversa_id', conversas.map((c: any) => c.id)).eq('lida', false).neq('remetente_id', user.id);
     setNaoLidas(count ?? 0);
@@ -219,6 +257,7 @@ export default function HomeScreen() {
         </TouchableOpacity>
 
         {erro && <ErroFetch message={erro} onRetry={() => { setErro(null); carregar(); }} />}
+        <AvisoDadosSalvos salvoEm={cache.salvoEm} falha={cache.falha} onTentar={carregar} />
 
         {/* Próximo horário */}
         <SectionTitle C={C} label="PRÓXIMO HORÁRIO" />

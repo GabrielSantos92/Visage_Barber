@@ -20,7 +20,13 @@ export function abrirDestino(papel: PapelNoApp, tipo: string | undefined, dados:
   const destino = destinoDaNotificacao(tipo, dados);
   if (!destino || !navegacaoRef.isReady()) return false;
   if (destino.tela === 'chat') navegacaoRef.navigate('Chat', destino.params);
-  else navegacaoRef.navigate(...AGENDA[papel]);
+  else {
+    // pop: volta ao navegador de abas que ja esta na pilha (fechando o que
+    // estiver por cima, como a central), em vez de empilhar outra copia dele.
+    // Sem ele na pilha, a navegacao abre um, como antes.
+    const [abas, params] = AGENDA[papel];
+    navegacaoRef.navigate(abas, params, { pop: true });
+  }
   return true;
 }
 

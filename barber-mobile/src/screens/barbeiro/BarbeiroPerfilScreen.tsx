@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   View, Text, StyleSheet, TextInput, TouchableOpacity,
   Alert, ActivityIndicator, ScrollView, Image,
@@ -9,6 +9,14 @@ import { useAuth } from '../../contexts/AuthContext';
 import { supabase } from '../../lib/supabase';
 import { useTheme } from '../../contexts/ThemeContext';
 import { F, Theme } from '../../lib/theme';
+import ErroFetch from '../../components/ErroFetch';
+import AvisoDadosSalvos from '../../components/AvisoDadosSalvos';
+import { useCacheDaTela } from '../../hooks/useCacheDaTela';
+import { VALIDADE } from '../../lib/cacheLocal';
+import { MENSAGEM_SEM_CONEXAO, mensagemDeErro } from '../../lib/conexao';
+
+// O que a tela guarda no aparelho (lib/cacheLocal)
+interface PerfilBarbeiroSalvo { nome: string; especialidade: string; fotoUrl: string | null }
 
 export default function BarbeiroPerfilScreen() {
   const { C } = useTheme();
@@ -21,15 +29,44 @@ export default function BarbeiroPerfilScreen() {
   const [loading, setLoading]             = useState(true);
   const [saving, setSaving]               = useState(false);
   const [uploadingFoto, setUploadingFoto] = useState(false);
+  // Salvar so depois de o perfil vir do banco: com o perfil salvo no aparelho
+  // (ou sem carregar), salvar poderia gravar dados antigos ou vazios por cima
+  const [doBanco, setDoBanco]             = useState(false);
+  const [erroCarga, setErroCarga]         = useState<string | null>(null);
+  // O barbeiro ja mexeu no formulario: a resposta do banco nao apaga o que ele digitou
+  const editou = useRef(false);
+
+  const cache = useCacheDaTela<PerfilBarbeiroSalvo>(user ? 'barbeiro:perfil' : null, VALIDADE.catalogo);
+  useEffect(() => {
+    cache.restaurar((d) => { aplicar(d); setLoading(false); });
+  }, [cache.restaurar]);
 
   useEffect(() => { fetchPerfil(); }, []);
 
+  function aplicar(d: PerfilBarbeiroSalvo) {
+    if (!editou.current) {
+      setNome(d.nome);
+      setEspecialidade(d.especialidade);
+    }
+    setFotoUrl(d.fotoUrl);
+  }
+
   async function fetchPerfil() {
     if (!user) return;
-    const { data } = await supabase.from('barbeiros').select('*').eq('user_id', user.id).single();
-    setNome(data?.nome ?? '');
-    setEspecialidade(data?.especialidade ?? '');
-    setFotoUrl((data as any)?.foto_url ?? null);
+    setErroCarga(null);
+    const { data, error } = await supabase.from('barbeiros').select('*').eq('user_id', user.id).single();
+    if (error && error.code !== 'PGRST116') {
+      // Sem resposta: mantem o que estiver na tela e avisa
+      if (!cache.falhou(error)) setErroCarga(mensagemDeErro(error, 'Não foi possível carregar o perfil.'));
+      setLoading(false);
+      return;
+    }
+    const dados: PerfilBarbeiroSalvo = {
+      nome: data?.nome ?? '', especialidade: data?.especialidade ?? '', fotoUrl: (data as any)?.foto_url ?? null,
+    };
+    aplicar(dados);
+    setDoBanco(true);
+    if (data) cache.salvar(dados);
     setLoading(false);
   }
 
@@ -74,22 +111,34 @@ export default function BarbeiroPerfilScreen() {
         .getPublicUrl(path);
 
       const publicUrl = urlData.publicUrl;
-      await supabase.from('barbeiros').update({ foto_url: publicUrl } as any).eq('user_id', user.id);
+      // So confirma a foto se o banco gravou (antes o erro era ignorado)
+      const { error: erroFoto } = await supabase.from('barbeiros').update({ foto_url: publicUrl } as any).eq('user_id', user.id);
+      if (erroFoto) throw erroFoto;
       setFotoUrl(`${publicUrl}?t=${Date.now()}`);
       Alert.alert('Foto atualizada!', 'Sua foto de perfil foi salva.');
     } catch (e: any) {
-      Alert.alert('Erro', e.message ?? 'Não foi possível fazer o upload.');
+      Alert.alert('Erro', mensagemDeErro(e, 'Não foi possível fazer o upload.'));
     }
     setUploadingFoto(false);
   }
 
   async function salvar() {
     if (!user) return;
+    if (!doBanco) {
+      Alert.alert('Perfil não atualizado', `${MENSAGEM_SEM_CONEXAO} O perfil precisa ser carregado do servidor antes de salvar.`);
+      fetchPerfil();
+      return;
+    }
     setSaving(true);
     const { error } = await supabase.from('barbeiros').update({ nome, especialidade }).eq('user_id', user.id);
     setSaving(false);
-    if (error) Alert.alert('Erro', error.message);
-    else Alert.alert('Salvo!', 'Perfil atualizado com sucesso.');
+    if (error) Alert.alert('Erro', mensagemDeErro(error, 'Não foi possível salvar o perfil.'));
+    else {
+      editou.current = false;
+      // Confirmado pelo banco: atualiza o perfil salvo no aparelho
+      cache.salvar({ nome, especialidade, fotoUrl });
+      Alert.alert('Salvo!', 'Perfil atualizado com sucesso.');
+    }
   }
 
   if (loading) return <ActivityIndicator style={{ flex: 1, backgroundColor: C.bg }} color={C.accent} />;
@@ -100,6 +149,9 @@ export default function BarbeiroPerfilScreen() {
         <Text style={s.pageLabel}>CONTA</Text>
         <Text style={s.pageTitle}>Meu Perfil</Text>
       </View>
+
+      {!!erroCarga && <ErroFetch message={erroCarga} onRetry={fetchPerfil} />}
+      <AvisoDadosSalvos salvoEm={cache.salvoEm} falha={cache.falha} onTentar={fetchPerfil} />
 
       {/* Foto de perfil */}
       <View style={s.fotoSection}>
@@ -130,14 +182,14 @@ export default function BarbeiroPerfilScreen() {
         <Text style={s.label}>NOME</Text>
         <View style={s.inputRow}>
           <Feather name="user" size={14} color={C.mutedFg} style={{ paddingLeft: 14 }} />
-          <TextInput style={s.input} value={nome} onChangeText={setNome}
+          <TextInput style={s.input} value={nome} onChangeText={(v) => { editou.current = true; setNome(v); }}
             placeholder="Seu nome" placeholderTextColor={C.mutedFg} />
         </View>
 
         <Text style={s.label}>ESPECIALIDADE</Text>
         <View style={s.inputRow}>
           <Feather name="scissors" size={14} color={C.mutedFg} style={{ paddingLeft: 14 }} />
-          <TextInput style={s.input} value={especialidade} onChangeText={setEspecialidade}
+          <TextInput style={s.input} value={especialidade} onChangeText={(v) => { editou.current = true; setEspecialidade(v); }}
             placeholder="Ex: Degradê, Navalhado" placeholderTextColor={C.mutedFg} />
         </View>
 
