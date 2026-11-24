@@ -69,8 +69,28 @@ const projectId = () =>
   (Constants.expoConfig?.extra as { eas?: { projectId?: string } } | undefined)?.eas?.projectId
   ?? (Constants as unknown as { easConfig?: { projectId?: string } }).easConfig?.projectId;
 
-// true se o aparelho ficou registrado para a conta logada
-export async function registrarAparelho(): Promise<boolean> {
+// ATENCAO (causa da lentidao do app depois das notificacoes): no Android, cada
+// leitura do token do aparelho (getDevicePushTokenAsync, que o
+// getExpoPushTokenAsync tambem chama por dentro) dispara o evento de "token
+// novo" (expo-notifications, PushTokenModule.kt: onNewToken logo depois de
+// resolver). Antes, esse evento chamava registrarAparelho de novo, que lia o
+// token de novo, que disparava o evento de novo: um laco sem fim, enquanto
+// houvesse conta logada, de chamadas ao Firebase, a Expo e ao Supabase
+// (registrar_dispositivo_push), que enchia a fila de rede e deixava as telas
+// lentas. Agora:
+//   - o token do aparelho e lido UMA vez por registro e entregue pronto ao
+//     getExpoPushTokenAsync (que entao nao le de novo);
+//   - um registro por vez (o mesmo pedido e devolvido a quem chamar durante ele);
+//   - o evento so conta como renovacao se trouxer um token diferente do ultimo
+//     lido; se chegar durante um registro, fica para logo depois dele.
+
+// Ultimo token do aparelho (FCM) lido pelo app
+let tokenDispositivoConhecido: string | null = null;
+// Registro em andamento (de qual conta) e token renovado que chegou durante ele
+let emAndamento: { usuario: string | null; pedido: Promise<boolean> } | null = null;
+let tokenPendente: string | null = null;
+
+async function registrar(tokenDispositivo?: string): Promise<boolean> {
   if (Platform.OS !== 'android') return false;
   try {
     // Os canais vem antes da permissao: no Android 13+ o pedido so aparece
@@ -81,7 +101,13 @@ export async function registrarAparelho(): Promise<boolean> {
     if (status !== 'granted') return false;
     const id = projectId();
     if (!id) return false;
-    const { data: token } = await Notifications.getExpoPushTokenAsync({ projectId: id });
+    const dispositivo = tokenDispositivo ?? (await Notifications.getDevicePushTokenAsync()).data;
+    if (typeof dispositivo !== 'string' || !dispositivo) return false;
+    tokenDispositivoConhecido = dispositivo;
+    const { data: token } = await Notifications.getExpoPushTokenAsync({
+      projectId: id,
+      devicePushToken: { type: 'android', data: dispositivo },
+    });
     const { error } = await rpc('registrar_dispositivo_push', { p_token: token, p_plataforma: 'android' });
     if (error) return false;
     tokenAtual = token;
@@ -92,9 +118,34 @@ export async function registrarAparelho(): Promise<boolean> {
   }
 }
 
-// Token renovado pelo sistema: grava o novo para a mesma conta
+// true se o aparelho ficou registrado para a conta logada. tokenDispositivo:
+// token ja recebido do sistema (renovacao), para nao ler de novo.
+export function registrarAparelho(tokenDispositivo?: string): Promise<boolean> {
+  const usuario = usuarioAtual;
+  if (emAndamento && emAndamento.usuario === usuario) {
+    if (tokenDispositivo) tokenPendente = tokenDispositivo;
+    return emAndamento.pedido;
+  }
+  const registro = { usuario, pedido: Promise.resolve(false) };
+  registro.pedido = registrar(tokenDispositivo).finally(() => {
+    if (emAndamento !== registro) return;
+    emAndamento = null;
+    const pendente = tokenPendente;
+    tokenPendente = null;
+    // Renovacao de verdade durante o registro (token diferente do lido nele)
+    if (pendente && pendente !== tokenDispositivoConhecido && usuarioAtual === usuario) registrarAparelho(pendente);
+  });
+  emAndamento = registro;
+  return registro.pedido;
+}
+
+// Token renovado pelo sistema: grava o novo para a mesma conta. O mesmo token
+// (eco da leitura feita no proprio registro) e ignorado.
 export function aoRenovarToken(): () => void {
-  const sub = Notifications.addPushTokenListener(() => { registrarAparelho(); });
+  const sub = Notifications.addPushTokenListener(({ data }) => {
+    if (typeof data !== 'string' || !data || data === tokenDispositivoConhecido) return;
+    registrarAparelho(data);
+  });
   return () => sub.remove();
 }
 
@@ -104,6 +155,8 @@ export async function removerAparelho(): Promise<void> {
   const token = tokenAtual;
   tokenAtual = null;
   usuarioAtual = null;
+  tokenPendente = null;
+  tokenDispositivoConhecido = null;
   // Some da barra o que era da conta que esta saindo
   await Notifications.dismissAllNotificationsAsync().catch(() => {});
   if (token) {
