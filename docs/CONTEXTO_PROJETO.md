@@ -1,17 +1,17 @@
 Estado atual do projeto Visage Barber
-Atualizado em 24/11/2026 (lentidão do app Android RESOLVIDA: laço no registro do token do push, corrigido e validado no aparelho com o APK versionCode 8; commits locais na branch fix/lentidao-app, sem push; push Android ativo; WhatsApp abandonado; pagamentos pausados no sandbox, seção 10).
+Atualizado em 24/11/2026 (lentidão do app Android RESOLVIDA: laço no registro do token do push, corrigido e validado no aparelho com o APK versionCode 8; na main e no GitHub desde 24/11; push Android ativo; WhatsApp abandonado; pagamentos pausados no sandbox, seção 10).
 
 ESTADO ATUAL (24/11/2026) — LER PRIMEIRO
 As seções 0 a 10 abaixo trazem o histórico e as regras; onde houver conflito, vale este bloco.
 
-A. Lentidão do aplicativo Android: RESOLVIDA em 24/11 (commit be0e379, branch local fix/lentidao-app, sem push)
+A. Lentidão do aplicativo Android: RESOLVIDA em 24/11 (commit be0e379; na main e no GitHub)
 - Causa: laço sem fim no registro do aparelho para o push (barber-mobile/src/lib/pushNotificacoes.ts, desde o commit a92067a). No Android, cada leitura do token do aparelho (getDevicePushTokenAsync, chamada por dentro do getExpoPushTokenAsync) também dispara o evento de "token novo" (node_modules/expo-notifications/android/.../tokens/PushTokenModule.kt: onNewToken logo depois de resolver). O ouvinte desse evento (aoRenovarToken) chamava registrarAparelho de novo, que lia o token de novo. Enquanto houvesse cliente ou barbeiro logado, o app repetia sem parar: leitura no Firebase, POST na Expo (exp.host) e a RPC registrar_dispositivo_push (um upsert) no Supabase. A fila de rede do Android (poucas conexões simultâneas por servidor) ficava cheia e as consultas das telas esperavam atrás dela. Por isso a lentidão começou com as notificações e as otimizações dos blocos B e B2 não resolveram.
 - Correção (só nesse arquivo): o token do aparelho é lido uma vez por registro e entregue pronto ao getExpoPushTokenAsync (que então não lê de novo); um registro por vez; o evento só conta como renovação se trouxer token diferente do último lido (e, se chegar durante um registro, é tratado logo depois dele). O comportamento do push não muda: registra no login, regrava se o sistema renovar o token e remove no logout.
 - Validação local: simulação com o expo-notifications falso, imitando o Android (resolve e depois dispara o evento). Versão antiga: 104 leituras e 101 RPCs em 1,5 s, crescendo sem parar. Versão corrigida: 1 leitura e 1 RPC no login; renovação real: +1 RPC; renovação no meio de um registro: limitada (4 RPCs no total) e para. tsc do app sem erros novos (só o antigo do ThemeContext).
 - Validado pelo usuário em 24/11: com o APK versionCode 8 (bloco C) instalado no aparelho, o app ficou rápido. O recebimento do push depois da correção não foi relatado explicitamente; conferir no próximo teste.
 - Volta de segurança: branch local backup/app-antes-das-notificacoes = commit 58c35e6 (19/11), a última versão antes de o push entrar no app (sem expo-notifications; app e site iguais ao 2f836e0). Só local (não enviada ao GitHub). Para usar: gerar um APK a partir dela com versionCode maior que o instalado. O banco já tem as migrations 21 a 30 aplicadas; o app antigo simplesmente não usa a central nem o push.
 
-B. Primeira etapa de otimização do Android: CONCLUÍDA (commit e95c94c, junto com o B2; branch local fix/lentidao-app, sem push)
+B. Primeira etapa de otimização do Android: CONCLUÍDA (commit e95c94c, junto com o B2; na main e no GitHub)
 - 7 arquivos alterados (app e site): barber-mobile/src/lib/painelBarbeiro.ts, barber-mobile/src/lib/privacidade.ts, barber-mobile/src/screens/barbeiro/AgendaBarbeiroScreen.tsx, barber-mobile/src/screens/barbeiro/BarbeiroHomeScreen.tsx, barber-mobile/src/screens/cliente/AgendamentosScreen.tsx, barber-mobile/src/screens/cliente/HomeScreen.tsx e cut-advisor-pro/src/lib/painelBarbeiro.ts (o site muda junto por causa do teste de paridade; sem opções, o comportamento do site é o mesmo de antes).
 - Consultas Supabase independentes paralelizadas com Promise.all (agenda do cliente: avaliações, pagamentos e situação do WhatsApp; painel e agenda do barbeiro: nomes dos clientes e situação do WhatsApp; selo de mensagens do Início: agendamentos e conversas).
 - Consultas de situação do WhatsApp (presenca_dos_agendamentos) desativadas nas telas do app enquanto o recurso estiver oculto (WHATSAPP_NO_PERFIL = false; nova constante WHATSAPP_NAS_AGENDAS em barber-mobile/src/lib/privacidade.ts, que segue a mesma chave).
@@ -21,11 +21,11 @@ B. Primeira etapa de otimização do Android: CONCLUÍDA (commit e95c94c, junto 
 - Nenhuma alteração no banco, backend, migrations ou infraestrutura.
 - Validação: site 260 testes aprovados; checagem de tipos do app sem erros novos (permanece o erro antigo do ThemeContext); revisão final sem problemas críticos ou médios. Efeitos de baixa gravidade: atraso de até 5 minutos para o status concluído aparecer (botão AVALIAR, "último corte" do Início, contadores do Painel e lançamento da comissão no financeiro); falta registrada num atendimento pago antes do cron concluir não gera o par lançamento + estorno (comissão líquida igual, histórico diferente).
 
-B2. Segunda etapa (cache local e falta de internet): commit e95c94c (junto com o B; branch local fix/lentidao-app, sem push); não registrada aqui na época
+B2. Segunda etapa (cache local e falta de internet): commit e95c94c (junto com o B; na main e no GitHub); não registrada aqui na época
 - Encontrada na pasta de trabalho em 24/11: cache das telas por conta no aparelho (barber-mobile/src/lib/cacheLocal.ts e hooks/useCacheDaTela.ts, aviso components/AvisoDadosSalvos.tsx), id do barbeiro guardado (lib/barbeiroAtual.ts), mensagens de falta de conexão (lib/conexao.ts), papel salvo e tela de "sem conexão" no AuthContext e no RootNavigator, limite de 20 s na renovação do token (lib/supabase.ts) e ajustes nas telas do cliente, do barbeiro e do admin. Mantida como está (funcionalidade nova); não resolvia a lentidão porque a causa era o laço do bloco A.
 
 C. APK de teste
-- barber-mobile/app.json estava em versionCode 7 em 24/11 (os builds 5 a 7 não foram registrados neste documento); subido para 8 para o APK com a correção do bloco A (no último commit da branch fix/lentidao-app).
+- barber-mobile/app.json estava em versionCode 7 em 24/11 (os builds 5 a 7 não foram registrados neste documento); subido para 8 para o APK com a correção do bloco A (commit b110637).
 - 24/11, com autorização do usuário: build EAS 72a2b519-dc0b-44b1-b723-a7fb93160acd (perfil preview, APK, 1.0.0 / versionCode 8), gerado da pasta de trabalho atual (blocos A, B e B2). FINISHED em 24/11; o link do artefato expira em 08/12/2026. Instalado pelo usuário em 24/11: app rápido de novo.
 - Último registrado aqui: versão 1.0.0, versionCode 4; build EAS 9abc5feb-1e35-4b9b-8f21-ede91151e8c3 (perfil preview, distribuição interna), com o laço do bloco A.
 - O google-services.json local fica fora do Git; no build, o app.config.js usa a variável de arquivo GOOGLE_SERVICES_JSON do EAS.
@@ -39,7 +39,7 @@ D. Notificações: push Android pela Expo (WhatsApp ABANDONADO)
 - Detalhes e histórico na seção 9.17. Tokens, segredos e credenciais nunca entram neste documento.
 
 E. Git
-- origin/main = 69c7384 (22/11); a main local está igual. Branch local fix/lentidao-app (criada em 24/11 a partir da main, SEM push e SEM merge), com 3 commits autorizados pelo usuário: be0e379 (correção do laço, bloco A), e95c94c (blocos B e B2) e o commit seguinte com o versionCode 8 e este arquivo. docs/Revisao-TCC-Visage-Barber.docx fica fora do Git (não rastreado).
+- 24/11, com autorização do usuário: a branch fix/lentidao-app entrou na main por avanço direto (fast-forward, sem commit de merge) e a main foi enviada ao GitHub. Commits: be0e379 (correção do laço, bloco A), e95c94c (blocos B e B2), b110637 (versionCode 8 e este arquivo) e o commit seguinte, que só atualiza este bloco. Antes, origin/main = 69c7384 (22/11). Backend e banco não mudaram nesses commits (o Render roda a main; se reimplantar, o código do backend é o mesmo). docs/Revisao-TCC-Visage-Barber.docx fica fora do Git (não rastreado).
 - Branch local backup/app-antes-das-notificacoes (58c35e6), criada em 24/11 como volta de segurança (bloco A).
 
 0. Regras obrigatórias (valem para qualquer conversa)
@@ -204,7 +204,7 @@ WhatsApp (código de 13/11, commit fbda840, no ar no Render desde 14/11, desliga
 Testes: o backend roda as migrations reais em um banco embutido (PGlite) e testa as notificações com uma Expo falsa e uma Meta falsa (nenhum envio real); o site usa Vitest com Testing Library; o app não tem testes automatizados (é validado com tsc e com o pacote do Expo).
 6. Situação no GitHub
 Atual (23/11): origin/main = 69c7384 (merge enviado em 22/11 com autorização); a main local está igual. A branch deploy/backend-notificacoes (a512866, mesmo conteúdo do de3c3a6) foi a que o Render rodou até a troca para a main; ficou obsoleta. Testes com o 69c7384: backend 466 (em 22/11 à tarde, todos passando; à noite, 465 de 466, ver seção 7) e site 260, todos passando.
-Em 24/11: as alterações locais (blocos A, B e B2 do topo, versionCode 8 e este arquivo) foram para a branch local fix/lentidao-app em 3 commits, sem push (bloco E do topo). Site 260 testes passando; app no tsc só com o erro antigo do ThemeContext. docs/Revisao-TCC-Visage-Barber.docx e docs/Respostas-Questionario-TCC.docx ficam fora do Git.
+Em 24/11: as alterações locais (blocos A, B e B2 do topo, versionCode 8 e este arquivo) foram para a main e para o GitHub (bloco E do topo). Site 260 testes passando; app no tsc só com o erro antigo do ThemeContext. docs/Revisao-TCC-Visage-Barber.docx e docs/Respostas-Questionario-TCC.docx ficam fora do Git.
 Histórico abaixo.
 Em 15/11 (já enviado depois): commit "fix: mensagem de falta de internet" (476f9cd).
 Em 15/11, no GitHub (origin/main), o último commit era o 3e04eb0 ("fix: PIX pela API de Orders do Mercado Pago", 15/11), antes dele o 2b9e248 (15/11) e o fbda840 ("feat: implementa confirmação de presença via WhatsApp", 27 arquivos, 14/11), todos enviados com autorização do usuário; a main local está igual. Com o 3e04eb0: backend 295 testes, todos passando (site não mudou). Antes de enviar, em 14/11: backend 289 testes e site 235, todos passando. Com o 83d45a6, o backend tinha 245 testes, todos passando (registrado em 10/11). Antes, o commit 94b6c67 (Painel e Agenda) passou com 170 testes no backend e 228 no site.
@@ -229,7 +229,7 @@ No app, a aba HORÁRIOS (disponibilidade) ainda tem o título "Minha Agenda", o 
 APKs anteriores (obsoletos): 10/11 (build EAS 238b6929, versionCode 2, commit 83d45a6, sem notificações; o link do artefato expira em 24/11/2026) e versionCode 3 (commit b299169, primeiro com a central e o push). Os versionCodes 3 a 7 têm o laço do registro do push que deixava o app lento; o próximo (8) tem a correção (blocos A e C do topo).
 8. Próximas tarefas
 1. Conferir no aparelho, com o APK versionCode 8, que o push continua chegando depois da correção do bloco A.
-2. Decidir com o usuário o merge da branch fix/lentidao-app na main e o push ao GitHub (só com autorização).
+2. Decidir com o usuário se a branch local backup/app-antes-das-notificacoes também vai para o GitHub (hoje só existe neste computador).
 3. Corrigir o teste dependente do horário (whatsapp26.sql.test.js, teste 21), com autorização.
 Pagamentos: PAUSADO em 15/11 pelo usuário, na fase de teste. Ao retomar, seguir a seção 10.
 Configurar em Admin → Comissões o percentual padrão e o de cada barbeiro.
