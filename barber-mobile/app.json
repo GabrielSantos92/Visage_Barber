@@ -18,7 +18,7 @@
     },
     "android": {
       "package": "com.visagebarber.app",
-      "versionCode": 3,
+      "versionCode": 8,
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#080808"

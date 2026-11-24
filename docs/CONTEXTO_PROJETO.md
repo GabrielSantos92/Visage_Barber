@@ -1,23 +1,74 @@
 Estado atual do projeto Visage Barber
-Atualizado em 15/11/2026 (pagamentos: teste com PIX e cartão funcionando no sandbox, seção 10; notificações pausadas, seção 9.16).
+Atualizado em 24/11/2026 (lentidão do app Android RESOLVIDA: laço no registro do token do push, corrigido e validado no aparelho com o APK versionCode 8; commits locais na branch fix/lentidao-app, sem push; push Android ativo; WhatsApp abandonado; pagamentos pausados no sandbox, seção 10).
+
+ESTADO ATUAL (24/11/2026) — LER PRIMEIRO
+As seções 0 a 10 abaixo trazem o histórico e as regras; onde houver conflito, vale este bloco.
+
+A. Lentidão do aplicativo Android: RESOLVIDA em 24/11 (commit be0e379, branch local fix/lentidao-app, sem push)
+- Causa: laço sem fim no registro do aparelho para o push (barber-mobile/src/lib/pushNotificacoes.ts, desde o commit a92067a). No Android, cada leitura do token do aparelho (getDevicePushTokenAsync, chamada por dentro do getExpoPushTokenAsync) também dispara o evento de "token novo" (node_modules/expo-notifications/android/.../tokens/PushTokenModule.kt: onNewToken logo depois de resolver). O ouvinte desse evento (aoRenovarToken) chamava registrarAparelho de novo, que lia o token de novo. Enquanto houvesse cliente ou barbeiro logado, o app repetia sem parar: leitura no Firebase, POST na Expo (exp.host) e a RPC registrar_dispositivo_push (um upsert) no Supabase. A fila de rede do Android (poucas conexões simultâneas por servidor) ficava cheia e as consultas das telas esperavam atrás dela. Por isso a lentidão começou com as notificações e as otimizações dos blocos B e B2 não resolveram.
+- Correção (só nesse arquivo): o token do aparelho é lido uma vez por registro e entregue pronto ao getExpoPushTokenAsync (que então não lê de novo); um registro por vez; o evento só conta como renovação se trouxer token diferente do último lido (e, se chegar durante um registro, é tratado logo depois dele). O comportamento do push não muda: registra no login, regrava se o sistema renovar o token e remove no logout.
+- Validação local: simulação com o expo-notifications falso, imitando o Android (resolve e depois dispara o evento). Versão antiga: 104 leituras e 101 RPCs em 1,5 s, crescendo sem parar. Versão corrigida: 1 leitura e 1 RPC no login; renovação real: +1 RPC; renovação no meio de um registro: limitada (4 RPCs no total) e para. tsc do app sem erros novos (só o antigo do ThemeContext).
+- Validado pelo usuário em 24/11: com o APK versionCode 8 (bloco C) instalado no aparelho, o app ficou rápido. O recebimento do push depois da correção não foi relatado explicitamente; conferir no próximo teste.
+- Volta de segurança: branch local backup/app-antes-das-notificacoes = commit 58c35e6 (19/11), a última versão antes de o push entrar no app (sem expo-notifications; app e site iguais ao 2f836e0). Só local (não enviada ao GitHub). Para usar: gerar um APK a partir dela com versionCode maior que o instalado. O banco já tem as migrations 21 a 30 aplicadas; o app antigo simplesmente não usa a central nem o push.
+
+B. Primeira etapa de otimização do Android: CONCLUÍDA (commit e95c94c, junto com o B2; branch local fix/lentidao-app, sem push)
+- 7 arquivos alterados (app e site): barber-mobile/src/lib/painelBarbeiro.ts, barber-mobile/src/lib/privacidade.ts, barber-mobile/src/screens/barbeiro/AgendaBarbeiroScreen.tsx, barber-mobile/src/screens/barbeiro/BarbeiroHomeScreen.tsx, barber-mobile/src/screens/cliente/AgendamentosScreen.tsx, barber-mobile/src/screens/cliente/HomeScreen.tsx e cut-advisor-pro/src/lib/painelBarbeiro.ts (o site muda junto por causa do teste de paridade; sem opções, o comportamento do site é o mesmo de antes).
+- Consultas Supabase independentes paralelizadas com Promise.all (agenda do cliente: avaliações, pagamentos e situação do WhatsApp; painel e agenda do barbeiro: nomes dos clientes e situação do WhatsApp; selo de mensagens do Início: agendamentos e conversas).
+- Consultas de situação do WhatsApp (presenca_dos_agendamentos) desativadas nas telas do app enquanto o recurso estiver oculto (WHATSAPP_NO_PERFIL = false; nova constante WHATSAPP_NAS_AGENDAS em barber-mobile/src/lib/privacidade.ts, que segue a mesma chave).
+- Chamadas redundantes de concluir_agendamentos_passados() retiradas do Início, da Agenda do cliente e do Painel e Agenda do barbeiro no app. A função e o cron continuam intactos no banco. buscarAgendaDoBarbeiro ganhou opções { concluirPassados, situacoesWhatsapp } (padrão true; o app passa false).
+- Cron concluir-agendamentos confirmado ativo, a cada 5 minutos; as últimas 10 execuções verificadas em 23/11/2026 tiveram status succeeded.
+- Cancelamento do cliente: a interface muda assim que o banco confirma o update; a recarga complementar fica em segundo plano. O cancelamento e a falta do barbeiro já funcionavam assim e não mudaram (o Painel continua recarregando o financeiro depois da falta, por causa do estorno da comissão).
+- Nenhuma alteração no banco, backend, migrations ou infraestrutura.
+- Validação: site 260 testes aprovados; checagem de tipos do app sem erros novos (permanece o erro antigo do ThemeContext); revisão final sem problemas críticos ou médios. Efeitos de baixa gravidade: atraso de até 5 minutos para o status concluído aparecer (botão AVALIAR, "último corte" do Início, contadores do Painel e lançamento da comissão no financeiro); falta registrada num atendimento pago antes do cron concluir não gera o par lançamento + estorno (comissão líquida igual, histórico diferente).
+
+B2. Segunda etapa (cache local e falta de internet): commit e95c94c (junto com o B; branch local fix/lentidao-app, sem push); não registrada aqui na época
+- Encontrada na pasta de trabalho em 24/11: cache das telas por conta no aparelho (barber-mobile/src/lib/cacheLocal.ts e hooks/useCacheDaTela.ts, aviso components/AvisoDadosSalvos.tsx), id do barbeiro guardado (lib/barbeiroAtual.ts), mensagens de falta de conexão (lib/conexao.ts), papel salvo e tela de "sem conexão" no AuthContext e no RootNavigator, limite de 20 s na renovação do token (lib/supabase.ts) e ajustes nas telas do cliente, do barbeiro e do admin. Mantida como está (funcionalidade nova); não resolvia a lentidão porque a causa era o laço do bloco A.
+
+C. APK de teste
+- barber-mobile/app.json estava em versionCode 7 em 24/11 (os builds 5 a 7 não foram registrados neste documento); subido para 8 para o APK com a correção do bloco A (no último commit da branch fix/lentidao-app).
+- 24/11, com autorização do usuário: build EAS 72a2b519-dc0b-44b1-b723-a7fb93160acd (perfil preview, APK, 1.0.0 / versionCode 8), gerado da pasta de trabalho atual (blocos A, B e B2). FINISHED em 24/11; o link do artefato expira em 08/12/2026. Instalado pelo usuário em 24/11: app rápido de novo.
+- Último registrado aqui: versão 1.0.0, versionCode 4; build EAS 9abc5feb-1e35-4b9b-8f21-ede91151e8c3 (perfil preview, distribuição interna), com o laço do bloco A.
+- O google-services.json local fica fora do Git; no build, o app.config.js usa a variável de arquivo GOOGLE_SERVICES_JSON do EAS.
+
+D. Notificações: push Android pela Expo (WhatsApp ABANDONADO)
+- Estratégia atual: notificações push Android pela Expo (FCM) e central de notificações no app (migration 30). A integração com WhatsApp (Meta) foi abandonada (o número de teste da Meta não entrega no Brasil, erro 130497) e NÃO deve ser reativada nem proposta como estratégia atual; o código e as migrations 25 a 29 continuam no projeto, desligados, e o WhatsApp está oculto no site e no app (WHATSAPP_NO_PERFIL = false).
+- Migration 30 aplicada no Supabase (estado D da auditoria supabase/verificacoes/notificacoes_auditoria.sql); push_ativo ligado no banco, com push_ativado_em preenchido.
+- Backend do Render direcionado para a branch main (antes rodava a branch deploy/backend-notificacoes, commit a512866, que mandava push com nomes e horários). Variáveis do push configuradas pelo usuário no Render (só os nomes): NOTIFICACOES_PUSH_ATIVO, EXPO_ACCESS_TOKEN e NOTIFICACOES_SEGREDO. NOTIFICACOES_ATIVAS continua proibida.
+- Envio de push testado com sucesso em aparelho Android: a notificação genérica ("Visage Barber" e texto fixo, sem dados pessoais) apareceu na bandeja e, ao ser tocada, abriu a central de notificações.
+- A central de notificações (sino com contador, lista, marcar como lida e marcar todas) já está implementada no APK e foi testada para cliente e barbeiro com avisos temporários, já removidos.
+- Detalhes e histórico na seção 9.17. Tokens, segredos e credenciais nunca entram neste documento.
+
+E. Git
+- origin/main = 69c7384 (22/11); a main local está igual. Branch local fix/lentidao-app (criada em 24/11 a partir da main, SEM push e SEM merge), com 3 commits autorizados pelo usuário: be0e379 (correção do laço, bloco A), e95c94c (blocos B e B2) e o commit seguinte com o versionCode 8 e este arquivo. docs/Revisao-TCC-Visage-Barber.docx fica fora do Git (não rastreado).
+- Branch local backup/app-antes-das-notificacoes (58c35e6), criada em 24/11 como volta de segurança (bloco A).
 
 0. Regras obrigatórias (valem para qualquer conversa)
 Sem autorização explícita do usuário: não executar SQL no Supabase, não aplicar migrations, não fazer commit, push nem deploy e não gravar a URL do backend no Supabase (notificacao_config.url_backend).
 Não alterar o Render nem a Meta. Não criar nem modificar variáveis de ambiente (Render, Environment Groups, Secret Files, .env local).
 Nunca configurar NOTIFICACOES_ATIVAS em lugar nenhum, nem com o valor false: Render, Environment Groups, Secret Files, .env, testes, piloto e rollbacks. No código do commit 83d45a6, "true" liga o envio pela Expo, e um rollback no Render restaura as variáveis do deploy de destino.
-Não ativar push nem WhatsApp. No código de 13/11 (commit fbda840, no GitHub e no ar no Render desde 14/11, desligado), cada canal tem a sua chave (NOTIFICACOES_WHATSAPP_ATIVO e NOTIFICACOES_PUSH_ATIVO) e NOTIFICACOES_ATIVAS preenchida faz nenhum canal ligar; nenhuma dessas variáveis deve ser criada sem autorização.
+Cada canal tem a sua chave (NOTIFICACOES_WHATSAPP_ATIVO e NOTIFICACOES_PUSH_ATIVO), e NOTIFICACOES_ATIVAS preenchida faz nenhum canal ligar. O push está ativo desde 22-23/11, com autorização do usuário (bloco D do topo e seção 9.17): não desligar, não religar e não mudar as variáveis dele sem pedido. Nunca ativar o WhatsApp (abandonado): não criar NOTIFICACOES_WHATSAPP_ATIVO nem variáveis WHATSAPP_.
 Antes de rodar qualquer migration, mostrar o conteúdo, as dependências e a ordem. Usar só contas de teste. Parar ao fim de cada etapa e relatar arquivos, testes e resultados.
 Nunca ler nem mostrar valores de segredos; só os nomes das variáveis. Ler o valor decifrado do Vault, mesmo só para conferir o formato (devolvendo verdadeiro ou falso), exige autorização explícita.
 Nunca consultar os cabeçalhos de net.http_request_queue (nem SELECT *): com a migration 24 antiga aplicada em produção, eles levam o segredo.
-O trabalho atual das notificações (migration 24 revisada, auditorias, consulta de dono e testes) está só nos scratchpads (seções 9.10 e 9.13), não no projeto. Não alterar arquivos do projeto sem pedido explícito.
+Não alterar arquivos do projeto sem pedido explícito. (Histórico: a migration 24 revisada com HMAC, a auditoria revisada e a consulta de dono ficaram só nos scratchpads das seções 9.10 e 9.13 e nunca foram aplicadas; em produção a chamada do banco ao backend continua com o cabeçalho X-Notificacoes-Segredo da 24 antiga.)
 1. Funcionalidades implementadas
 Já enviadas ao GitHub (branch main):
 
 Commit	O que entrou
+69c7384	22/11: merge da branch feat/whatsapp-cancelamento-28-29 na main (push em 22/11); é o commit que o Render roda
+b299169	APK de teste: versionCode 3 e ambiente preview do EAS
+9ba9d27	Configuração do Firebase Android (app.config.js e google-services.json fora do Git)
+cdb9815	Push genérico: sem dados pessoais no payload (só tipo e id do aviso; detalhes na central)
+d8bc70b	Ajustes da central e do push: cliente avisado quando outra pessoa agenda, central desde a primeira ativação, WhatsApp oculto no perfil, logout seguro
+a92067a	Central de notificações e push Android (migration 30), desligado no commit
+58c35e6, 2f836e0, ea71b30, 18c5c63	WhatsApp: auditoria por canal, consentimento 2026-11-16, avisos de novo agendamento e cancelamento e migrations 26 a 29 (recurso abandonado depois; tudo desligado)
+91a4347	Finais de linha padronizados em LF
+de3c3a6	Backend: confere o segredo antes de verificar se as notificações estão ligadas; BACKEND_AMBIENTE obrigatório (mesmo conteúdo do a512866, da branch deploy/backend-notificacoes)
+476f9cd	Mensagem de falta de internet
 3e04eb0	15/11: PIX pela API de Orders do Mercado Pago (a API de Payments recusa as credenciais de teste); no Render (seção 10)
 2b9e248	15/11: e-mail do pagador de teste no PIX (MERCADOPAGO_EMAIL_PAGADOR_TESTE); no Render (seção 10)
 fbda840	Enviado ao GitHub e publicado no Render em 14/11 (desligado): confirmação de presença pelo WhatsApp 2 horas antes (migration 25, backend, site e app), desligada (seção 9.15)
-83d45a6	Notificações push: banco (migrations 21 a 23) e backend, desligados. O canal foi trocado pelo WhatsApp em 11/11 (seção 9)
+83d45a6	Notificações push: banco (migrations 21 a 23) e backend, desligados. O canal foi trocado pelo WhatsApp em 11/11 (seção 9); a decisão foi revertida depois e o push voltou (seção 9.17)
 94b6c67	Painel do Barbeiro (resumo do dia + financeiro) e Agenda separada com os modos Por dia, Próximos e Histórico (site e app)
 ecc7d7a	Meu desempenho do barbeiro: dias com mais cortes e origem do percentual (migration 20)
 12c2bd6	O agendamento no app recomeça do início ao trocar de aba, como no site
@@ -40,6 +91,7 @@ Documentos do TCC (fora do repositório, sem alterar o anexo original):
 C:\Users\lucas\AppData\Local\Temp\claude\c--vb\a22df9f6-501e-4e13-b565-316963dfbb8e\scratchpad\Divergencias-TCC-Visage-Barber.pdf
 C:\Users\lucas\AppData\Local\Temp\claude\c--vb\a22df9f6-501e-4e13-b565-316963dfbb8e\scratchpad\Levantamento-TCC-Visage-Barber.docx
 docs/Respostas-Questionario-TCC.docx (na pasta do projeto, mas fora do Git de propósito)
+docs/Revisao-TCC-Visage-Barber.docx (22/11: revisão do PDF "TCC - Visage Barber - CDU e ABNT" contra o código, com os trechos a corrigir e textos sugeridos; fora do Git, não rastreado)
 2. Funcionalidades em desenvolvimento
 Sistema financeiro, comissões e pagamentos online. Código no GitHub (e34f257, corrigido em 2b9e248 e 3e04eb0) e no Render. Em 15/11, no APK e com a conta de TESTE do Mercado Pago, o PIX gera o QR Code e o cartão abre a página do Mercado Pago. Ainda não recebe dinheiro de verdade: o que falta está na seção 10.
 
@@ -61,7 +113,7 @@ Para concluir falta:
 
 pagamentos: ver a seção 10 (aprovação no teste e passagem para produção);
 conferir o Painel e a Agenda do app em um celular (o app não tem testes automatizados de tela).
-PAUSADO EM 14/11/2026 por decisão do usuário: o trabalho de notificações está parado até o grupo decidir o caminho (seção 9.16). Não retomar sem pedido explícito. Notificações: o canal mudou de push para WhatsApp (decisão do grupo em 11/11/2026). O push não será ativado, e a etapa do app (registro do aparelho, Firebase, FCM) foi cancelada. Em 13/11 a confirmação de presença pelo WhatsApp foi implementada no projeto (seção 9.15): está no GitHub (commit fbda840) e no ar no Render desde 14/11, desligada; a migration 25 foi aplicada no Supabase pelo usuário em 13/11 (conferida, 24 verificações OK); a migration 24 revisada e a auditoria continuam em revisão. Em 12/11 o usuário aplicou em produção a migration 24 ANTIGA, criou o segredo no Vault e configurou a URL do backend (seção 9.11). O diagnóstico de 12/11 está na seção 9.14. Estado completo na seção 9.
+Notificações: CONCLUÍDO e ativo (bloco D do topo e seção 9.17). Histórico: em 11/11 o canal mudou de push para WhatsApp e o trabalho foi pausado em 14/11 (seções 9 e 9.16); depois o WhatsApp foi abandonado e o push voltou, com a central no app (migration 30), o registro do aparelho e o Firebase. As migrations 24 (antiga) e 25 a 29 estão aplicadas em produção; a 24 revisada com HMAC nunca foi aplicada.
 3. Regras de negócio definidas
 Agendamento:
 
@@ -97,7 +149,8 @@ Notificações (regras já implementadas no banco e no envio por push; valem par
 Os avisos nascem no banco, por gatilho, na mesma transação do evento: operação desfeita não gera aviso, e o mesmo evento nunca gera dois avisos (chave única).
 Quem fez a ação nunca é avisado dela. Cancelar depois do horário é falta (igual ao botão "Cliente faltou") e não avisa ninguém.
 Na hora do envio, o banco confere de novo se o aviso ainda vale: agendamento cancelado ou com horário passado, mensagem já lida, preferência desligada ou aparelho de outra conta não recebem nada.
-A notificação de mensagem nunca leva o texto, só "Você recebeu uma mensagem de <primeiro nome>". Várias mensagens seguidas da mesma conversa viram um aviso só, com a contagem.
+O push é genérico (commit cdb9815): título "Visage Barber" e texto fixo ("Você tem uma nova mensagem. Abra o app para ver." ou "Há uma atualização nos seus agendamentos. Abra o app para ver."), sem nomes, horários, serviço nem texto de mensagem; o payload leva só o tipo e o id do aviso. Os detalhes ficam na central do app, que só mostra os avisos da conta logada. Várias mensagens seguidas da mesma conversa viram um aviso só, com a contagem.
+Quem agenda nunca é avisado; o cliente é avisado quando outra pessoa (barbeiro ou barbearia) agenda para ele (migration 30).
 Falha no envio nunca impede agendar, cancelar ou mandar mensagem.
 4. Estrutura do banco (Supabase)
 Tabelas que já existiam e foram usadas: agendamentos, servicos, barbeiros, profiles, user_roles, conversas e mensagens.
@@ -129,6 +182,10 @@ Migration 24 (20261109000024_notificacoes_segredo.sql): o arquivo do repositóri
 
 Migration 25 (20261113000025_whatsapp_confirmacao_presenca.sql): confirmação de presença pelo WhatsApp 2 horas antes. Criada em 13/11, no commit fbda840 (no GitHub desde 14/11). APLICADA no Supabase (projeto ecngjhpnycirhisghazy) pelo usuário em 13/11/2026, com a conferência posterior aprovada nas 24 verificações (seção 9.15). Exige a 16 (consentimentos), a 21 e a 22.
 
+Migrations 26 a 29 (WhatsApp: cancelamento com confirmação dupla, rotina que só acorda o backend pelo canal whatsapp, avisos de novo agendamento e de cancelamento): aplicadas em produção (ordem 25, 27, 26, 28, 29). O WhatsApp está desligado e abandonado; não mexer nelas.
+
+Migration 30 (20261119000030_central_notificacoes_push.sql): APLICADA em produção (estado D). Central de notificações (minhas_notificacoes, contar_notificacoes_nao_lidas, marcar_notificacoes_lidas, marcar_todas_notificacoes_lidas; só os avisos do canal push do usuário logado, nunca os de teste, e só a partir de push_ativado_em), coluna notificacoes.lida_em, marcador notificacao_config.push_ativo (sem ele nada é reservado nem enviado; desligar é imediato com push_ativo = false) e push_ativado_em; ao ligar, os avisos push pendentes viram ignorada (antes_da_ativacao). Rollback: supabase/rollbacks/20261119000030_rollback.sql. O push_ativo foi ligado pelo usuário (seção 9.17).
+
 Verificações somente leitura: supabase/verificacoes/notificacoes_pre_requisitos.sql e notificacoes_auditoria.sql (no Git; as linhas 197 a 201 da notificacoes_auditoria.sql reconhecem a 24 pelo cabeçalho antigo e, depois da revisada, dirão erradamente que a 24 não foi aplicada; hoje, com a 24 antiga e a URL configurada, ela dá OK para "envia o segredo" e para a URL (linha 181), enquanto a auditoria revisada dá PROBLEMA na C.7 e ATENÇÃO na D.14 para o mesmo estado: vale a leitura da revisada); supabase/verificacoes/notificacoes_pre_ativacao.sql (fora do Git, versão antiga e nunca executada; a revisada está no scratchpad, seção 9.7); confirmar_dono.sql (scratchpad, seções 9.12 e 9.13).
 
 Proteções (18 e 19): gatilho que bloqueia alterações nos registros financeiros, índices únicos contra duplicidade, permissões por usuário (RLS) e funções SQL para cada operação (iniciar pagamento, aplicar estado, registrar pagamento na barbearia, reembolso, configurar comissão, pagar comissão, resumos e fechamento semanal).
@@ -137,19 +194,26 @@ Monorepo C:\vb: backend (Express), cut-advisor-pro (site React/Vite), barber-mob
 Backend: usa a chave de serviço do Supabase e a API REST do Mercado Pago, sem SDK. As rotas novas ficam em /api/pagamentos: criar, sincronizar, reembolsar, cancelar cobranças abertas e webhook. Publicado no Render; a URL está em barber-mobile/eas.json.
 Site e app: leem os dados direto do Supabase, sempre limitados pelas permissões do banco. As bibliotecas de pagamento e financeiro são iguais nas duas plataformas, e um teste confere isso.
 Painel e Agenda do barbeiro: consultas, regras de cancelamento e falta, textos e períodos ficam em lib/painelBarbeiro.ts, igual no site e no app (o teste de paridade confere). Componentes: cut-advisor-pro/src/components/barbeiro/ e barber-mobile/src/components/barbeiro/.
-Notificações (backend), código do commit 83d45a6, feito para push pela Expo e desligado: services/expoPush.js (cliente da Expo: lotes de 100 mensagens, recibos em lotes de 1000, timeout, erros classificados sem guardar o texto da Expo, que pode conter o token), services/notificacoes.js (textos, envio, gravação do resultado e recibos) e routes/notificacoes.js.
+Notificações (backend): push pela Expo, ATIVO em produção desde 22-23/11 (bloco D do topo). O texto abaixo descreve a base criada no commit 83d45a6; depois, o de3c3a6 passou a conferir o segredo antes do "desligado" e o cdb9815 tornou o push genérico. services/expoPush.js (cliente da Expo: lotes de 100 mensagens, recibos em lotes de 1000, timeout, erros classificados sem guardar o texto da Expo, que pode conter o token), services/notificacoes.js (textos, envio, gravação do resultado e recibos) e routes/notificacoes.js.
 Rotas: POST /api/notificacoes/processar é chamada pelo banco com o cabeçalho X-Notificacoes-Segredo (comparado em tempo constante; sem segredo configurado, a rota fica fechada), responde 202 e só faz o backend ler a fila; quem chama não escolhe destinatário nem texto. Esse cabeçalho é o formato antigo: será trocado pela verificação da assinatura HMAC, ainda não implementada (seção 9.4). Com o backend desligado, a rota responde 503 antes de olhar o cabeçalho (exigirAtivo vem primeiro: routes/notificacoes.js:45-48 e 68); ela é montada em app.js:30. POST /api/notificacoes/teste é para o usuário logado: envia um aviso de teste aos próprios aparelhos, sem gravar nada na fila e sem devolver tokens. Limites: em /processar, o segredo é conferido antes de qualquer limite; as chamadas autenticadas (só o banco tem o segredo) têm um limite próprio de 120 por minuto, e as tentativas sem segredo ou com segredo errado têm outro, de 20 por minuto por IP, que nunca bloqueia as chamadas do banco. /teste: 3 testes a cada 10 minutos por usuário. No Render, TRUST_PROXY=1 faz o Express usar o IP real que o proxy do Render acrescenta ao X-Forwarded-For; o IP só freia tentativas inválidas, nunca autentica.
 Fila: o backend reserva os avisos no banco (sem duplicar, mesmo com dois servidores), envia pela Expo e grava o resultado por aparelho. Falha temporária volta para a fila com espera (30 s, 2, 8 e 32 minutos; desiste na 5ª). DeviceNotRegistered desativa o aparelho. Se o envio der certo e a gravação falhar, o resultado fica guardado e o aviso não é reenviado. Os recibos são conferidos depois de 15 minutos. "Enviada" no banco quer dizer aceita pela Expo; a entrega é confirmada pelo recibo. Enquanto o servidor está acordado, a fila também é lida a cada 20 segundos.
-Variáveis do backend no código do 83d45a6: NOTIFICACOES_ATIVAS (NUNCA configurar: "true" liga o envio pela Expo; ver a seção 0), NOTIFICACOES_SEGREDO (mínimo de 32 caracteres; o mesmo valor vai para o Vault; já configurada no Render, e em 12/11 o usuário conferiu por SHA-256 que é igual à do Vault), EXPO_ACCESS_TOKEN (nunca será configurado), NOTIFICACOES_INTERVALO_SEGUNDOS (padrão 20) e NOTIFICACOES_TIMEOUT_SEGUNDOS (padrão 10). As variáveis planejadas para o WhatsApp ainda não existem no código (seção 9.2).
+Variáveis do backend (código atual da main): NOTIFICACOES_PUSH_ATIVO=true e EXPO_ACCESS_TOKEN ligam o push (as duas configuradas no Render); NOTIFICACOES_SEGREDO (mínimo de 32 caracteres; o mesmo valor fica no Vault como notificacoes_segredo_backend; configurada no Render); BACKEND_AMBIENTE (obrigatória; producao no Render); NOTIFICACOES_INTERVALO_SEGUNDOS (padrão 20) e NOTIFICACOES_TIMEOUT_SEGUNDOS (padrão 10). NOTIFICACOES_ATIVAS: NUNCA configurar (no código antigo do 83d45a6, "true" ligava o envio; no atual, preenchida desliga tudo). As variáveis do WhatsApp existem no código, mas não devem ser criadas (recurso abandonado). A configuração é lida quando o servidor inicia: mudar variável no Render exige novo deploy (Save, rebuild and deploy).
+Render: o serviço roda a branch main (trocado da branch deploy/backend-notificacoes, commit a512866, que tinha o push com nomes e horários no texto).
+App (push): registra o aparelho depois do login (registrar_dispositivo_push, token Expo), remove no logout (remover_dispositivo_push e unregisterForNotificationsAsync), canais Android com conteúdo oculto na tela bloqueada e central com sino (barber-mobile/src/lib/pushNotificacoes.ts, centralNotificacoes.ts, hooks/usePushToken.ts, screens/NotificacoesScreen.tsx, components/SinoNotificacoes.tsx). O Firebase entra no build pelo app.config.js (variável de arquivo GOOGLE_SERVICES_JSON do EAS; o google-services.json local fica fora do Git). O push exige o APK; o Expo Go não serve.
 WhatsApp (código de 13/11, commit fbda840, no ar no Render desde 14/11, desligado; seção 9.15): services/whatsapp.js (cliente da Cloud API e assinatura do webhook), services/confirmacaoPresenca.js (envio e respostas), services/notificacoesConfig.js (chaves por canal) e routes/whatsapp.js (webhook em /api/whatsapp/webhook).
 Testes: o backend roda as migrations reais em um banco embutido (PGlite) e testa as notificações com uma Expo falsa e uma Meta falsa (nenhum envio real); o site usa Vitest com Testing Library; o app não tem testes automatizados (é validado com tsc e com o pacote do Expo).
 6. Situação no GitHub
-Local (15/11, ainda sem push): commit "fix: mensagem de falta de internet" (api.ts do app e do site, telas do visagismo no app e este arquivo); site 235 testes, todos passando; app no tsc só com o erro antigo do ThemeContext.
-No GitHub (origin/main), o último commit é o 3e04eb0 ("fix: PIX pela API de Orders do Mercado Pago", 15/11), antes dele o 2b9e248 (15/11) e o fbda840 ("feat: implementa confirmação de presença via WhatsApp", 27 arquivos, 14/11), todos enviados com autorização do usuário; a main local está igual. Com o 3e04eb0: backend 295 testes, todos passando (site não mudou). Antes de enviar, em 14/11: backend 289 testes e site 235, todos passando. Com o 83d45a6, o backend tinha 245 testes, todos passando (registrado em 10/11). Antes, o commit 94b6c67 (Painel e Agenda) passou com 170 testes no backend e 228 no site.
+Atual (23/11): origin/main = 69c7384 (merge enviado em 22/11 com autorização); a main local está igual. A branch deploy/backend-notificacoes (a512866, mesmo conteúdo do de3c3a6) foi a que o Render rodou até a troca para a main; ficou obsoleta. Testes com o 69c7384: backend 466 (em 22/11 à tarde, todos passando; à noite, 465 de 466, ver seção 7) e site 260, todos passando.
+Em 24/11: as alterações locais (blocos A, B e B2 do topo, versionCode 8 e este arquivo) foram para a branch local fix/lentidao-app em 3 commits, sem push (bloco E do topo). Site 260 testes passando; app no tsc só com o erro antigo do ThemeContext. docs/Revisao-TCC-Visage-Barber.docx e docs/Respostas-Questionario-TCC.docx ficam fora do Git.
+Histórico abaixo.
+Em 15/11 (já enviado depois): commit "fix: mensagem de falta de internet" (476f9cd).
+Em 15/11, no GitHub (origin/main), o último commit era o 3e04eb0 ("fix: PIX pela API de Orders do Mercado Pago", 15/11), antes dele o 2b9e248 (15/11) e o fbda840 ("feat: implementa confirmação de presença via WhatsApp", 27 arquivos, 14/11), todos enviados com autorização do usuário; a main local está igual. Com o 3e04eb0: backend 295 testes, todos passando (site não mudou). Antes de enviar, em 14/11: backend 289 testes e site 235, todos passando. Com o 83d45a6, o backend tinha 245 testes, todos passando (registrado em 10/11). Antes, o commit 94b6c67 (Painel e Agenda) passou com 170 testes no backend e 228 no site.
 Ficou fora do Git de propósito: docs/Respostas-Questionario-TCC.docx e os arquivos .env.
-Alterações locais ainda sem commit: barber-mobile/app.json (android.versionCode 2, usado no build do APK de 10/11), supabase/verificacoes/notificacoes_pre_ativacao.sql (auditoria antiga, nunca executada, fora do Git) e as atualizações deste docs/CONTEXTO_PROJETO.md feitas depois do commit fbda840. Com o commit fbda840, em 13/11: backend 289 testes e site 235, todos passando; o app passa no tsc só com o erro antigo do ThemeContext.
+Em 15/11 havia alterações locais sem commit (barber-mobile/app.json com versionCode 2, a auditoria antiga notificacoes_pre_ativacao.sql e este arquivo); foram resolvidas nos commits seguintes. Com o commit fbda840, em 13/11: backend 289 testes e site 235, todos passando; o app passa no tsc só com o erro antigo do ThemeContext.
 A migration 24 revisada, a auditoria revisada e a consulta de dono (confirmar_dono.sql) não estão no projeto: estão nos scratchpads (seções 9.10 e 9.13).
 7. Problemas conhecidos
+Lentidão do app Android: resolvida em 24/11 (laço no registro do token do push; bloco A do topo). Os APKs de versionCode 3 a 7 ainda têm o laço: todo aparelho de teste deve usar o 8 ou mais novo.
+Teste do backend dependente do horário: o teste 21 de backend/test/whatsapp26.sql.test.js falha quando roda à noite (esperava CONFLITO_BARBEIRO e recebeu FORA_DO_EXPEDIENTE; o horário criado relativo a "agora" atravessa a meia-noite num expediente de 00:00 a 23:59:59). Passa de dia. É defeito do teste, não do código de produção; corrigir quando houver autorização.
 Mercado Pago: só em ambiente de teste; a aprovação do PIX e do cartão ainda não foi vista no app (seção 10).
 Taxa do PIX registrada como zero: o pedido da API de Orders não informa a taxa do Mercado Pago.
 Cartão: sem URL pública de retorno (PAGAMENTO_RETORNO_URL não existe no Render; localhost não é aceito). Depois de pagar, o cliente volta ao app sozinho; o app confere ao voltar e a cada 30 s.
@@ -157,19 +221,22 @@ backend/.env local: MERCADOPAGO_NOTIFICATION_URL ainda aponta para o túnel temp
 Checagem de tipos do app: acusa um erro em src/contexts/ThemeContext.tsx que já existia antes destas mudanças.
 Avisos de lint antigos: 9 em MeusAgendamentos.tsx e 1 em Booking.tsx.
 Tipos do Supabase: não foram regenerados. As tabelas e funções novas são acessadas com tipos escritos à mão.
-Notificações: o banco gera os avisos na fila (migrations 21 a 23), mas nada é enviado: o backend está desligado e o app não registra aparelhos (o push foi cancelado). Os avisos vencem sozinhos. Desde 12/11, com a 24 antiga e a URL configurada, o banco chama o backend a cada aviso novo e a cada minuto enquanto houver aviso pendente: cada chamada leva o segredo fixo no cabeçalho, acorda o Render e recebe 503 sem processar nada (seção 9.11).
+Notificações: o push está ativo e foi testado (seção 9.17). A chamada do banco ao backend ainda usa o segredo fixo no cabeçalho X-Notificacoes-Segredo (24 antiga); a troca por HMAC com nonce (seções 9.3 e 9.4) nunca foi feita. O conteúdo do push é genérico, mas na tela com o app aberto o aviso aparece para qualquer conta logada (o payload não leva o destinatário, por decisão de privacidade).
 A função pedir_notificacao_teste (migration 22) grava o teste na fila e ficou sem uso: o teste agora é feito pela rota do backend, que não grava nada.
 Reembolsos: a taxa no reembolso é registrada como zero. A devolução de um pagamento em duplicidade é feita manualmente pelo admin.
 Sem a migration 20, o gráfico de dias com mais cortes mostra um erro; o resto do Painel funciona.
 No app, a aba HORÁRIOS (disponibilidade) ainda tem o título "Minha Agenda", o que pode confundir com a aba AGENDA.
-APK de 10/11 (build EAS 238b6929, preview, versionCode 2, commit 83d45a6): não tem notificações, e o link do artefato expira em 24/11/2026.
+APKs anteriores (obsoletos): 10/11 (build EAS 238b6929, versionCode 2, commit 83d45a6, sem notificações; o link do artefato expira em 24/11/2026) e versionCode 3 (commit b299169, primeiro com a central e o push). Os versionCodes 3 a 7 têm o laço do registro do push que deixava o app lento; o próximo (8) tem a correção (blocos A e C do topo).
 8. Próximas tarefas
+1. Conferir no aparelho, com o APK versionCode 8, que o push continua chegando depois da correção do bloco A.
+2. Decidir com o usuário o merge da branch fix/lentidao-app na main e o push ao GitHub (só com autorização).
+3. Corrigir o teste dependente do horário (whatsapp26.sql.test.js, teste 21), com autorização.
 Pagamentos: PAUSADO em 15/11 pelo usuário, na fase de teste. Ao retomar, seguir a seção 10.
 Configurar em Admin → Comissões o percentual padrão e o de cada barbeiro.
-Testar num celular o APK de 10/11 (já gerado pelo EAS, com o expo-clipboard, o Painel e a Agenda).
 Testar o Painel e a Agenda no site e no celular: resumo do dia, cancelar e registrar falta, chat, filtros e gráfico no Painel; Por dia (setas e voltar para hoje), Próximos e Histórico na Agenda.
-Notificações: a lista antiga de ativação do push foi cancelada e não deve ser seguida. O próximo passo está nas seções 9.9 e 9.11.
-9. Notificações por WhatsApp: estado em 12/11/2026
+Notificações: concluídas (seção 9.17). A troca do segredo fixo por HMAC com nonce continua opcional e pendente; não retomar o WhatsApp.
+9. Notificações por WhatsApp: estado em 12/11/2026 (HISTÓRICO)
+ATENÇÃO: as seções 9.1 a 9.16 são histórico. O WhatsApp foi ABANDONADO e não deve ser reativado nem proposto; o push voltou e está ativo (seção 9.17). Fatos ainda válidos daqui: o mecanismo da fila, do pg_cron e do pg_net, o segredo no Vault (notificacoes_segredo_backend) e as regras de segurança da seção 0.
 9.1 Decisões aprovadas pelo grupo (11/11)
 
 O WhatsApp Cloud API (Meta) é o único canal, para clientes e barbeiros, com um número oficial da Visage (nenhum número por barbeiro). O push não será ativado; o código do push só será removido depois que o WhatsApp for validado em produção (última etapa).
@@ -649,6 +716,27 @@ C) Mensagem pelo número de cada barbeiro: envio automático não é viável (AP
 A e C podem conviver.
 
 Ao retomar: perguntar qual caminho o grupo escolheu; se for A, continuar pela ativação do chip e pela Parte 2 (cadastro do número). Todas as regras da seção 0 continuam valendo.
+DECIDIDO depois (16 a 19/11): nenhum dos caminhos A, B ou C. O WhatsApp foi abandonado e o grupo voltou ao push Android com central no app (seção 9.17).
+
+9.17 Push Android e central de notificações: estado em 23/11/2026 (ATIVO)
+
+Como funciona:
+- Os avisos nascem no banco por gatilho (novo agendamento, cancelamento, mensagem) e pelos lembretes da rotina de cada minuto, na fila public.notificacoes (canal push). Com push_ativo ligado, a rotina acorda o backend pelo pg_net (POST /api/notificacoes/processar com o cabeçalho X-Notificacoes-Segredo); o backend reserva os avisos, envia pela Expo (que entrega pelo FCM), grava o resultado por aparelho e confere os recibos depois de cerca de 15 minutos.
+- Push genérico (cdb9815): título "Visage Barber", texto fixo, payload só com o tipo e o id do aviso. O toque abre a central, que mostra o detalhe só para a conta logada.
+- Central no app (cliente e barbeiro): sino com o número de não lidas, lista, marcar uma e marcar todas como lidas. O site não tem central.
+- Desligar na hora, sem deploy: UPDATE public.notificacao_config SET push_ativo = false WHERE id; (preserva o histórico da central). No servidor, remover NOTIFICACOES_PUSH_ATIVO também desliga, com novo deploy.
+
+Linha do tempo (19 a 23/11):
+- Commits a92067a, d8bc70b, cdb9815, 9ba9d27 e b299169 (central, push, push genérico, Firebase e APK versionCode 3), integrados à main no merge 69c7384 e enviados em 22/11.
+- Migration 30 aplicada em produção pelo usuário; auditoria (supabase/verificacoes/notificacoes_auditoria.sql) no estado D, com push_ativo desligado no início.
+- Central testada para cliente e barbeiro com avisos temporários (status ignorada, motivo teste_central, push_ativado_em preenchido só durante o teste); dados temporários removidos e push_ativado_em devolvido a NULL.
+- Render: variáveis EXPO_ACCESS_TOKEN e NOTIFICACOES_PUSH_ATIVO=true criadas pelo usuário. Primeiro, o log mostrou "[notificacoes] desligadas" e "chamada de processamento recusada: segredo ausente ou errado", e o serviço rodava a branch deploy/backend-notificacoes (a512866), cujo push levava nomes e horários. O serviço foi trocado para a main. A causa exata dos dois avisos do log não ficou registrada; depois da troca, o envio funcionou.
+- push_ativo ligado no banco pelo usuário; push_ativado_em preenchido.
+- Teste real em aparelho Android: a notificação genérica apareceu na bandeja e o toque abriu a central.
+
+Pontos em aberto (não urgentes):
+- O segredo fixo no cabeçalho (24 antiga) continua; HMAC com nonce não foi feito.
+- Nunca configurar NOTIFICACOES_ATIVAS (seção 0).
 
 10. Pagamentos com Mercado Pago: estado em 15/11/2026 (PAUSADO na fase de teste)
 O usuário parou aqui em 15/11 e talvez volte para colocar os pagamentos para funcionar de verdade. Nada recebe dinheiro real hoje.
