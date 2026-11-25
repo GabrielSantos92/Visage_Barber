@@ -21,7 +21,8 @@ const MODELO_ANALISE = process.env.GEMINI_MODELO_ANALISE || 'gemini-2.5-flash';
 const MODELO_IMAGEM = process.env.GEMINI_MODELO_IMAGEM || 'gemini-3-pro-image';
 
 // Equivalentes no Replicate
-const REPLICATE_ANALISE = 'google/gemini-2.5-flash';
+// gemini-2.5-flash foi retirado do Replicate em 11/2026 (erro 410).
+const REPLICATE_ANALISE = process.env.REPLICATE_MODELO_ANALISE || 'google/gemini-3-flash';
 const REPLICATE_IMAGEM = process.env.REPLICATE_MODELO_IMAGEM || 'google/nano-banana-pro';
 
 function usarGoogleDireto() {
