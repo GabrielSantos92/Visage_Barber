@@ -29,6 +29,24 @@ const { normalizarPreferencias, partesEditaveis } = require('../services/persona
 // do titular para esta finalidade (ver services/consentimento.js).
 router.use(protegerVisagismo);
 
+// Cada parte do rosto com o seu rotulo, uma por linha. Sem rotulo, os textos da
+// IA ("Média a alta, com linha capilar...") nao diziam de que parte falavam. O
+// app mostra uma por linha; o site junta as linhas, e os rotulos ainda separam.
+const PARTES_DO_ROSTO = [
+  ['proportions', 'Proporções'],
+  ['forehead', 'Testa'],
+  ['jawline', 'Mandíbula'],
+  ['cheekbones', 'Maçãs do rosto'],
+];
+
+function tracosDoRosto(rosto) {
+  return PARTES_DO_ROSTO
+    .map(([campo, rotulo]) => [rotulo, String(rosto?.[campo] ?? '').trim()])
+    .filter(([, texto]) => texto)
+    .map(([rotulo, texto]) => `${rotulo}: ${texto}`)
+    .join('\n');
+}
+
 // As telas de resultado (web e mobile) ja consomem o formato antigo. A analise
 // passou a devolver o schema novo, entao devolvemos os dois: o novo como fonte
 // de verdade e o antigo derivado dele, para nao quebrar o que ja funciona.
@@ -47,8 +65,7 @@ function comCompatibilidade(analise, preferencias = null) {
     preferencias: preferencias ?? undefined,
     personalizacao: preferencias ? analise.personalizacao : undefined,
     formato_rosto: analise.face_shape,
-    tracos: [rosto.proportions, rosto.forehead, rosto.jawline, rosto.cheekbones]
-      .filter(Boolean).join(' '),
+    tracos: tracosDoRosto(rosto),
     corte_principal: {
       nome: cabelo.style,
       descricao: cabelo.description,

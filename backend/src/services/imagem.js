@@ -104,12 +104,31 @@ async function mascaraCabeloBarba(pngAlinhado, largura, altura, partes = ['hair'
 
 // A garantia de verdade: fora da mascara o pixel vem da FOTO ORIGINAL.
 // A borda e suavizada para a transicao nao virar um recorte duro.
-async function compor(original, gerado, mascara, largura, altura) {
-  const alphaSuave = await sharp(mascara).blur(3).toBuffer();
+// O alfa PRECISA ter um canal so. A mascara chega com 3 canais (o JPEG do
+// grounded_sam continua RGB mesmo depois do greyscale()); com 3 canais o
+// joinChannel nao vira transparencia, a imagem gerada sai opaca e cobre a foto
+// original inteira, rosto incluido. Esse bug existiu ate 24/11/2026.
+async function alfaDaMascara(mascara, largura, altura) {
+  return sharp(mascara)
+    .resize(largura, altura, { fit: 'fill' })
+    .extractChannel(0)
+    .blur(3)
+    .toColourspace('b-w')
+    .png()
+    .toBuffer();
+}
 
-  const geradoRecortado = await sharp(gerado)
+async function compor(original, gerado, mascara, largura, altura) {
+  const alphaSuave = await alfaDaMascara(mascara, largura, altura);
+
+  // Dois pipelines de proposito: num so, o sharp aplica o removeAlpha DEPOIS do
+  // joinChannel (a ordem das chamadas nao e a ordem de execucao) e apaga o alfa.
+  const geradoRgb = await sharp(gerado)
     .resize(largura, altura, { fit: 'fill' })
     .removeAlpha()
+    .png()
+    .toBuffer();
+  const geradoRecortado = await sharp(geradoRgb)
     .joinChannel(alphaSuave)
     .png()
     .toBuffer();
@@ -120,4 +139,4 @@ async function compor(original, gerado, mascara, largura, altura) {
     .toBuffer();
 }
 
-module.exports = { mimeDoBase64, dimensoesDaImagem, alinharFoto, mascaraCabeloBarba, compor };
+module.exports = { mimeDoBase64, dimensoesDaImagem, alinharFoto, mascaraCabeloBarba, compor, alfaDaMascara };

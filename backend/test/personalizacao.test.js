@@ -304,3 +304,41 @@ test('rota /imagem-referencia: pedido adulterado e recusado', async () => {
   });
   assert.equal(registro.prompts.length, 0);
 });
+
+test('prompt da analise: recomendacao principal realista (barba que cresce, comprimento que existe)', () => {
+  assert.match(PROMPT_ANALISE, /REALISMO DA RECOMENDAÇÃO PRINCIPAL/);
+  assert.match(PROMPT_ANALISE, /respeite a densidade e o padrão de crescimento que você descreveu em\s+beard_analysis/);
+  assert.match(PROMPT_ANALISE, /a barbearia corta, não faz crescer/);
+  assert.match(PROMPT_ANALISE, /prefira uma evolução do visual atual/);
+});
+
+test('analise via Replicate: pede raciocinio curto (thinking_level low) ao modelo', async () => {
+  const { analisarVisagismo } = require('../src/services/gemini');
+  const chaveGoogle = process.env.GEMINI_API_KEY;
+  delete process.env.GEMINI_API_KEY;
+  const fetchReal = globalThis.fetch;
+  const corpos = [];
+  globalThis.fetch = async (_url, opcoes) => {
+    corpos.push(JSON.parse(opcoes.body));
+    return new Response(JSON.stringify({ status: 'succeeded', output: [JSON.stringify(respostaDaIA())] }), { status: 201 });
+  };
+  try {
+    await analisarVisagismo('/9j/abc');
+  } finally {
+    globalThis.fetch = fetchReal;
+    if (chaveGoogle !== undefined) process.env.GEMINI_API_KEY = chaveGoogle;
+  }
+  assert.equal(corpos.length, 1);
+  assert.equal(corpos[0].input.thinking_level, 'low');
+  assert.equal(corpos[0].input.temperature, 0.4);
+});
+
+test('rota /analisar: tracos com o rotulo de cada parte do rosto, uma por linha', async () => {
+  const rosto = { proportions: 'Rosto alongado.', forehead: ' Média a alta. ', jawline: 'Estreita.', cheekbones: '' };
+  await comRota({ gemini: { analisarVisagismo: async () => respostaDaIA({ face_analysis: rosto }) } }, async (post) => {
+    const r = await post('/analisar', { imagem_base64: 'abc' });
+    assert.equal(r.status, 200);
+    assert.equal(r.corpo.tracos, 'Proporções: Rosto alongado.\nTesta: Média a alta.\nMandíbula: Estreita.');
+    assert.deepEqual(r.corpo.face_analysis, rosto);
+  });
+});

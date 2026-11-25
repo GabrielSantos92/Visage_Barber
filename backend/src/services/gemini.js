@@ -151,6 +151,23 @@ atributos de estilo, que continuam em inglês.
 Em recommendations.hair e recommendations.beard, o PRIMEIRO item é a recomendação
 principal. Inclua de 2 a 3 opções em cada lista.
 
+REALISMO DA RECOMENDAÇÃO PRINCIPAL
+A recomendação principal vira uma simulação sobre a foto real do cliente, que vai
+comparar o antes e o depois. Ela precisa ser algo que ele consiga ter na próxima ida
+à barbearia, com o cabelo e a barba que tem hoje:
+- Na barba: respeite a densidade e o padrão de crescimento que você descreveu em
+  beard_analysis. Se a barba é rala ou falhada nas bochechas, NÃO recomende estilos
+  que dependam delas (barba cheia, barba por fazer no rosto todo, barba quadrada);
+  prefira os que usam onde a barba já cresce bem (cavanhaque, bigode, barba curta no
+  queixo e na mandíbula) ou o rosto barbeado.
+- No cabelo: a barbearia corta, não faz crescer. Recomende cortes possíveis com o
+  comprimento atual (igual ou mais curto) e com a textura e a densidade que você
+  descreveu em hair_analysis. Não recomende volume nem comprimento que o cabelo atual
+  não tem.
+- Quando o cliente não personalizar, prefira uma evolução do visual atual (o mesmo
+  estilo, mais bem resolvido para o formato do rosto) a uma mudança radical. Mudanças
+  maiores podem entrar como segunda ou terceira opção.
+
 Este é um serviço de visagismo MASCULINO de barbearia. Preencha "aplicavel" com false
 somente se a foto mostrar claramente um rosto feminino. Em qualquer outro caso,
 inclusive na dúvida, preencha "aplicavel" com true.`;
@@ -196,6 +213,10 @@ async function analisarComReplicate(imagemBase64, prompt) {
     system_instruction: 'Você é um especialista em visagismo masculino. Responda APENAS com JSON válido, sem markdown e sem texto adicional.',
     images: [`data:${mimeDoBase64(imagemBase64)};base64,${imagemBase64}`],
     temperature: 0.4,
+    // Raciocinio curto antes de responder, para o modelo cruzar o que observou
+    // (barba rala nas bochechas, comprimento atual) com o que recomenda.
+    // "low" e o menor nivel; o padrao do Replicate e sem raciocinio.
+    thinking_level: 'low',
   });
   return juntarTexto(saida);
 }
