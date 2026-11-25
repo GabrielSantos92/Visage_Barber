@@ -12,7 +12,7 @@ import AdminNavigator from './AdminNavigator';
 import RedefinirSenhaScreen from '../screens/auth/RedefinirSenhaScreen';
 
 export default function RootNavigator() {
-  const { session, loading, userRole, recoveryMode, reconectando, tentarReconectar } = useAuth();
+  const { session, loading, userRole, recoveryMode, reconectando, tentarReconectar, conferindoLogin } = useAuth();
   const { C } = useTheme();
   const [tentando, setTentando] = useState(false);
 
@@ -50,7 +50,9 @@ export default function RootNavigator() {
       </View>
     );
   }
-  if (!session) return <AuthNavigator />;
+  // Login feito e papel em conferencia (AuthContext.entrar): continua na tela de
+  // login, que mostra o motivo se a conta for da outra area
+  if (!session || conferindoLogin) return <AuthNavigator />;
   // Papel ainda nao conhecido: espera, em vez de montar a area do cliente (e
   // disparar as consultas dela) para depois trocar pela do barbeiro ou do admin
   if (!userRole) return carregando;

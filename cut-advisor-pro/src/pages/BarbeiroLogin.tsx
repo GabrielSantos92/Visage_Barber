@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { Eye, EyeOff, Mail, Lock, AlertCircle, Scissors, Info } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
+import { recusarForaDaArea } from "@/lib/conferirAreaDoLogin";
 import { toast } from "@/components/ui/sonner";
 import LogoMark from "@/components/LogoMark";
 
@@ -27,14 +28,22 @@ const BarbeiroLogin = () => {
     if (!validate()) return;
     setLoading(true);
     const { data, error } = await supabase.auth.signInWithPassword({ email, password });
-    setLoading(false);
 
     if (error) {
+      setLoading(false);
       if (error.message.includes("Invalid login")) {
         setErrors({ password: "Email ou senha incorretos" });
       } else {
         toast.error(error.message);
       }
+      return;
+    }
+
+    // Conta de cliente nao entra pela Area do Barbeiro: a sessao e encerrada
+    const recusa = await recusarForaDaArea(data.user.id, "barbeiro");
+    setLoading(false);
+    if (recusa) {
+      setErrors({ email: recusa });
       return;
     }
 

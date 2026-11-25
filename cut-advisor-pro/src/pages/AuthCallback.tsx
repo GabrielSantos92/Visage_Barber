@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "@/components/ui/sonner";
 import { RETORNO_INICIAL, erroDoRetornoOAuth, preencherNomeDoGoogle } from "@/lib/loginGoogle";
+import { recusarForaDaArea } from "@/lib/conferirAreaDoLogin";
 
 const ESPERA_MAXIMA_MS = 10000;
 
@@ -30,6 +31,10 @@ const AuthCallback = () => {
     Promise.race([supabase.auth.getSession().then(({ data }) => data.session), limite])
       .then(async (session) => {
         if (!session) { falhar("Não foi possível concluir o login com Google. Tente novamente."); return; }
+        // O Google so existe na Area do Cliente: conta de barbeiro com o mesmo
+        // email nao entra por aqui (a sessao e encerrada)
+        const recusa = await recusarForaDaArea(session.user.id, "cliente");
+        if (recusa) { falhar(recusa); return; }
         await preencherNomeDoGoogle(session.user.id, session.user.user_metadata);
         toast.success("Login realizado com sucesso!");
         navigate("/", { replace: true });

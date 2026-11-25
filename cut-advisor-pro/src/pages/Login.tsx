@@ -4,6 +4,7 @@ import { motion } from "framer-motion";
 import { Eye, EyeOff, Mail, Lock, AlertCircle } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { iniciarLoginGoogle } from "@/lib/loginGoogle";
+import { recusarForaDaArea } from "@/lib/conferirAreaDoLogin";
 import { toast } from "@/components/ui/sonner";
 import LogoMark from "@/components/LogoMark";
 
@@ -31,15 +32,23 @@ const Login = () => {
     if (!validate()) return;
 
     setLoading(true);
-    const { error } = await supabase.auth.signInWithPassword({ email, password });
-    setLoading(false);
+    const { data, error } = await supabase.auth.signInWithPassword({ email, password });
 
     if (error) {
+      setLoading(false);
       if (error.message.includes("Invalid login")) {
         setErrors({ password: "Email ou senha incorretos" });
       } else {
         toast.error(error.message);
       }
+      return;
+    }
+
+    // Conta de barbeiro nao entra pela Area do Cliente: a sessao e encerrada
+    const recusa = await recusarForaDaArea(data.user.id, "cliente");
+    setLoading(false);
+    if (recusa) {
+      setErrors({ email: recusa });
       return;
     }
 

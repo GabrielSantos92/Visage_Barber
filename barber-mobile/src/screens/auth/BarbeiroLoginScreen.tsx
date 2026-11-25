@@ -5,8 +5,8 @@ import {
 } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { StackNavigationProp } from '@react-navigation/stack';
-import { supabase } from '../../lib/supabase';
 import { AuthStackParamList } from '../../navigation/AuthNavigator';
+import { useAuth } from '../../contexts/AuthContext';
 import { useTheme } from '../../contexts/ThemeContext';
 import { F, Theme } from '../../lib/theme';
 import LogoMark from '../../components/LogoMark';
@@ -16,6 +16,7 @@ type Props = { navigation: StackNavigationProp<AuthStackParamList, 'BarbeiroLogi
 export default function BarbeiroLoginScreen({ navigation }: Props) {
   const { C } = useTheme();
   const s = React.useMemo(() => makeStyles(C), [C]);
+  const { entrar } = useAuth();
 
   const [email, setEmail]           = useState('');
   const [senha, setSenha]           = useState('');
@@ -28,9 +29,10 @@ export default function BarbeiroLoginScreen({ navigation }: Props) {
     setErro('');
     if (!email || !senha) { setErro('Preencha email e senha.'); return; }
     setLoading(true);
-    const { error } = await supabase.auth.signInWithPassword({ email: email.trim(), password: senha });
+    // Conta de cliente nao entra pela Area do Barbeiro (AuthContext.entrar)
+    const falha = await entrar(email.trim(), senha, 'barbeiro');
     setLoading(false);
-    if (error) setErro(error.message === 'Invalid login credentials' ? 'Email ou senha incorretos.' : error.message);
+    if (falha) setErro(falha);
   }
 
   return (

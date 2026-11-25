@@ -6,6 +6,7 @@ import { LIMITE_RENOVACAO_MS, supabase } from '../lib/supabase';
 import { removerAparelho } from '../lib/pushNotificacoes';
 import { esquecerBarbeiro } from '../lib/barbeiroAtual';
 import { definirContaAtiva, limparCacheExceto, limparTodoCache } from '../lib/cacheLocal';
+import { AreaDeLogin, papelEfetivo, recusaDaArea } from '../lib/areaDeLogin';
 import { Enums } from '../types/supabase';
 
 type AppRole = Enums<'app_role'>;
@@ -48,6 +49,12 @@ interface AuthContextType {
   // respondeu (sem internet). O app espera a conexao em vez de pedir login.
   reconectando: boolean;
   tentarReconectar: () => Promise<void>;
+  // Login com email e senha pela tela de uma area (cliente ou barbeiro).
+  // Devolve null se entrou, ou a mensagem para mostrar na tela.
+  entrar: (email: string, senha: string, area: AreaDeLogin) => Promise<string | null>;
+  // Login feito e papel da conta ainda em conferencia: o RootNavigator continua
+  // na tela de login ate a area ser liberada ou recusada
+  conferindoLogin: boolean;
   signOut: () => Promise<void>;
 }
 
@@ -59,6 +66,8 @@ const AuthContext = createContext<AuthContextType>({
   recoveryMode: false,
   reconectando: false,
   tentarReconectar: async () => {},
+  entrar: async () => null,
+  conferindoLogin: false,
   signOut: async () => {},
 });
 
@@ -74,6 +83,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const userRole                        = papel && papel.userId === user?.id ? papel.papel : null;
   const [recoveryMode, setRecoveryMode] = useState(false);
   const [reconectando, setReconectando] = useState(false);
+  const [conferindoLogin, setConferindoLogin] = useState(false);
   const mounted                         = useRef(true);
   // Sessao que o app ja conhece (evento ou getSession): uma resposta atrasada
   // sem sessao nao a apaga
@@ -127,7 +137,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     if (!valendo()) return;
     if (!roles && salvo) return;
 
-    const confirmado: AppRole = roles?.includes('admin') ? 'admin' : roles?.includes('barbeiro') ? 'barbeiro' : 'cliente';
+    const confirmado: AppRole = papelEfetivo(roles ?? []);
     setPapel({ userId, papel: confirmado });
     if (roles && confirmado !== salvo) salvarPapel(userId, confirmado);
   }
@@ -193,6 +203,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       if (event === 'SIGNED_OUT') {
         // Logout ou sessao expirada: nada da conta anterior fica para a proxima
         setRecoveryMode(false);
+        setConferindoLogin(false);
         setPapel(null);
         pedidoPapel.current = null;
         ultimaConta.current = null;
@@ -272,6 +283,39 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     aplicarSessao(r.data.session, r.error);
   }, []);
 
+  // Cada tela de login so abre a propria area (regra em lib/areaDeLogin): conta
+  // de barbeiro nao entra pela Area do Cliente e vice-versa. O papel so pode ser
+  // lido com a sessao criada; enquanto e conferido, conferindoLogin segura o
+  // RootNavigator na tela de login, entao nenhuma area monta (nem consulta dados
+  // ou registra o push) para um login que vai ser recusado. Recusado: a sessao
+  // recem-criada e encerrada so neste aparelho (scope 'local'; o signOut padrao
+  // derrubaria a conta em todos os aparelhos).
+  const entrar = useCallback(async (email: string, senha: string, area: AreaDeLogin): Promise<string | null> => {
+    setConferindoLogin(true);
+    let liberar = true;
+    try {
+      const { data, error } = await supabase.auth.signInWithPassword({ email, password: senha });
+      if (error) return error.message === 'Invalid login credentials' ? 'Email ou senha incorretos.' : error.message;
+
+      let roles: string[] | null = null;
+      try {
+        const r = await supabase.from('user_roles').select('role').eq('user_id', data.user.id);
+        if (!r.error) roles = (r.data ?? []).map((linha) => linha.role);
+      } catch { /* sem rede: roles fica null e o login e recusado */ }
+
+      const recusa = recusaDaArea(roles, area);
+      if (recusa) {
+        const { error: erroSaida } = await supabase.auth.signOut({ scope: 'local' });
+        // Sem conseguir encerrar (sem rede), a sessao continua no aparelho: a
+        // trava so sai no SIGNED_OUT, para a area errada nao abrir
+        if (erroSaida) liberar = false;
+      }
+      return recusa;
+    } finally {
+      if (liberar && mounted.current) setConferindoLogin(false);
+    }
+  }, []);
+
   const signOut = useCallback(async () => {
     // Antes de sair (ainda com a sessao): este aparelho para de receber os
     // avisos desta conta
@@ -281,8 +325,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   // Mesmo objeto enquanto nada muda: as telas que usam useAuth nao redesenham a toa
   const valor = useMemo(
-    () => ({ user, session, loading, userRole, recoveryMode, reconectando, tentarReconectar, signOut }),
-    [user, session, loading, userRole, recoveryMode, reconectando, tentarReconectar, signOut],
+    () => ({ user, session, loading, userRole, recoveryMode, reconectando, tentarReconectar, entrar, conferindoLogin, signOut }),
+    [user, session, loading, userRole, recoveryMode, reconectando, tentarReconectar, entrar, conferindoLogin, signOut],
   );
 
   return (

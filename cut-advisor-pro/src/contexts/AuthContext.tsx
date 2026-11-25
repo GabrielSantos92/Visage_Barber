@@ -2,6 +2,7 @@ import { createContext, useContext, useEffect, useRef, useState, ReactNode } fro
 import { User, Session } from "@supabase/supabase-js";
 import { supabase } from "@/integrations/supabase/client";
 import type { Enums } from "@/integrations/supabase/types";
+import { papelEfetivo } from "@/lib/areaDeLogin";
 
 type AppRole = Enums<"app_role">;
 
@@ -39,6 +40,8 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     // Renovacoes de token do mesmo usuario nao voltam ao estado de carregando
     if (roleUserId.current !== userId) {
       roleUserId.current = userId;
+      // O papel da conta anterior nao vale para esta
+      setRole(null);
       setRoleLoading(true);
     }
     try {
@@ -46,13 +49,11 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         .from("user_roles")
         .select("role")
         .eq("user_id", userId);
+      // Resposta de uma conta que ja saiu (ex.: login recusado pela area, que
+      // entra e sai em seguida): descarta
+      if (roleUserId.current !== userId) return;
       // Prefer highest privilege: admin > barbeiro > cliente
-      if (data && data.length > 0) {
-        const roles = data.map((r) => r.role);
-        if (roles.includes("admin")) setRole("admin");
-        else if (roles.includes("barbeiro")) setRole("barbeiro");
-        else setRole("cliente");
-      }
+      if (data && data.length > 0) setRole(papelEfetivo(data.map((r) => r.role)));
     } finally {
       if (roleUserId.current === userId) setRoleLoading(false);
     }
