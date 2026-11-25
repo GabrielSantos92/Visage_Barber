@@ -1,5 +1,5 @@
 Estado atual do projeto Visage Barber
-Atualizado em 24/11/2026 (lentidão do app Android RESOLVIDA: laço no registro do token do push, corrigido e validado no aparelho com o APK versionCode 8; na main e no GitHub desde 24/11; push Android ativo; WhatsApp abandonado; pagamentos pausados no sandbox, seção 10).
+Atualizado em 24/11/2026 (lentidão do app Android RESOLVIDA: laço no registro do token do push, corrigido e validado no aparelho com o APK versionCode 8; na main e no GitHub desde 24/11; análise do visagismo corrigida em 24/11: gemini-2.5-flash retirado do Replicate, trocado pelo gemini-3-flash, bloco F; push Android ativo; WhatsApp abandonado; pagamentos pausados no sandbox, seção 10).
 
 ESTADO ATUAL (24/11/2026) — LER PRIMEIRO
 As seções 0 a 10 abaixo trazem o histórico e as regras; onde houver conflito, vale este bloco.
@@ -41,6 +41,14 @@ D. Notificações: push Android pela Expo (WhatsApp ABANDONADO)
 E. Git
 - 24/11, com autorização do usuário: a branch fix/lentidao-app entrou na main por avanço direto (fast-forward, sem commit de merge) e a main foi enviada ao GitHub. Commits: be0e379 (correção do laço, bloco A), e95c94c (blocos B e B2), b110637 (versionCode 8 e este arquivo) e o commit seguinte, que só atualiza este bloco. Antes, origin/main = 69c7384 (22/11). Backend e banco não mudaram nesses commits (o Render roda a main; se reimplantar, o código do backend é o mesmo). docs/Revisao-TCC-Visage-Barber.docx fica fora do Git (não rastreado).
 - Branch local backup/app-antes-das-notificacoes (58c35e6), criada em 24/11 como volta de segurança (bloco A).
+- 24/11, com autorização do usuário: commit 7250df6 (correção do visagismo, bloco F) direto na main e enviado ao GitHub; origin/main = 7250df6 antes do commit deste registro. Render reimplantou pelo deploy automático da main.
+
+F. Visagismo com IA: erro "Replicate erro 410: google/gemini-2.5-flash is no longer available" CORRIGIDO em 24/11 (commit 7250df6; na main, no GitHub e no Render)
+- Sintoma: no app (e no site), "Analisar com IA" mostrava o alerta acima. Não era falta de crédito (falta de saldo daria 401, 402 ou 429): o Replicate retirou o modelo google/gemini-2.5-flash, usado na etapa 1 (análise que gera o JSON de recomendação).
+- Causa no código: backend/src/services/gemini.js fixava REPLICATE_ANALISE = 'google/gemini-2.5-flash'. Sem GEMINI_API_KEY no backend, a análise sempre passa pelo Replicate.
+- Correção (só no backend): REPLICATE_ANALISE = process.env.REPLICATE_MODELO_ANALISE || 'google/gemini-3-flash'. O gemini-3-flash no Replicate aceita os mesmos campos (prompt, images, system_instruction, temperature) e devolve o texto em pedaços (lista de strings), como o anterior. A variável opcional REPLICATE_MODELO_ANALISE foi documentada em backend/.env.example; NÃO foi criada no Render (vale o padrão). Se o Replicate retirar outro modelo, basta criá-la no Render com o novo nome, com autorização do usuário (regra 0).
+- A etapa 2 (geração da imagem, google/nano-banana-pro, REPLICATE_MODELO_IMAGEM) não mudou.
+- Validação: chamada real ao google/gemini-3-flash respondeu o JSON pedido; 466 testes do backend aprovados; depois do deploy no Render, o usuário confirmou no app que a análise voltou a funcionar. Não precisou de APK novo (o erro vinha do backend).
 
 0. Regras obrigatórias (valem para qualquer conversa)
 Sem autorização explícita do usuário: não executar SQL no Supabase, não aplicar migrations, não fazer commit, push nem deploy e não gravar a URL do backend no Supabase (notificacao_config.url_backend).
@@ -55,7 +63,8 @@ Não alterar arquivos do projeto sem pedido explícito. (Histórico: a migration
 Já enviadas ao GitHub (branch main):
 
 Commit	O que entrou
-69c7384	22/11: merge da branch feat/whatsapp-cancelamento-28-29 na main (push em 22/11); é o commit que o Render roda
+7250df6	24/11: visagismo troca o google/gemini-2.5-flash (retirado do Replicate, erro 410) pelo google/gemini-3-flash (bloco F do topo); o Render roda a main
+69c7384	22/11: merge da branch feat/whatsapp-cancelamento-28-29 na main (push em 22/11)
 b299169	APK de teste: versionCode 3 e ambiente preview do EAS
 9ba9d27	Configuração do Firebase Android (app.config.js e google-services.json fora do Git)
 cdb9815	Push genérico: sem dados pessoais no payload (só tipo e id do aviso; detalhes na central)
