@@ -29,7 +29,8 @@ C. APK de teste
 - 24/11, com autorização do usuário: build EAS 72a2b519-dc0b-44b1-b723-a7fb93160acd (perfil preview, APK, 1.0.0 / versionCode 8), gerado da pasta de trabalho atual (blocos A, B e B2). FINISHED em 24/11; o link do artefato expira em 08/12/2026. Instalado pelo usuário em 24/11: app rápido de novo.
 - Último registrado aqui: versão 1.0.0, versionCode 4; build EAS 9abc5feb-1e35-4b9b-8f21-ede91151e8c3 (perfil preview, distribuição interna), com o laço do bloco A.
 - 25/11: build EAS 9d4bed3d-ce38-475d-994d-2195e4ab39e3 (preview, APK, 1.0.0 / versionCode 9), com o Painel reformulado e o modo claro novo (bloco I), ainda sem commit na época.
-- 25/11: build EAS 5dad2cec-7dfe-4d0f-bcc5-86129a99ebbb (preview, APK, 1.0.0 / versionCode 10), com a data DD/MM/AAAA no período personalizado; é o mesmo código do commit 7ef4e60. FINISHED em 25/11. Último APK gerado.
+- 25/11: build EAS 5dad2cec-7dfe-4d0f-bcc5-86129a99ebbb (preview, APK, 1.0.0 / versionCode 10), com a data DD/MM/AAAA no período personalizado; é o mesmo código do commit 7ef4e60. FINISHED em 25/11.
+- 25/11, com autorização do usuário: build EAS 78cf5ccf-39f1-4c4a-8ea1-83ed3cf6447b (preview, APK, 1.0.0 / versionCode 11), com o login separado por área (bloco J); é o mesmo código do commit 9f8997e (na main e no GitHub). FINISHED em 25/11; o link do artefato expira em 09/12/2026. Último APK gerado.
 - Avisos conhecidos do expo-doctor (antigos, não impedem o build): android.edgeToEdgeEnabled fora do schema do app.json, falta o peer react-native-worklets (pedido pelo reanimated) e 10 pacotes Expo com patch desatualizado.
 - O google-services.json local fica fora do Git; no build, o app.config.js usa a variável de arquivo GOOGLE_SERVICES_JSON do EAS.
 
