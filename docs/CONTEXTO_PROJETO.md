@@ -1,5 +1,5 @@
 Estado atual do projeto Visage Barber
-Atualizado em 24/11/2026 (lentidão do app Android RESOLVIDA: laço no registro do token do push, corrigido e validado no aparelho com o APK versionCode 8; na main e no GitHub desde 24/11; análise do visagismo corrigida em 24/11: gemini-2.5-flash retirado do Replicate, trocado pelo gemini-3-flash, bloco F; push Android ativo; WhatsApp abandonado; pagamentos pausados no sandbox, seção 10).
+Atualizado em 24/11/2026 (lentidão do app Android RESOLVIDA: laço no registro do token do push, corrigido e validado no aparelho com o APK versionCode 8; na main e no GitHub desde 24/11; análise do visagismo corrigida em 24/11: gemini-2.5-flash retirado do Replicate, trocado pelo gemini-3-flash, bloco F; simulação do visagismo voltou a preservar o rosto original (composição quebrada desde a origem) e recomendações mais realistas, bloco G; conta do Replicate SEM CRÉDITO em 24/11 (erro 402), análise parada até recarregar; push Android ativo; WhatsApp abandonado; pagamentos pausados no sandbox, seção 10).
 
 ESTADO ATUAL (24/11/2026) — LER PRIMEIRO
 As seções 0 a 10 abaixo trazem o histórico e as regras; onde houver conflito, vale este bloco.
@@ -42,6 +42,7 @@ E. Git
 - 24/11, com autorização do usuário: a branch fix/lentidao-app entrou na main por avanço direto (fast-forward, sem commit de merge) e a main foi enviada ao GitHub. Commits: be0e379 (correção do laço, bloco A), e95c94c (blocos B e B2), b110637 (versionCode 8 e este arquivo) e o commit seguinte, que só atualiza este bloco. Antes, origin/main = 69c7384 (22/11). Backend e banco não mudaram nesses commits (o Render roda a main; se reimplantar, o código do backend é o mesmo). docs/Revisao-TCC-Visage-Barber.docx fica fora do Git (não rastreado).
 - Branch local backup/app-antes-das-notificacoes (58c35e6), criada em 24/11 como volta de segurança (bloco A).
 - 24/11, com autorização do usuário: commit 7250df6 (correção do visagismo, bloco F) direto na main e enviado ao GitHub; origin/main = 7250df6 antes do commit deste registro. Render reimplantou pelo deploy automático da main.
+- 24/11, com autorização do usuário: commit d035e00 (este arquivo com o bloco F) e commit fab2e89 (bloco G: composição, prompt realista, thinking_level e rótulos do formato do rosto) direto na main e enviados ao GitHub; origin/main = fab2e89 antes do commit deste registro. Render pelo deploy automático da main (o /health respondeu ok; o commit no ar não aparece no /health, conferir Live no painel).
 
 F. Visagismo com IA: erro "Replicate erro 410: google/gemini-2.5-flash is no longer available" CORRIGIDO em 24/11 (commit 7250df6; na main, no GitHub e no Render)
 - Sintoma: no app (e no site), "Analisar com IA" mostrava o alerta acima. Não era falta de crédito (falta de saldo daria 401, 402 ou 429): o Replicate retirou o modelo google/gemini-2.5-flash, usado na etapa 1 (análise que gera o JSON de recomendação).
@@ -49,6 +50,15 @@ F. Visagismo com IA: erro "Replicate erro 410: google/gemini-2.5-flash is no lon
 - Correção (só no backend): REPLICATE_ANALISE = process.env.REPLICATE_MODELO_ANALISE || 'google/gemini-3-flash'. O gemini-3-flash no Replicate aceita os mesmos campos (prompt, images, system_instruction, temperature) e devolve o texto em pedaços (lista de strings), como o anterior. A variável opcional REPLICATE_MODELO_ANALISE foi documentada em backend/.env.example; NÃO foi criada no Render (vale o padrão). Se o Replicate retirar outro modelo, basta criá-la no Render com o novo nome, com autorização do usuário (regra 0).
 - A etapa 2 (geração da imagem, google/nano-banana-pro, REPLICATE_MODELO_IMAGEM) não mudou.
 - Validação: chamada real ao google/gemini-3-flash respondeu o JSON pedido; 466 testes do backend aprovados; depois do deploy no Render, o usuário confirmou no app que a análise voltou a funcionar. Não precisou de APK novo (o erro vinha do backend).
+
+G. Visagismo: rosto original preservado de verdade e recomendações realistas (24/11, commit fab2e89; na main, no GitHub e no Render)
+- Sintoma relatado pelo usuário: com "A IA decide", o "depois" ficou pior que o "antes": pele mais clara, rosto diferente, barba nas bochechas (que ele não tem) e até o ombro mudado.
+- Diagnóstico (saídas do Replicate da análise das 21:10 de 24/11): a máscara do grounded_sam saiu certa (cabelo e queixo), mas a imagem mostrada no app era a saída crua do nano-banana-pro. A composição em backend/src/services/imagem.js (compor) NUNCA funcionou: a máscara chegava com 3 canais (o JPEG do grounded_sam continua RGB depois do greyscale()) e, num pipeline só, o sharp aplica o removeAlpha depois do joinChannel e apaga o alfa. A imagem gerada saía opaca e cobria a foto inteira, rosto incluído. A resposta dizia mascara_aplicada: true mesmo assim. Não foi pego porque o teste da rota usava um compor falso.
+- Correção: alfaDaMascara (1 canal: extractChannel(0), blur 3, b-w, PNG) e o joinChannel num segundo pipeline. Testado com um "original" vermelho: fora da máscara o vermelho fica (antes sumia). Teste novo backend/test/composicaoVisagismo.test.js com o sharp real (falha no código antigo, passa no novo).
+- Efeito: fora da máscara (cabelo atual + barba atual, com folga de ~10 px) o resultado é a foto original. Barba onde o cliente não tem barba (ex.: bochechas) e cabelo além da área atual NÃO aparecem mais na simulação. Opção NÃO feita (decisão do usuário): liberar a região da barba mesmo sem pelos, ao custo de a IA voltar a mexer na pele dali.
+- Análise (gemini.js): bloco "REALISMO DA RECOMENDAÇÃO PRINCIPAL" no PROMPT_ANALISE (barba só onde cresce, conforme beard_analysis; cabelo com o comprimento atual ou mais curto, conforme hair_analysis; sem personalização, evolução do visual atual em vez de mudança radical; mudanças maiores como 2ª ou 3ª opção). A personalização continua com prioridade. Os itens do bloco são "- Na barba:" e "- No cabelo:" (não "- Barba:", que o teste usa para reconhecer as linhas da personalização). thinking_level: 'low' no gemini-3-flash do Replicate (valores aceitos: none, low, high; o padrão é none). O caminho direto pelo Google (GEMINI_API_KEY, não configurada) não mudou.
+- Resultado (routes/visagismo.js): o campo tracos ("Formato do rosto") passou a ter rótulos, uma parte por linha: Proporções, Testa, Mandíbula, Maçãs do rosto. O app mostra uma por linha; o site junta as linhas no mesmo parágrafo (os rótulos separam). Sem mudança no app nem no site: não precisa de APK novo nem de publicar o site.
+- Validação: 471 testes do backend aprovados (5 novos). NÃO validado com análise real: o Replicate respondeu 402 ("Your account requires credit to run predictions") em 24/11, depois das análises do usuário. Pendente: recarregar o crédito do Replicate (pelo usuário) e então fazer uma análise no app para conferir a recomendação, o tempo com o raciocínio ligado e a imagem final.
 
 0. Regras obrigatórias (valem para qualquer conversa)
 Sem autorização explícita do usuário: não executar SQL no Supabase, não aplicar migrations, não fazer commit, push nem deploy e não gravar a URL do backend no Supabase (notificacao_config.url_backend).
@@ -63,6 +73,7 @@ Não alterar arquivos do projeto sem pedido explícito. (Histórico: a migration
 Já enviadas ao GitHub (branch main):
 
 Commit	O que entrou
+fab2e89	24/11: visagismo preserva o rosto original de verdade (composição corrigida), prompt com recomendações realistas, thinking_level low e rótulos no formato do rosto (bloco G do topo)
 7250df6	24/11: visagismo troca o google/gemini-2.5-flash (retirado do Replicate, erro 410) pelo google/gemini-3-flash (bloco F do topo); o Render roda a main
 69c7384	22/11: merge da branch feat/whatsapp-cancelamento-28-29 na main (push em 22/11)
 b299169	APK de teste: versionCode 3 e ambiente preview do EAS
@@ -83,7 +94,7 @@ ecc7d7a	Meu desempenho do barbeiro: dias com mais cortes e origem do percentual 
 12c2bd6	O agendamento no app recomeça do início ao trocar de aba, como no site
 e34f257	Financeiro, comissões e pagamentos online com Mercado Pago (backend, site, app e migrations 18 e 19)
 092b22e	Limite de 3 agendamentos por cliente por dia e bloqueio de serviços com componentes repetidos (banco, site e app)
-8659b29	Visagismo personalizado (formal, despojado, sem barba, loiro etc.) mantendo o rosto original; não gera imagem quando a análise dá "não aplicável" para rosto feminino
+8659b29	Visagismo personalizado (formal, despojado, sem barba, loiro etc.) mantendo o rosto original (a composição que garantia isso só passou a funcionar no fab2e89, bloco G); não gera imagem quando a análise dá "não aplicável" para rosto feminino
 ed150f5	O teclado não cobre mais as telas de login no Android
 17596f6	Agendamentos do barbeiro em ordem de horário
 67ac0de	Nomes de cortes e barbas em português brasileiro
