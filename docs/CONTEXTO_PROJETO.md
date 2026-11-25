@@ -98,7 +98,7 @@ J. Login separado por área (25/11, commit 0246529; na main e no GitHub, push di
 - Login recusado: a sessão recém-criada é encerrada com signOut({ scope: "local" }) (o padrão "global" derrubaria a conta em todos os aparelhos) e a tela mostra o motivo ("Esta conta é de barbeiro. Entre pela Área do Barbeiro." ou "Esta conta não é de barbeiro. Entre pela Área do Cliente.").
 - Site: Login.tsx, BarbeiroLogin.tsx e AuthCallback.tsx (Google, que só existe na Área do Cliente) chamam recusarForaDaArea (lib/conferirAreaDoLogin.ts) logo depois do login. AuthContext descarta a resposta do papel de uma conta que já saiu e zera o papel ao trocar de conta.
 - App: o login passou para AuthContext.entrar(email, senha, área). Enquanto o papel é conferido, conferindoLogin mantém o RootNavigator na tela de login: nenhuma área monta, nada é consultado e o push não é registrado para um login recusado. Se o signOut falhar (sem rede), a trava fica até o SIGNED_OUT.
-- Testes: site 286 de 286 (22 novos em src/test/area-login.test.tsx: regra, paridade site/app, as duas telas e o Google; 5 deles falham sem a correção), typecheck sem erros e lint sem problemas novos; app sem erros novos de tipo (só o antigo do ThemeContext). Pendente: testar no aparelho (exige APK novo; o versionCode 10 não tem a correção) e no site publicado.
+- Testes: site 286 de 286 (22 novos em src/test/area-login.test.tsx: regra, paridade site/app, as duas telas e o Google; 5 deles falham sem a correção), typecheck sem erros e lint sem problemas novos; app sem erros novos de tipo (só o antigo do ThemeContext). Validado no celular pelo usuário em 25/11 com o APK versionCode 11 (build 78cf5ccf). Pendente: conferir no site publicado.
 
 0. Regras obrigatórias (valem para qualquer conversa)
 Sem autorização explícita do usuário: não executar SQL no Supabase, não aplicar migrations, não fazer commit, push nem deploy e não gravar a URL do backend no Supabase (notificacao_config.url_backend).
@@ -298,7 +298,7 @@ Pagamentos: PAUSADO em 15/11 pelo usuário, na fase de teste. Ao retomar, seguir
 Configurar em Admin → Comissões o percentual padrão e o de cada barbeiro.
 Testar o Painel reformulado no celular com o APK versionCode 10 (bloco I): toque nas colunas dos gráficos, rolagem, período personalizado em DD/MM/AAAA e o modo claro novo nas outras telas do app; e a Agenda (Por dia, Próximos e Histórico).
 Conferir se o site publicou o 7ef4e60 (o push foi direto na main).
-Login por área (bloco J, commit 0246529): conferir no site publicado e, com um APK novo, no celular: barbeiro pela Área do Cliente e cliente pela Área do Barbeiro devem ser recusados com a mensagem; cada um pela própria área e o admin pelas duas devem entrar.
+Login por área (bloco J, commit 0246529): app validado no celular em 25/11 (APK versionCode 11); falta conferir no site publicado (também pelo Google): barbeiro pela Área do Cliente e cliente pela Área do Barbeiro devem ser recusados com a mensagem; cada um pela própria área e o admin pelas duas devem entrar.
 Notificações: concluídas (seção 9.17). A troca do segredo fixo por HMAC com nonce continua opcional e pendente; não retomar o WhatsApp.
 9. Notificações por WhatsApp: estado em 12/11/2026 (HISTÓRICO)
 ATENÇÃO: as seções 9.1 a 9.16 são histórico. O WhatsApp foi ABANDONADO e não deve ser reativado nem proposto; o push voltou e está ativo (seção 9.17). Fatos ainda válidos daqui: o mecanismo da fila, do pg_cron e do pg_net, o segredo no Vault (notificacoes_segredo_backend) e as regras de segurança da seção 0.
