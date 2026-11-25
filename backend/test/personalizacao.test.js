@@ -248,14 +248,19 @@ test('rota /analisar: opcao invalida e recusada antes de chamar a IA', async () 
 
 // Simula o pipeline da imagem e registra o que cada etapa recebeu
 function pipelineFalso() {
-  const registro = { prompts: [], partes: [], alinhou: 0 };
+  const registro = { prompts: [], partes: [], alinhou: 0, montou: [] };
   return {
     registro,
     gemini: { editarCabeloBarba: async (_png, prompt) => { registro.prompts.push(prompt); return Buffer.from('gerada'); } },
     imagem: {
       alinharFoto: async () => { registro.alinhou++; return { png: Buffer.from('png'), largura: 4, altura: 4 }; },
-      mascaraCabeloBarba: async (_png, _l, _a, partes) => { registro.partes.push(partes); return Buffer.from('mascara'); },
-      compor: async () => Buffer.from('final'),
+      mascaraCabeloBarba: async (img, _l, _a, partes) => {
+        registro.partes.push([String(img), ...partes]);
+        if (registro.falharSegmentacao) throw new Error('segmentacao fora do ar');
+        return Buffer.from(`mascara ${partes}`);
+      },
+      montarMascara: async (args) => { registro.montou.push(args); return Buffer.from('mascara final'); },
+      compor: async (_o, _g, mascara) => { registro.compostaCom = String(mascara); return Buffer.from('final'); },
     },
   };
 }
@@ -267,7 +272,7 @@ test('rota /imagem-referencia: nao gera nada quando o visagismo nao se aplica', 
     assert.equal(r.status, 422);
     assert.equal(r.corpo.code, 'VISAGISMO_NAO_APLICAVEL');
   });
-  assert.deepEqual(registro, { prompts: [], partes: [], alinhou: 0 });
+  assert.deepEqual(registro, { prompts: [], partes: [], alinhou: 0, montou: [] });
 });
 
 test('rota /imagem-referencia: segue o pedido no prompt e na mascara', async () => {
@@ -279,8 +284,13 @@ test('rota /imagem-referencia: segue o pedido no prompt e na mascara', async () 
     assert.equal(r.corpo.base64, Buffer.from('final').toString('base64'));
     assert.equal(r.corpo.mascara_aplicada, true);
   });
-  // Barba mantida: a mascara so libera o cabelo, a barba vem da foto original
-  assert.deepEqual(registro.partes, [['hair']]);
+  // Barba mantida: a mascara so libera o cabelo, a barba vem da foto original.
+  // Cabelo da original (uma chamada so, ja e so cabelo) e da gerada.
+  assert.deepEqual(registro.partes, [['png', 'hair'], ['gerada', 'hair']]);
+  assert.equal(String(registro.montou[0].antes), 'mascara hair');
+  assert.equal(String(registro.montou[0].cabeloAntes), 'mascara hair');
+  assert.equal(String(registro.montou[0].cabeloDepois), 'mascara hair');
+  assert.equal(registro.compostaCom, 'mascara final');
   assert.match(registro.prompts[0], /golden blonde/);
   assert.match(registro.prompts[0], /keep the existing beard and mustache exactly as they are/);
 });
@@ -291,8 +301,39 @@ test('rota /imagem-referencia: sem personalizacao, mascara e prompt de sempre', 
     const r = await post('/imagem-referencia', { imagem_base64: 'abc', analise: ANALISE });
     assert.equal(r.status, 200);
   });
-  assert.deepEqual(registro.partes, [['hair', 'beard', 'mustache']]);
+  // A mascara de sempre (cabelo + barba juntos) + cabelo da original + cabelo da gerada
+  assert.deepEqual(registro.partes, [['png', 'hair', 'beard', 'mustache'], ['png', 'hair'], ['gerada', 'hair']]);
+  assert.equal(String(registro.montou[0].antes), 'mascara hair,beard,mustache');
+  assert.equal(String(registro.montou[0].cabeloAntes), 'mascara hair');
   assert.equal(registro.prompts[0], montarPromptEdicao(ANALISE));
+});
+
+test('rota /imagem-referencia: so barba (corte mantido) nao segmenta cabelo nenhum', async () => {
+  const { registro, gemini, imagem } = pipelineFalso();
+  await comRota({ gemini, imagem }, async (post) => {
+    const r = await post('/imagem-referencia', { imagem_base64: 'abc', analise: { ...ANALISE, preferencias: { estilo: 'manter', barba: 'sem' } } });
+    assert.equal(r.status, 200);
+  });
+  assert.deepEqual(registro.partes, [['png', 'beard', 'mustache']]);
+  assert.equal(registro.montou[0].cabeloAntes, null);
+  assert.equal(registro.montou[0].cabeloDepois, null);
+});
+
+test('rota /imagem-referencia: segmentacao fora do ar entrega a imagem e avisa que a garantia caiu', async () => {
+  const { registro, imagem } = pipelineFalso();
+  registro.falharSegmentacao = true;
+  const png = await require('sharp')({ create: { width: 4, height: 4, channels: 3, background: '#888' } }).png().toBuffer();
+  const gemini = { editarCabeloBarba: async () => png };
+  await comRota({ gemini, imagem: { ...imagem, montarMascara: async (a) => { registro.montou.push(a); return null; } } }, async (post) => {
+    const r = await post('/imagem-referencia', { imagem_base64: 'abc', analise: ANALISE });
+    assert.equal(r.status, 200);
+    assert.equal(r.corpo.mascara_aplicada, false);
+  });
+  // Sem a mascara de antes, nao segmenta a gerada nem compoe
+  assert.equal(registro.partes.length, 2);
+  assert.ok(registro.partes.every(p => p[0] === 'png'));
+  assert.equal(registro.montou[0].antes, null);
+  assert.equal(registro.compostaCom, undefined);
 });
 
 test('rota /imagem-referencia: pedido adulterado e recusado', async () => {

@@ -20,7 +20,7 @@ const sharp = require('sharp');
 const router = express.Router();
 
 const { analisarVisagismo, montarPromptEdicao, editarCabeloBarba, visagismoAplicavel } = require('../services/gemini');
-const { alinharFoto, mascaraCabeloBarba, compor } = require('../services/imagem');
+const { alinharFoto, mascaraCabeloBarba, montarMascara, compor } = require('../services/imagem');
 const { protegerVisagismo } = require('./privacidade');
 const { analiseEmPtBR } = require('../services/nomesCortes');
 const { normalizarPreferencias, partesEditaveis } = require('../services/personalizacao');
@@ -133,17 +133,35 @@ router.post('/imagem-referencia', async (req, res) => {
     }
     const prompt = montarPromptEdicao(analise, preferencias);
     const original = await alinharFoto(Buffer.from(imagem_base64, 'base64'));
+    const { largura, altura } = original;
 
     // A mascara e o que impede a IA de refazer o rosto. Se a segmentacao falhar
     // ainda entregamos a imagem, mas avisamos na resposta que a garantia caiu.
+    const segmentar = (imagem, partes) => mascaraCabeloBarba(imagem, largura, altura, partes)
+      .catch((e) => { console.error(`[visagismo] falha ao segmentar ${partes}:`, e.message); return null; });
+    const partes = partesEditaveis(preferencias);
+    const editaCabelo = partes.includes('hair');
+    const soCabelo = editaCabelo && partes.length === 1;
+
+    // A segmentacao da original nao depende da imagem gerada: roda junto com ela.
+    // `antes` e a mascara de sempre (cabelo + barba numa chamada so); o cabelo
+    // sozinho serve para achar os fios antigos (services/imagem.js, montarMascara).
+    const [antes, cabeloAntesSeparado, gerado] = await Promise.all([
+      segmentar(original.png, partes),
+      editaCabelo && !soCabelo ? segmentar(original.png, ['hair']) : null,
+      editarCabeloBarba(original.png, prompt),
+    ]);
+    const cabeloAntes = soCabelo ? antes : cabeloAntesSeparado;
+    // Contorno do corte novo, para ele nao sair cortado na borda do antigo
+    const cabeloDepois = antes && editaCabelo ? await segmentar(gerado, ['hair']) : null;
+
     let mascara = null;
     try {
-      mascara = await mascaraCabeloBarba(original.png, original.largura, original.altura, partesEditaveis(preferencias));
+      mascara = await montarMascara({ original: original.png, gerado, antes, cabeloAntes, cabeloDepois, largura, altura });
     } catch (e) {
-      console.error('[visagismo] falha ao segmentar cabelo/barba:', e.message);
+      console.error('[visagismo] falha ao montar a mascara, usando a de antes:', e.message);
+      mascara = antes;
     }
-
-    const gerado = await editarCabeloBarba(original.png, prompt);
 
     // Fora da mascara, o pixel final vem da foto original.
     const final = mascara
