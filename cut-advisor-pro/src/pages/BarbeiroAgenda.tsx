@@ -5,7 +5,7 @@ import { toast } from "@/components/ui/sonner";
 import Navbar from "@/components/Navbar";
 import CartaoAgendamento from "@/components/barbeiro/CartaoAgendamento";
 import { useAcoesAgendamento } from "@/components/barbeiro/useAcoesAgendamento";
-import { COR_STATUS } from "@/components/barbeiro/estilos";
+import { COR_TEXTO_STATUS } from "@/components/barbeiro/estilos";
 import {
   ITENS_SITUACAO, MODOS_AGENDA, TEXTOS_AGENDA, TEXTOS_PAINEL, VAZIO_MODO, buscarAgendaDoBarbeiro, buscarNaoLidas,
   inicioDoDia, listaDoModo, rotuloDoDia, situacaoDe, somarDias,
@@ -156,7 +156,7 @@ const BarbeiroAgenda = () => {
               <div className="grid grid-cols-3 gap-3 mb-6" aria-label={TEXTOS_AGENDA.situacao}>
                 {ITENS_SITUACAO.map(({ chave, rotulo: nome, status }) => (
                   <div key={chave} className="border border-border p-3 text-center" aria-label={`${nome}: ${situacao[chave]}`}>
-                    <p className={`font-mono text-[10px] uppercase tracking-widest ${COR_STATUS[status].split(" ")[0]}`}>{nome}</p>
+                    <p className={`font-mono text-[10px] uppercase tracking-widest ${COR_TEXTO_STATUS[status]}`}>{nome}</p>
                     <p className="text-2xl font-bold text-primary mt-1">{situacao[chave]}</p>
                   </div>
                 ))}

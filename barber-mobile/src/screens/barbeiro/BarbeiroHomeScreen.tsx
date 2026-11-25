@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { View, Text, StyleSheet, FlatList, TouchableOpacity, ActivityIndicator, RefreshControl } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { CompositeNavigationProp, useFocusEffect, useNavigation } from '@react-navigation/native';
@@ -12,10 +12,13 @@ import ErroFetch from '../../components/ErroFetch';
 import CartaoAtendimento from '../../components/barbeiro/CartaoAtendimento';
 import { useAcoesAtendimento } from '../../components/barbeiro/useAcoesAtendimento';
 import {
-  AgendaDoBarbeiro, ITENS_SITUACAO, StatusAgendamento, TEXTOS_PAINEL, buscarAgendaDoBarbeiro, buscarNaoLidas, dataDeHoje,
-  situacaoDe,
+  AgendaDoBarbeiro, ITENS_SITUACAO, StatusAgendamento, TEXTOS_PAINEL, buscarAgendaDoBarbeiro, buscarAvaliacoes, buscarNaoLidas,
+  buscarProximos, dataDeHoje, situacaoDe,
 } from '../../lib/painelBarbeiro';
+import type { AgendamentoPainel, AvaliacaoPainel } from '../../lib/painelBarbeiro';
 import DesempenhoFinanceiro from './painel/DesempenhoFinanceiro';
+import { AvaliacoesRecentes, ProximosAtendimentos } from './painel/ProximosEAvaliacoes';
+import { BarraDividida } from './painel/graficos';
 import SinoNotificacoes from '../../components/SinoNotificacoes';
 import { WHATSAPP_NAS_AGENDAS } from '../../lib/privacidade';
 import { esquecerBarbeiro, idDoBarbeiro } from '../../lib/barbeiroAtual';
@@ -31,9 +34,11 @@ type Nav = CompositeNavigationProp<
 >;
 
 // Painel do Barbeiro: a tela principal do barbeiro, igual ao /dashboard do
-// site. A. Resumo do dia (situacao e atendimentos de hoje, com as acoes);
-// B. Meu desempenho; C. Atendimentos realizados; D. Comissoes e recebimentos.
+// site. Resumo do dia (situacao e atendimentos de hoje, com as acoes);
+// proximos atendimentos e avaliacoes recentes; Meu desempenho (indicadores,
+// graficos, comissoes e recebimentos do periodo).
 // A agenda completa (por dia, proximos, historico) fica na aba Agenda.
+type Carga<T> = { lista: T[] | null; erro: boolean };
 export default function BarbeiroHomeScreen() {
   const { C } = useTheme();
   const s = useMemo(() => makeStyles(C), [C]);
@@ -52,6 +57,10 @@ export default function BarbeiroHomeScreen() {
   const [naoLidas, setNaoLidas]     = useState<Record<string, number>>({});
   // Muda para o bloco financeiro recarregar
   const [versao, setVersao]         = useState(0);
+  const [proximos, setProximos]     = useState<Carga<AgendamentoPainel>>({ lista: null, erro: false });
+  const [avaliacoes, setAvaliacoes] = useState<Carga<AvaliacaoPainel>>({ lista: null, erro: false });
+  // Avaliacoes: uma vez por abertura do painel (e ao puxar para atualizar)
+  const avaliacoesPedidas = useRef(false);
 
   // Atendimentos de hoje salvos da ultima carga (desta conta, chave com a data:
   // os de ontem nunca aparecem como de hoje). O banco atualiza em seguida.
@@ -59,6 +68,33 @@ export default function BarbeiroHomeScreen() {
   useEffect(() => {
     cache.restaurar((d) => setAgenda(d));
   }, [cache.restaurar]);
+
+  // Proximos e avaliacoes salvos da ultima carga (o banco atualiza em seguida)
+  const cacheProximos = useCacheDaTela<AgendamentoPainel[]>(userId ? `barbeiro:proximos:${dataIso(new Date())}` : null, VALIDADE.agenda);
+  const cacheAvaliacoes = useCacheDaTela<AvaliacaoPainel[]>(userId ? 'barbeiro:avaliacoes' : null, VALIDADE.agenda);
+  useEffect(() => {
+    cacheProximos.restaurar((l) => setProximos({ lista: l, erro: false }));
+  }, [cacheProximos.restaurar]);
+  useEffect(() => {
+    cacheAvaliacoes.restaurar((l) => setAvaliacoes({ lista: l, erro: false }));
+  }, [cacheAvaliacoes.restaurar]);
+
+  // Independentes da agenda de hoje e do financeiro: nenhum espera o outro
+  const { salvar: salvarProximos, falhou: falhouProximos } = cacheProximos;
+  const { salvar: salvarAvaliacoes, falhou: falhouAvaliacoes } = cacheAvaliacoes;
+  const carregarProximos = useCallback((id: string) => {
+    setProximos((p) => ({ lista: p.lista, erro: false }));
+    buscarProximos(id)
+      .then((l) => { setProximos({ lista: l, erro: false }); salvarProximos(l); })
+      .catch((e) => { if (!falhouProximos(e)) setProximos({ lista: null, erro: true }); });
+  }, [salvarProximos, falhouProximos]);
+  const carregarAvaliacoes = useCallback((id: string) => {
+    avaliacoesPedidas.current = true;
+    setAvaliacoes((a) => ({ lista: a.lista, erro: false }));
+    buscarAvaliacoes(id)
+      .then((l) => { setAvaliacoes({ lista: l, erro: false }); salvarAvaliacoes(l); })
+      .catch((e) => { if (!falhouAvaliacoes(e)) setAvaliacoes({ lista: null, erro: true }); });
+  }, [salvarAvaliacoes, falhouAvaliacoes]);
 
   const carregar = useCallback(async () => {
     if (!userId) return;
@@ -73,6 +109,9 @@ export default function BarbeiroHomeScreen() {
         setLoading(false);
         // Selos de mensagens nao lidas: so dependem do barbeiro, em paralelo com a agenda
         buscarNaoLidas(id, userId).then(setNaoLidas).catch(() => {});
+        // Proximos a cada volta ao Painel; avaliacoes so na primeira vez
+        carregarProximos(id);
+        if (!avaliacoesPedidas.current) carregarAvaliacoes(id);
         // So os atendimentos de hoje: o resto fica na Agenda
         // A conclusao dos horarios passados fica com o pg_cron (a cada 5 minutos)
         const dados = await buscarAgendaDoBarbeiro(userId, new Date(), {
@@ -88,7 +127,7 @@ export default function BarbeiroHomeScreen() {
     }
     setLoading(false);
     setRefreshing(false);
-  }, [userId]);
+  }, [userId, carregarProximos, carregarAvaliacoes]);
 
   // A cada volta para o Painel: atendimentos, mensagens e financeiro atualizados
   const recarregarTudo = useCallback(() => {
@@ -104,13 +143,16 @@ export default function BarbeiroHomeScreen() {
     // concluido e pago, tambem o financeiro (estorno): recarrega os dois. A
     // agenda e o financeiro salvos no aparelho ficaram antigos: saem tambem.
     onAlterado: () => {
-      if (userId) invalidarCache(userId, ['barbeiro:agenda', 'barbeiro:financeiro']);
+      if (userId) invalidarCache(userId, ['barbeiro:agenda', 'barbeiro:financeiro', 'barbeiro:atividade']);
       recarregarTudo();
     },
   });
 
   const hoje = agenda?.agendamentos ?? [];
   const situacao = situacaoDe(hoje);
+  // Progresso do dia: concluidos entre os que nao foram cancelados (como no site)
+  const validos = situacao.aAtender + situacao.concluidos;
+  const pctDia = validos > 0 ? Math.round((situacao.concluidos / validos) * 100) : 0;
   // Primeira carga: a tela ja aparece e a lista de hoje mostra o carregamento
   const carregandoHoje = agenda === null && !erro;
 
@@ -174,6 +216,20 @@ export default function BarbeiroHomeScreen() {
           </View>
         ))}
       </View>
+      {hoje.length > 0 && (
+        <View style={s.progresso}>
+          <BarraDividida
+            C={C} altura={8}
+            rotulo={`Progresso do dia: ${situacao.concluidos} de ${validos} atendimentos concluídos`}
+            partes={ITENS_SITUACAO.map(({ chave, status }) => ({ chave, valor: situacao[chave], cor: cor[status] }))}
+          />
+          <Text style={s.progressoTexto}>
+            {validos > 0
+              ? `${pctDia}% do dia concluído · ${situacao.concluidos} de ${validos} atendimentos`
+              : 'Todos os horários de hoje foram cancelados'}
+          </Text>
+        </View>
+      )}
 
       <Text style={[s.rotuloPequeno, s.rotuloLista]}>{TEXTOS_PAINEL.hoje.toUpperCase()}</Text>
     </View>
@@ -186,7 +242,7 @@ export default function BarbeiroHomeScreen() {
       <FlatList
         data={hoje}
         keyExtractor={(item) => item.id}
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); esquecerBarbeiro(userId); recarregarTudo(); }} tintColor={C.accent} />}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); esquecerBarbeiro(userId); avaliacoesPedidas.current = false; recarregarTudo(); }} tintColor={C.accent} />}
         contentContainerStyle={{ paddingBottom: 40 }}
         keyboardShouldPersistTaps="handled"
         ListHeaderComponent={resumoDoDia}
@@ -206,7 +262,16 @@ export default function BarbeiroHomeScreen() {
           ? <ActivityIndicator color={C.accent} style={{ marginTop: 24, marginBottom: 8 }} />
           // Falha na primeira carga: o erro (com "tentar de novo") ja aparece no topo
           : agenda === null ? null : <Text style={s.vazio}>{TEXTOS_PAINEL.hojeVazio}</Text>}
-        ListFooterComponent={<DesempenhoFinanceiro C={C} versao={versao} />}
+        ListFooterComponent={(
+          <View>
+            <ProximosAtendimentos
+              C={C} lista={proximos.lista} erro={proximos.erro}
+              onTentar={() => carregarProximos(barbeiroId)} onAbrirAgenda={() => navigation.navigate('Agendamentos')}
+            />
+            <AvaliacoesRecentes C={C} lista={avaliacoes.lista} erro={avaliacoes.erro} onTentar={() => carregarAvaliacoes(barbeiroId)} />
+            <DesempenhoFinanceiro C={C} versao={versao} barbeiroId={barbeiroId} avaliacoes={avaliacoes.lista} erroAvaliacoes={avaliacoes.erro} />
+          </View>
+        )}
       />
 
       {modal}
@@ -231,6 +296,8 @@ function makeStyles(C: Theme) {
     situacaoItem:     { flex: 1, borderWidth: 1, borderColor: C.border, paddingVertical: 10, alignItems: 'center' },
     situacaoRotulo:   { fontFamily: F.mono, fontSize: 8, letterSpacing: 1.2 },
     situacaoValor:    { fontFamily: F.sansMedium, fontSize: 20, color: C.primary, marginTop: 4 },
+    progresso:        { paddingHorizontal: 24, marginTop: 12, gap: 6 },
+    progressoTexto:   { fontFamily: F.mono, fontSize: 9, color: C.mutedFg, letterSpacing: 0.5 },
     vazio:            { fontFamily: F.sans, color: C.mutedFg, textAlign: 'center', marginTop: 24, marginBottom: 8, paddingHorizontal: 24 },
     btnPrimary:       { backgroundColor: C.primary, paddingVertical: 16, alignItems: 'center', marginTop: 20 },
     btnPrimaryText:   { fontFamily: F.mono, fontSize: 11, color: C.primaryFg, letterSpacing: 2.5 },

@@ -27,7 +27,7 @@ type Agendamento = {
 };
 
 const statusLabels: Record<string, { label: string; color: string }> = {
-  confirmado: { label: "CONFIRMADO", color: "text-green-500 border-green-500/30" },
+  confirmado: { label: "CONFIRMADO", color: "text-green-700 dark:text-green-500 border-green-500/30" },
   cancelado: { label: "CANCELADO", color: "text-destructive border-destructive/30" },
   concluido: { label: "CONCLUÍDO", color: "text-primary border-primary/30" },
 };
@@ -223,7 +223,7 @@ const MeusAgendamentos = () => {
                         {st.label}
                       </span>
                       {pagamento && (
-                        <span className={`font-mono text-[9px] uppercase tracking-widest ${pago(pagamento) ? "text-green-500" : "text-muted-foreground"}`}>
+                        <span className={`font-mono text-[9px] uppercase tracking-widest ${pago(pagamento) ? "text-green-700 dark:text-green-500" : "text-muted-foreground"}`}>
                           {pagamento.metodo === "presencial" && pagamento.status === "pending" ? "Pagar na barbearia" : ROTULO_STATUS[pagamento.status]}
                         </span>
                       )}

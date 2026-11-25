@@ -121,6 +121,89 @@ describe("financeiro: site e app iguais", () => {
     expect(webPainel.rotuloDoDia(webPainel.somarDias(agora, 2), agora).titulo).toBe("sexta-feira");
   });
 
+  it("Painel: mesmos indicadores, mesma comparação e mesmos gráficos", () => {
+    // Comparacao: o trecho equivalente do periodo anterior
+    const agora = new Date(2026, 10, 25, 10, 0); // quarta, 25/11/2026
+    const casos: [webPainel.Intervalo, webPainel.Intervalo, Date?][] = [
+      [{ inicio: "2026-11-01", fim: "2026-11-30" }, { inicio: "2026-10-01", fim: "2026-10-25" }], // mes: so ate hoje
+      [{ inicio: "2026-11-23", fim: "2026-11-29" }, { inicio: "2026-11-16", fim: "2026-11-18" }], // semana: seg a qua
+      [{ inicio: "2026-11-25", fim: "2026-11-25" }, { inicio: "2026-11-24", fim: "2026-11-24" }], // hoje: ontem
+      [{ inicio: "2026-10-27", fim: "2026-11-25" }, { inicio: "2026-09-27", fim: "2026-10-26" }], // 30 dias
+      [{ inicio: "2026-10-01", fim: "2026-10-10" }, { inicio: "2026-09-21", fim: "2026-09-30" }], // personalizado passado
+      [{ inicio: "2026-03-01", fim: "2026-03-31" }, { inicio: "2026-02-01", fim: "2026-02-28" }, new Date(2026, 2, 31, 12)], // fevereiro mais curto
+    ];
+    for (const [atual, esperado, quando] of casos) {
+      expect(webPainel.periodoAnterior(atual, quando ?? agora)).toEqual(esperado);
+      expect(appPainel.periodoAnterior(atual, quando ?? agora)).toEqual(esperado);
+    }
+
+    // Variacao: percentual, pontos (nota), sem base e sem dado
+    const variacoes: [number | null, number | null, "percentual" | "pontos"][] = [
+      [90, 60, "percentual"], [60, 90, "percentual"], [5, 5, "percentual"], [3, 0, "percentual"], [4.5, 4.8, "pontos"], [null, 2, "percentual"],
+    ];
+    for (const [a, b, modo] of variacoes) expect(appPainel.variacao(a, b, modo)).toEqual(webPainel.variacao(a, b, modo));
+    expect(webPainel.variacao(90, 60)).toEqual({ tendencia: "alta", texto: "+50% vs. anterior" });
+    expect(webPainel.variacao(60, 90)?.texto).toBe("-33% vs. anterior");
+    expect(webPainel.variacao(3, 0)?.texto).toBe("anterior: 0");
+    expect(webPainel.variacao(4.5, 4.8, "pontos")).toEqual({ tendencia: "queda", texto: "-0,3 vs. anterior" });
+    expect(webPainel.variacao(null, 2)).toBeNull();
+
+    // Ticket medio: so com servico pago (sem divisao por zero)
+    expect(webPainel.ticketMedio({ faturamento: 90, servicos: 2 })).toBe(45);
+    expect(webPainel.ticketMedio({ faturamento: 0, servicos: 0 })).toBeNull();
+    expect(appPainel.ticketMedio({ faturamento: 90, servicos: 2 })).toBe(45);
+
+    // Faixas: por dia ate 31 dias, por semana ate 26 semanas, por mes acima
+    for (const i of [{ inicio: "2026-11-01", fim: "2026-11-07" }, { inicio: "2026-09-01", fim: "2026-10-30" }, { inicio: "2026-01-01", fim: "2026-12-31" }]) {
+      expect(appPainel.faixasDoPeriodo(i)).toEqual(webPainel.faixasDoPeriodo(i));
+    }
+    expect(webPainel.faixasDoPeriodo({ inicio: "2026-11-01", fim: "2026-11-07" }).faixas).toHaveLength(7);
+    expect(webPainel.faixasDoPeriodo({ inicio: "2026-09-01", fim: "2026-10-30" }).agrupamento).toBe("semana");
+    const ano = webPainel.faixasDoPeriodo({ inicio: "2026-01-01", fim: "2026-12-31" });
+    expect([ano.agrupamento, ano.faixas.length, ano.faixas[1]]).toEqual(["mes", 12, { inicio: "2026-02-01", fim: "2026-02-28", rotulo: "02/2026" }]);
+
+    // Evolucao: soma dos lancamentos por dia (reembolso desconta)
+    const semana = { inicio: "2026-11-02", fim: "2026-11-08" };
+    const lancamentos = [
+      { id: 1, tipo: "servico" as const, competencia: "2026-11-04", servico: "Corte", valor_pago: 40, percentual: 60, comissao: 24 },
+      { id: 2, tipo: "servico" as const, competencia: "2026-11-04", servico: "Barba", valor_pago: 30, percentual: 60, comissao: 18 },
+      { id: 3, tipo: "reembolso" as const, competencia: "2026-11-05", servico: "Corte", valor_pago: -10, percentual: 60, comissao: -6 },
+    ];
+    const evolucao = webPainel.evolucaoFinanceira(lancamentos, semana);
+    expect(appPainel.evolucaoFinanceira(lancamentos, semana)).toEqual(evolucao);
+    expect(evolucao.pontos.map((p) => [p.rotulo, p.faturamento, p.comissao]).slice(2, 4)).toEqual([["04/11", 70, 42], ["05/11", -10, -6]]);
+
+    // Atendimentos do periodo: contagens, servicos mais realizados e faixas
+    const as = (dia: number, h: number) => new Date(2026, 10, dia, h, 0).toISOString();
+    const atendimentos = [
+      { id: "1", data_hora: as(3, 9), status: "concluido" as const, servicos: { nome: "Corte" } },
+      { id: "2", data_hora: as(4, 9), status: "concluido" as const, servicos: { nome: "Barba" } },
+      { id: "3", data_hora: as(4, 10), status: "concluido" as const, servicos: { nome: "Corte" } },
+      { id: "4", data_hora: as(4, 11), status: "cancelado" as const, servicos: { nome: "Corte" } },
+      { id: "5", data_hora: as(6, 11), status: "confirmado" as const, servicos: null },
+      { id: "6", data_hora: as(1, 11), status: "concluido" as const, servicos: { nome: "Corte" } }, // fora do periodo
+    ];
+    const resumo = webPainel.resumoAtendimentos(atendimentos, semana);
+    expect(appPainel.resumoAtendimentos(atendimentos, semana)).toEqual(resumo);
+    expect(resumo).toEqual({ concluidos: 3, cancelados: 1, aAtender: 1, servicos: [{ nome: "Corte", quantidade: 2 }, { nome: "Barba", quantidade: 1 }] });
+    expect(appPainel.atendimentosPorFaixa(atendimentos, semana)).toEqual(webPainel.atendimentosPorFaixa(atendimentos, semana));
+    expect(webPainel.atendimentosPorFaixa(atendimentos, semana).pontos.map((p) => p.concluidos)).toEqual([0, 1, 2, 0, 0, 0, 0]);
+
+    // Avaliacoes: media do periodo e geral, e o texto do cartao
+    const avaliacoes = [
+      { id: "a", nota: 5, comentario: null, created_at: as(3, 12), cliente_id: null },
+      { id: "b", nota: 4, comentario: null, created_at: as(4, 12), cliente_id: null },
+      { id: "c", nota: 2, comentario: null, created_at: new Date(2026, 9, 1, 12).toISOString(), cliente_id: null },
+    ];
+    expect(appPainel.resumoAvaliacoes(avaliacoes, semana)).toEqual(webPainel.resumoAvaliacoes(avaliacoes, semana));
+    expect(webPainel.resumoAvaliacoes(avaliacoes, semana)).toEqual({ media: 4.5, total: 2 });
+    expect(webPainel.resumoAvaliacoes(avaliacoes)).toEqual({ media: 3.7, total: 3 });
+    expect(webPainel.notaAvaliacoes({ media: null, total: 0 }, { media: 3.7, total: 3 })).toBe("Nenhuma no período · geral 3,7 (3 avaliações)");
+
+    expect(appPainel.TEXTOS_INDICADORES).toEqual(webPainel.TEXTOS_INDICADORES);
+    expect(appPainel.LIMITE_LISTA).toBe(5);
+  });
+
   it("mesmas mensagens para cada estado do pagamento", () => {
     const agora = Date.parse("2026-11-05T12:00:00Z");
     for (const metodo of ["pix", "cartao", "presencial"] as const) {

@@ -201,7 +201,7 @@ const AdminFinanceiro = () => {
             <div role="alert" className="border border-amber-500/50 bg-amber-500/5 p-4 mb-8 space-y-3">
               {resumo.duplicados_quantidade > 0 && (
                 <p className="flex items-start gap-2 text-sm text-foreground">
-                  <AlertTriangle className="size-4 text-amber-500 shrink-0 mt-0.5" />
+                  <AlertTriangle className="size-4 text-amber-700 dark:text-amber-500 shrink-0 mt-0.5" />
                   <span>
                     <strong>{resumo.duplicados_quantidade} pagamento(s) em duplicidade</strong>: {formatarReais(resumo.duplicados_valor)} recebidos
                     a mais. Confira em "Pagamentos em duplicidade" e devolva ao cliente.
@@ -211,7 +211,7 @@ const AdminFinanceiro = () => {
               {resumo.cobrancas_abertas > 0 && (
                 <div className="flex flex-wrap items-center gap-3 text-sm">
                   <p className="flex items-start gap-2 text-foreground flex-1">
-                    <AlertTriangle className="size-4 text-amber-500 shrink-0 mt-0.5" />
+                    <AlertTriangle className="size-4 text-amber-700 dark:text-amber-500 shrink-0 mt-0.5" />
                     <span>{resumo.cobrancas_abertas} cobrança(s) cancelada(s) aqui ainda podem ser pagas no Mercado Pago.</span>
                   </p>
                   <button onClick={cancelarAbertas} disabled={cancelando} className={acaoCls}>
@@ -277,7 +277,7 @@ const AdminFinanceiro = () => {
                       <td className="p-3 text-right">{b.servicos}</td>
                       <td className="p-3 text-right">{formatarReais(b.faturamento)}</td>
                       <td className="p-3 text-right">{formatarReais(b.comissao)}</td>
-                      <td className="p-3 text-right">{b.percentual == null ? <span className="text-amber-500">Não configurada</span> : percentual(b.percentual)}</td>
+                      <td className="p-3 text-right">{b.percentual == null ? <span className="text-amber-700 dark:text-amber-500">Não configurada</span> : percentual(b.percentual)}</td>
                       <td className="p-3 text-right font-bold">{formatarReais(b.saldo_pendente)}</td>
                     </tr>
                   ))}
@@ -371,8 +371,8 @@ const AdminFinanceiro = () => {
                           <td className="p-3 font-mono text-[10px] uppercase">{ROTULO_METODO[p.metodo]}</td>
                           <td className="p-3 font-mono text-[10px] uppercase">
                             {ROTULO_STATUS[p.status]}
-                            {p.duplicidade_de && <span className="block text-amber-500">Duplicidade</span>}
-                            {abertaNoProvedor && <span className="block text-amber-500">Cancelamento no Mercado Pago não confirmado</span>}
+                            {p.duplicidade_de && <span className="block text-amber-700 dark:text-amber-500">Duplicidade</span>}
+                            {abertaNoProvedor && <span className="block text-amber-700 dark:text-amber-500">Cancelamento no Mercado Pago não confirmado</span>}
                           </td>
                           <td className="p-3 text-right">
                             {formatarReais(p.valor)}
@@ -392,7 +392,7 @@ const AdminFinanceiro = () => {
                                 </button>
                               )}
                               {reembolsavel && p.tem_duplicidade && (
-                                <span className="font-mono text-[9px] text-amber-500 text-right">Devolva a duplicidade antes</span>
+                                <span className="font-mono text-[9px] text-amber-700 dark:text-amber-500 text-right">Devolva a duplicidade antes</span>
                               )}
                               <button onClick={() => setAcao({ tipo: "historico", item: p })} aria-label={`Histórico do pagamento de ${p.cliente}`} className={acaoCls}>
                                 <History className="size-3" /> Histórico
@@ -420,7 +420,7 @@ const AdminFinanceiro = () => {
                     <div>
                       <p className="text-primary">
                         {r.cliente} · {r.servico}
-                        {r.duplicidade && <span className="ml-2 font-mono text-[9px] uppercase text-amber-500">Duplicidade</span>}
+                        {r.duplicidade && <span className="ml-2 font-mono text-[9px] uppercase text-amber-700 dark:text-amber-500">Duplicidade</span>}
                       </p>
                       <p className="font-mono text-[10px] text-muted-foreground">
                         {format(new Date(r.reembolsado_em), "dd/MM/yyyy HH:mm")} · {ROTULO_METODO[r.metodo]} · {ROTULO_ORIGEM_REEMBOLSO[r.origem]}
@@ -546,7 +546,7 @@ function AcaoDialog({ acao, onClose, onConcluido }: {
                     </label>
                   </>
                 ) : (
-                  <p className="flex items-start gap-2 text-xs text-amber-500">
+                  <p className="flex items-start gap-2 text-xs text-amber-700 dark:text-amber-500">
                     <AlertCircle className="size-3.5 mt-0.5 shrink-0" />
                     A comissão do barbeiro é ajustada proporcionalmente ao valor reembolsado.
                   </p>

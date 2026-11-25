@@ -283,7 +283,7 @@ const ServicoFormDialog = ({ open, servico, onClose, onSaved }: Props) => {
               </p>
 
               {etapasPendentes ? (
-                <p className="flex items-center gap-2 text-xs text-amber-500">
+                <p className="flex items-center gap-2 text-xs text-amber-700 dark:text-amber-500">
                   <AlertCircle className="size-3.5" /> Sem os tempos, o serviço não aparece para agendamento.
                 </p>
               ) : total != null ? (

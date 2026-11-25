@@ -237,8 +237,8 @@ const AdminBarbeiros = () => {
                   <td className="px-4 py-4">
                     <span className="flex items-center gap-1.5 font-mono text-[9px] text-muted-foreground whitespace-nowrap">
                       {b.user_id
-                        ? <><CheckCircle2 className="size-3 text-green-500" /> COM ACESSO</>
-                        : <><AlertCircle className="size-3 text-amber-500" /> SEM ACESSO</>}
+                        ? <><CheckCircle2 className="size-3 text-green-700 dark:text-green-500" /> COM ACESSO</>
+                        : <><AlertCircle className="size-3 text-amber-700 dark:text-amber-500" /> SEM ACESSO</>}
                     </span>
                   </td>
                   <td className="px-4 py-4">

@@ -19,6 +19,7 @@ export const banco = {
   agendamentos: [] as Ag[],
   conversas: [] as { id: string; cliente_id: string }[],
   mensagens: [] as { conversa_id: string }[],
+  avaliacoes: [] as { id: string; nota: number; comentario: string | null; created_at: string; cliente_id: string | null }[],
   updates: [] as { valores: unknown; filtros: Filtro[] }[],
   // Simula falha de comunicacao ou "nada alterado" no update
   respostaUpdate: null as null | { data: unknown; error: unknown },
@@ -38,6 +39,7 @@ function consulta(tabela: string) {
     }
     if (tabela === "conversas") return { data: banco.conversas, error: null };
     if (tabela === "mensagens") return { data: banco.mensagens, error: null };
+    if (tabela === "avaliacoes") return { data: banco.avaliacoes.map((a) => ({ ...a })), error: null };
     if (tabela === "agendamentos" && op === "update") {
       banco.updates.push({ valores, filtros: [...filtros] });
       if (banco.respostaUpdate) return banco.respostaUpdate;
@@ -50,7 +52,8 @@ function consulta(tabela: string) {
     if (tabela === "agendamentos") {
       const desde = filtros.find(([t]) => t === "gte")?.[2] as string | undefined;
       const ate = filtros.find(([t]) => t === "lte")?.[2] as string | undefined;
-      const dentro = (a: Ag) => (!desde || a.data_hora >= desde) && (!ate || a.data_hora <= ate);
+      const status = filtros.find(([t, c]) => t === "eq" && c === "status")?.[2];
+      const dentro = (a: Ag) => (!desde || a.data_hora >= desde) && (!ate || a.data_hora <= ate) && (!status || a.status === status);
       return {
         data: banco.agendamentos.filter(dentro).sort((a, b) => a.data_hora.localeCompare(b.data_hora)).map((a) => ({ ...a })),
         error: null,
@@ -65,7 +68,7 @@ function consulta(tabela: string) {
     neq: (c: string, v: unknown) => { filtros.push(["neq", c, v]); return b; },
     gte: (c: string, v: unknown) => { filtros.push(["gte", c, v]); return b; },
     lte: (c: string, v: unknown) => { filtros.push(["lte", c, v]); return b; },
-    in: () => b, order: () => b,
+    in: () => b, order: () => b, limit: () => b, range: () => b,
     maybeSingle: responder, single: responder,
     then: (ok: (v: unknown) => unknown, falha?: (e: unknown) => unknown) => responder().then(ok, falha),
   };
@@ -100,6 +103,7 @@ export function reiniciarBanco() {
   banco.updates = [];
   banco.respostaUpdate = null;
   banco.consultas = [];
+  banco.avaliacoes = [];
   banco.agendamentos = [
     ag("a1", "c1", em(0, 9), "confirmado"),
     ag("a2", "c2", em(0, 10), "concluido"),

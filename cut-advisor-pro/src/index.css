@@ -5,16 +5,18 @@
 @tailwind utilities;
 
 @layer base {
-  /* Modo claro — mesma paleta do mobile (lightTheme em barber-mobile/src/lib/theme.ts) */
+  /* Modo claro — mesma paleta do mobile (lightTheme em barber-mobile/src/lib/theme.ts):
+     textos e bordas escuros e o verde da marca fechado (legível como texto sobre
+     o fundo claro, com texto branco por cima) */
   :root {
     --background: 0 0% 98%;
-    --foreground: 0 0% 25.1%;
+    --foreground: 0 0% 15%;
 
     --card: 0 0% 100%;
-    --card-foreground: 0 0% 25.1%;
+    --card-foreground: 0 0% 15%;
 
     --popover: 0 0% 100%;
-    --popover-foreground: 0 0% 25.1%;
+    --popover-foreground: 0 0% 15%;
 
     --primary: 0 0% 7.8%;
     --primary-foreground: 0 0% 100%;
@@ -23,37 +25,37 @@
     --secondary-foreground: 0 0% 7.8%;
 
     --muted: 0 0% 94.1%;
-    --muted-foreground: 0 0% 45.1%;
+    --muted-foreground: 0 0% 32%;
 
-    --accent: 76 100% 42%;
-    --accent-foreground: 0 0% 7.8%;
+    --accent: 86 100% 25%;
+    --accent-foreground: 0 0% 100%;
 
-    --destructive: 0 66% 46.7%;
+    --destructive: 0 72% 42%;
     --destructive-foreground: 0 0% 100%;
 
-    --border: 0 0% 87.8%;
-    --input: 0 0% 87.8%;
+    --border: 0 0% 80%;
+    --input: 0 0% 75%;
     --ring: 0 0% 7.8%;
 
     --radius: 0px;
 
     --carbon-950: 0 0% 98%;
     --carbon-900: 0 0% 100%;
-    --steel-800: 0 0% 87.8%;
-    --steel-600: 0 0% 64%;
-    --steel-400: 0 0% 25.1%;
-    --neon: 76 100% 42%;
+    --steel-800: 0 0% 80%;
+    --steel-600: 0 0% 45%;
+    --steel-400: 0 0% 15%;
+    --neon: 86 100% 25%;
 
     --font-sans: 'Space Grotesk', system-ui, sans-serif;
     --font-mono: 'JetBrains Mono', monospace;
 
     --sidebar-background: 0 0% 100%;
-    --sidebar-foreground: 0 0% 25.1%;
+    --sidebar-foreground: 0 0% 15%;
     --sidebar-primary: 0 0% 7.8%;
     --sidebar-primary-foreground: 0 0% 100%;
     --sidebar-accent: 0 0% 94.1%;
     --sidebar-accent-foreground: 0 0% 7.8%;
-    --sidebar-border: 0 0% 87.8%;
+    --sidebar-border: 0 0% 80%;
     --sidebar-ring: 0 0% 7.8%;
 
     color-scheme: light;

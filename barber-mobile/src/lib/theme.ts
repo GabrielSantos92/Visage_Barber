@@ -14,18 +14,20 @@ export const darkTheme = {
   warning:     '#eab308',
 } as const;
 
+// Modo claro com o mesmo contraste do site (cut-advisor-pro/src/index.css):
+// textos e bordas mais escuros e o verde da marca mais fechado, com texto branco
 export const lightTheme = {
   bg:          '#fafafa',
   card:        '#ffffff',
-  border:      '#e0e0e0',
+  border:      '#cccccc',
   primary:     '#141414',
   primaryFg:   '#ffffff',
-  fg:          '#404040',
-  mutedFg:     '#737373',
+  fg:          '#262626',
+  mutedFg:     '#525252',
   muted:       '#f0f0f0',
-  accent:      '#9ED600',
-  accentFg:    '#141414',
-  destructive: '#c62828',
+  accent:      '#488000',
+  accentFg:    '#ffffff',
+  destructive: '#b81e1e',
   success:     '#15803d',
   warning:     '#b45309',
 } as const;

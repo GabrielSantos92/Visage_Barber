@@ -50,6 +50,8 @@ interface Consulta<L> extends PromiseLike<{ data: L[] | null; error: Erro | null
   lte(coluna: string, valor: unknown): Consulta<L>;
   in(coluna: string, valores: unknown[]): Consulta<L>;
   order(coluna: string, opcoes?: { ascending?: boolean }): Consulta<L>;
+  limit(quantidade: number): Consulta<L>;
+  range(de: number, ate: number): Consulta<L>;
   maybeSingle(): PromiseLike<{ data: L | null; error: Erro | null }>;
 }
 interface Banco {
@@ -435,3 +437,281 @@ export async function buscarPainelFinanceiro(inicio: string, fim: string): Promi
     erroDesempenho: des.status === "rejected" ? mensagemDe(des.reason, TEXTOS_PAINEL.erroDesempenho) : null,
   };
 }
+
+// ---------------------------------------------------------------
+// Painel: indicadores do periodo, comparacao com o periodo anterior,
+// graficos, proximos atendimentos e avaliacoes.
+// Nenhum valor financeiro e calculado aqui: faturamento, comissao e servicos
+// pagos vem de meu_financeiro (regras no banco). As contagens vem dos
+// agendamentos e das avaliacoes do proprio barbeiro (RLS), so somadas e
+// agrupadas para exibir.
+// ---------------------------------------------------------------
+export interface Intervalo { inicio: string; fim: string }
+
+const deIso = (iso: string) => { const [a, m, d] = iso.slice(0, 10).split("-").map(Number); return new Date(a, m - 1, d); };
+const isoDe = (d: Date) => `${d.getFullYear()}-${dois(d.getMonth() + 1)}-${dois(d.getDate())}`;
+const diasNoIntervalo = (i: Intervalo) => Math.round((deIso(i.fim).getTime() - deIso(i.inicio).getTime()) / 86400000) + 1;
+// Dia (AAAA-MM-DD, fuso do aparelho) de um horario do banco
+export const diaDoHorario = (iso: string) => isoDe(new Date(iso));
+const noIntervalo = (dia: string, i: Intervalo) => dia >= i.inicio && dia <= i.fim;
+
+// Trecho comparavel do periodo anterior. Periodo que ainda nao terminou (a
+// semana, o mes) compara so os dias ja passados: 01 a 25/11 contra 01 a 25/10,
+// nao contra outubro inteiro. Mes inteiro compara com o mes anterior; os
+// demais, com o mesmo numero de dias logo antes.
+export function periodoAnterior(atual: Intervalo, agora: Date = new Date()): Intervalo {
+  const hoje = isoDe(agora);
+  const fimUtil = atual.inicio <= hoje && atual.fim > hoje ? hoje : atual.fim;
+  const decorridos = diasNoIntervalo({ inicio: atual.inicio, fim: fimUtil });
+  const ini = deIso(atual.inicio);
+  const mesInteiro = ini.getDate() === 1 && atual.fim === isoDe(new Date(ini.getFullYear(), ini.getMonth() + 1, 0));
+  const inicio = mesInteiro ? new Date(ini.getFullYear(), ini.getMonth() - 1, 1) : somarDias(ini, -diasNoIntervalo(atual));
+  let fim = somarDias(inicio, decorridos - 1);
+  if (mesInteiro) {
+    const ultimo = new Date(inicio.getFullYear(), inicio.getMonth() + 1, 0);
+    if (fim > ultimo) fim = ultimo;
+  }
+  return { inicio: isoDe(inicio), fim: isoDe(fim) };
+}
+
+// "01/11 a 25/11"
+export const textoIntervalo = (i: Intervalo) => {
+  const curta = (iso: string) => `${iso.slice(8, 10)}/${iso.slice(5, 7)}`;
+  return i.inicio === i.fim ? curta(i.inicio) : `${curta(i.inicio)} a ${curta(i.fim)}`;
+};
+
+// Variacao contra o periodo anterior. "pontos": diferenca absoluta (nota media);
+// "percentual": diferenca relativa. Sem valor anterior (0), so mostra o anterior.
+export type Tendencia = "alta" | "queda" | "estavel";
+export interface Variacao { tendencia: Tendencia; texto: string }
+
+export function variacao(atual: number | null, anterior: number | null, modo: "percentual" | "pontos" = "percentual"): Variacao | null {
+  if (atual == null || anterior == null) return null;
+  const diferenca = Math.round((atual - anterior) * 100) / 100;
+  const tendencia: Tendencia = diferenca > 0 ? "alta" : diferenca < 0 ? "queda" : "estavel";
+  if (tendencia === "estavel") return { tendencia, texto: "igual ao anterior" };
+  const sinal = diferenca > 0 ? "+" : "";
+  if (modo === "pontos") return { tendencia, texto: `${sinal}${diferenca.toFixed(1).replace(".", ",")} vs. anterior` };
+  if (anterior === 0) return { tendencia, texto: "anterior: 0" };
+  const pct = Math.round((diferenca / Math.abs(anterior)) * 100);
+  return { tendencia, texto: `${sinal}${pct}% vs. anterior` };
+}
+
+// Valor medio pago por servico pago, com os mesmos numeros do Resultado
+// financeiro (os dois ja liquidos de descontos, reembolsos e estornos)
+export const ticketMedio = (f: { faturamento: number; servicos: number } | null) =>
+  f && Number(f.servicos) > 0 ? Number(f.faturamento) / Number(f.servicos) : null;
+
+// ---------------------------------------------------------------
+// Atendimentos do periodo (contagens e servicos mais realizados)
+// ---------------------------------------------------------------
+export interface AtendimentoDoPeriodo { id: string; data_hora: string; status: StatusAgendamento; servicos: { nome: string } | null }
+
+export interface ResumoAtendimentos {
+  concluidos: number;
+  // Inclui as faltas: "Cliente faltou" tambem grava o status cancelado
+  cancelados: number;
+  aAtender: number;
+  servicos: { nome: string; quantidade: number }[];
+}
+
+export const SERVICO_SEM_NOME = "Serviço removido";
+
+export function resumoAtendimentos(lista: AtendimentoDoPeriodo[], intervalo: Intervalo): ResumoAtendimentos {
+  const doPeriodo = lista.filter((a) => noIntervalo(diaDoHorario(a.data_hora), intervalo));
+  const situacao = situacaoDe(doPeriodo);
+  const porServico = new Map<string, number>();
+  doPeriodo.filter((a) => a.status === "concluido").forEach((a) => {
+    const nome = a.servicos?.nome ?? SERVICO_SEM_NOME;
+    porServico.set(nome, (porServico.get(nome) ?? 0) + 1);
+  });
+  const servicos = [...porServico.entries()].map(([nome, quantidade]) => ({ nome, quantidade }))
+    .sort((a, b) => b.quantidade - a.quantidade || a.nome.localeCompare(b.nome));
+  return { concluidos: situacao.concluidos, cancelados: situacao.cancelados, aAtender: situacao.aAtender, servicos };
+}
+
+// ---------------------------------------------------------------
+// Faixas dos graficos: por dia ate 31 dias, por semana ate 26 semanas,
+// por mes acima disso
+// ---------------------------------------------------------------
+export type Agrupamento = "dia" | "semana" | "mes";
+export interface Faixa { inicio: string; fim: string; rotulo: string }
+
+export function faixasDoPeriodo(i: Intervalo): { faixas: Faixa[]; agrupamento: Agrupamento } {
+  const total = diasNoIntervalo(i);
+  const agrupamento: Agrupamento = total <= 31 ? "dia" : total <= 182 ? "semana" : "mes";
+  const faixas: Faixa[] = [];
+  let atual = deIso(i.inicio);
+  const ultimo = deIso(i.fim);
+  while (atual <= ultimo && faixas.length < 400) {
+    const fimFaixa = agrupamento === "dia" ? atual
+      : agrupamento === "semana" ? somarDias(atual, 6)
+        : new Date(atual.getFullYear(), atual.getMonth() + 1, 0);
+    const fim = fimFaixa > ultimo ? ultimo : fimFaixa;
+    const rotulo = agrupamento === "mes" ? `${dois(atual.getMonth() + 1)}/${atual.getFullYear()}` : `${dois(atual.getDate())}/${dois(atual.getMonth() + 1)}`;
+    faixas.push({ inicio: isoDe(atual), fim: isoDe(fim), rotulo });
+    atual = somarDias(fim, 1);
+  }
+  return { faixas, agrupamento };
+}
+
+const faixaDoDia = (faixas: Faixa[], dia: string) => faixas.find((f) => dia >= f.inicio && dia <= f.fim);
+
+export interface PontoFinanceiro extends Faixa { faturamento: number; comissao: number }
+
+// Faturamento e comissao por faixa, somando os lancamentos de meu_financeiro
+// (data do atendimento, como os cartoes). Reembolsos e estornos descontam.
+export function evolucaoFinanceira(lancamentos: MeuFinanceiro["lancamentos"], i: Intervalo): { pontos: PontoFinanceiro[]; agrupamento: Agrupamento } {
+  const { faixas, agrupamento } = faixasDoPeriodo(i);
+  const pontos = faixas.map((f) => ({ ...f, faturamento: 0, comissao: 0 }));
+  lancamentos.forEach((l) => {
+    const p = faixaDoDia(pontos, l.competencia.slice(0, 10)) as PontoFinanceiro | undefined;
+    if (!p) return;
+    p.faturamento += Number(l.valor_pago);
+    p.comissao += Number(l.comissao);
+  });
+  pontos.forEach((p) => {
+    p.faturamento = Math.round(p.faturamento * 100) / 100;
+    p.comissao = Math.round(p.comissao * 100) / 100;
+  });
+  return { pontos, agrupamento };
+}
+
+export interface PontoAtendimentos extends Faixa { concluidos: number }
+
+// Atendimentos concluidos por faixa (pagos ou nao)
+export function atendimentosPorFaixa(lista: AtendimentoDoPeriodo[], i: Intervalo): { pontos: PontoAtendimentos[]; agrupamento: Agrupamento } {
+  const { faixas, agrupamento } = faixasDoPeriodo(i);
+  const pontos = faixas.map((f) => ({ ...f, concluidos: 0 }));
+  lista.forEach((a) => {
+    if (a.status !== "concluido") return;
+    const p = faixaDoDia(pontos, diaDoHorario(a.data_hora)) as PontoAtendimentos | undefined;
+    if (p) p.concluidos += 1;
+  });
+  return { pontos, agrupamento };
+}
+
+export const NOME_AGRUPAMENTO: Record<Agrupamento, string> = { dia: "por dia", semana: "por semana", mes: "por mês" };
+
+// ---------------------------------------------------------------
+// Avaliacoes dos clientes (so as do proprio barbeiro, pelo RLS)
+// ---------------------------------------------------------------
+export interface AvaliacaoPainel {
+  id: string; nota: number; comentario: string | null; created_at: string; cliente_id: string | null;
+  // Nome do cliente: so nas mais recentes, as que aparecem na lista
+  cliente?: string | null;
+}
+export interface ResumoAvaliacoes { media: number | null; total: number }
+
+export function resumoAvaliacoes(lista: AvaliacaoPainel[], i?: Intervalo): ResumoAvaliacoes {
+  const doPeriodo = i ? lista.filter((a) => noIntervalo(diaDoHorario(a.created_at), i)) : lista;
+  if (!doPeriodo.length) return { media: null, total: 0 };
+  const media = doPeriodo.reduce((s, a) => s + Number(a.nota), 0) / doPeriodo.length;
+  return { media: Math.round(media * 10) / 10, total: doPeriodo.length };
+}
+
+export const notaComVirgula = (n: number) => n.toFixed(1).replace(".", ",");
+const avaliacoesTexto = (n: number) => `${n} ${n === 1 ? "avaliação" : "avaliações"}`;
+export const notaAvaliacoes = (periodo: ResumoAvaliacoes, geral: ResumoAvaliacoes) =>
+  periodo.total ? `${avaliacoesTexto(periodo.total)} no período`
+    : geral.total ? `Nenhuma no período · geral ${notaComVirgula(geral.media ?? 0)} (${avaliacoesTexto(geral.total)})`
+      : "Nenhuma avaliação recebida ainda";
+
+// Lancamentos e pagamentos: os cinco mais recentes, com "ver todos"
+export const LIMITE_LISTA = 5;
+export const AVALIACOES_RECENTES = 5;
+
+// ---------------------------------------------------------------
+// Consultas do Painel (todas so do proprio barbeiro)
+// ---------------------------------------------------------------
+const POR_PAGINA = 1000;
+
+// O Supabase devolve no maximo 1000 linhas por consulta: periodos longos vem em paginas
+async function todasAsPaginas<L>(montar: () => Consulta<L>): Promise<L[]> {
+  const linhas: L[] = [];
+  for (let de = 0; ; de += POR_PAGINA) {
+    const { data, error } = await montar().range(de, de + POR_PAGINA - 1);
+    if (error) throw new Error(error.message);
+    linhas.push(...(data ?? []));
+    if (!data || data.length < POR_PAGINA) return linhas;
+  }
+}
+
+// Status e servico dos agendamentos do intervalo (o Painel pede o periodo
+// atual e o anterior numa consulta so). Sem cliente, sem valores.
+export const buscarAtendimentosDoPeriodo = (barbeiroId: string, i: Intervalo) =>
+  todasAsPaginas(() => banco().from<AtendimentoDoPeriodo>("agendamentos")
+    .select("id, data_hora, status, servicos(nome)")
+    .eq("barbeiro_id", barbeiroId)
+    .gte("data_hora", inicioDoDia(deIso(i.inicio)).toISOString())
+    .lte("data_hora", fimDoDia(deIso(i.fim)).toISOString())
+    .order("data_hora", { ascending: true }));
+
+// Proximos atendimentos (a partir de amanha; os de hoje ja estao na Visao do
+// dia). So os primeiros: a lista completa fica na Agenda.
+export async function buscarProximos(barbeiroId: string, agora: Date = new Date(), limite = 5): Promise<AgendamentoPainel[]> {
+  const { data, error } = await banco().from<AgendamentoPainel>("agendamentos")
+    .select("*, servicos(nome, preco, duracao_min)")
+    .eq("barbeiro_id", barbeiroId)
+    .eq("status", "confirmado")
+    .gte("data_hora", inicioDoDia(somarDias(agora, 1)).toISOString())
+    .order("data_hora", { ascending: true })
+    .limit(limite);
+  if (error) throw new Error(error.message);
+  return comClientes(data ?? []);
+}
+
+// Todas as avaliacoes do barbeiro (a nota de cada periodo sai daqui, sem nova
+// consulta ao trocar o filtro). Nome do cliente so nas mais recentes.
+export async function buscarAvaliacoes(barbeiroId: string): Promise<AvaliacaoPainel[]> {
+  const lista = await todasAsPaginas(() => banco().from<AvaliacaoPainel>("avaliacoes")
+    .select("id, nota, comentario, created_at, cliente_id")
+    .eq("barbeiro_id", barbeiroId)
+    .order("created_at", { ascending: false }));
+  const recentes = lista.slice(0, AVALIACOES_RECENTES);
+  const ids = [...new Set(recentes.map((a) => a.cliente_id).filter((id): id is string => !!id))];
+  if (!ids.length) return lista;
+  const { data } = await banco().from<{ user_id: string; nome: string }>("profiles").select("user_id, nome").in("user_id", ids);
+  const nomes: Record<string, string> = {};
+  (data ?? []).forEach((p) => { nomes[p.user_id] = p.nome; });
+  return lista.map((a, i) => (i < AVALIACOES_RECENTES ? { ...a, cliente: a.cliente_id ? nomes[a.cliente_id] ?? null : null } : a));
+}
+
+export const TEXTOS_INDICADORES = {
+  titulo: "Indicadores do período",
+  atendimentos: "Atendimentos concluídos",
+  atendimentosNota: "Concluídos no período, pagos ou não",
+  ticket: "Ticket médio",
+  ticketNota: "Faturamento ÷ serviços pagos",
+  avaliacao: "Avaliação média",
+  cancelamentos: "Cancelamentos e faltas",
+  cancelamentosNota: "Inclui as faltas registradas: o sistema não as separa",
+  indisponivel: "Indisponível",
+  semComparacao: "Sem comparação",
+  comparado: "Comparado a",
+  evolucao: "Evolução do faturamento",
+  evolucaoNota: "Lançamentos oficiais pela data do atendimento, já com reembolsos e estornos.",
+  verFaturamento: "Faturamento",
+  verComissao: "Comissão",
+  atendimentosPeriodo: "Atendimentos por período",
+  atendimentosPeriodoNota: "Atendimentos concluídos, pagos ou não. Não é um valor financeiro.",
+  servicos: "Serviços mais realizados",
+  servicosNota: "Atendimentos concluídos de cada serviço no período.",
+  servicosVazio: "Nenhum serviço concluído no período.",
+  diasSemana: "Desempenho por dia da semana",
+  umDia: "Escolha um período de mais de um dia para ver a evolução.",
+  semFaturamento: "Nenhum faturamento no período.",
+  proximos: "Próximos atendimentos",
+  proximosVazio: "Nenhum atendimento marcado para os próximos dias.",
+  verAgenda: "Ver todos na Agenda",
+  avaliacoes: "Avaliações recentes",
+  avaliacoesVazio: "Você ainda não recebeu avaliações.",
+  verTodos: "Ver todos",
+  verMenos: "Ver menos",
+  erroAtividade: "Não foi possível carregar os atendimentos do período.",
+  erroProximos: "Não foi possível carregar os próximos atendimentos.",
+  erroAvaliacoes: "Não foi possível carregar as avaliações.",
+  divisao: "Para onde vai o faturamento",
+  comissoesPagas: "Comissões já pagas",
+  tentar: "Tentar novamente",
+};

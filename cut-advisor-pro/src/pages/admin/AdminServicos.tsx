@@ -15,7 +15,7 @@ const Tempo = ({ s }: { s: Servico }) => {
   if (!s.com_pausa) return <span>{s.duracao_min} min</span>;
   if (s.pausa_min == null) {
     return (
-      <span className="flex items-center gap-1.5 text-amber-500">
+      <span className="flex items-center gap-1.5 text-amber-700 dark:text-amber-500">
         <AlertCircle className="size-3" /> Tempos pendentes
       </span>
     );

@@ -39,7 +39,7 @@ interface Agendamento {
 }
 
 const statusConfig: Record<Status, { label: string; color: string; icon: React.ElementType }> = {
-  confirmado: { label: "CONFIRMADO", color: "text-green-400 border-green-400/20 bg-green-400/5",     icon: CheckCircle2 },
+  confirmado: { label: "CONFIRMADO", color: "text-green-700 dark:text-green-400 border-green-400/20 bg-green-400/5",     icon: CheckCircle2 },
   concluido:  { label: "CONCLUÍDO",  color: "text-primary border-primary/20 bg-primary/5",           icon: CheckCircle2 },
   cancelado:  { label: "CANCELADO",  color: "text-destructive border-destructive/20 bg-destructive/5", icon: XCircle },
 };
@@ -324,7 +324,7 @@ function PainelAdmin() {
                           animate={{ width: `${pct}%` }}
                           transition={{ duration: 0.8, delay: 0.3 }}
                           className={`h-full ${
-                            status === "confirmado" ? "bg-green-400" :
+                            status === "confirmado" ? "bg-green-600 dark:bg-green-400" :
                             status === "concluido"  ? "bg-primary" :
                             "bg-destructive"
                           }`}

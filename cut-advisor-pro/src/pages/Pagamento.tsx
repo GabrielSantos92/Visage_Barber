@@ -28,8 +28,8 @@ const OPCOES: { metodo: MetodoPagamento; titulo: string; texto: string; Icone: t
 ];
 
 const CORES: Record<TipoMensagem, string> = {
-  sucesso: "border-green-500/40 text-green-500",
-  aviso: "border-amber-500/40 text-amber-500",
+  sucesso: "border-green-500/40 text-green-700 dark:text-green-500",
+  aviso: "border-amber-500/40 text-amber-700 dark:text-amber-500",
   erro: "border-destructive/40 text-destructive",
   info: "border-border text-foreground",
 };

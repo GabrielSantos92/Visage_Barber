@@ -29,8 +29,8 @@ const Register = () => {
   const passwordStrength = (pw: string) => {
     if (pw.length === 0) return null;
     if (pw.length < 6) return { label: "Fraca", color: "text-destructive" };
-    if (pw.length < 8) return { label: "Média", color: "text-yellow-500" };
-    return { label: "Forte", color: "text-green-500" };
+    if (pw.length < 8) return { label: "Média", color: "text-yellow-700 dark:text-yellow-500" };
+    return { label: "Forte", color: "text-green-700 dark:text-green-500" };
   };
 
   const validate = () => {

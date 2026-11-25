@@ -121,7 +121,7 @@ const AdminComissoes = () => {
                       </td>
                       <td className="p-3">
                         {b.vigente == null
-                          ? <span className="text-amber-500">Não configurada</span>
+                          ? <span className="text-amber-700 dark:text-amber-500">Não configurada</span>
                           : <>{percentual(b.vigente)}{b.proprio == null && <span className="ml-1 font-mono text-[9px] text-muted-foreground">(padrão)</span>}</>}
                       </td>
                       <td className="p-3">

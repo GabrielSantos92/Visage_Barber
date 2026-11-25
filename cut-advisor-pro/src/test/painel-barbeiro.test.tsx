@@ -6,9 +6,9 @@
 import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { intervaloDoPeriodo } from "@/lib/financeiro";
-import { PERIODOS_PAINEL } from "@/lib/painelBarbeiro";
-import { banco, chamadas, reiniciarBanco } from "./bancoBarbeiro";
+import { dataIso, intervaloDoPeriodo } from "@/lib/financeiro";
+import { PERIODOS_PAINEL, periodoAnterior } from "@/lib/painelBarbeiro";
+import { banco, chamadas, em, reiniciarBanco } from "./bancoBarbeiro";
 
 vi.mock("@/integrations/supabase/client", async () => ({ supabase: (await import("./bancoBarbeiro")).supabase }));
 vi.mock("@/contexts/AuthContext", async () => {
@@ -75,7 +75,7 @@ describe("Painel do Barbeiro - A. Resumo do dia", () => {
     expect(screen.queryByText(/Agendamentos Recentes/i)).toBeNull();
   });
 
-  it("situação e atendimentos de hoje; próximos e histórico ficam só na Agenda", async () => {
+  it("situação e atendimentos de hoje; próximos resumidos ao lado; histórico só na Agenda", async () => {
     await abrirPainel();
     expect(screen.getByLabelText("A atender: 1")).toBeInTheDocument();
     expect(screen.getByLabelText("Concluídos: 1")).toBeInTheDocument();
@@ -83,9 +83,14 @@ describe("Painel do Barbeiro - A. Resumo do dia", () => {
     expect(nomesHoje()).toEqual(["Ana", "Bruno", "Caio"]);
     expect(within(cartao("Ana")).getByText("Hoje · 09:00")).toBeInTheDocument();
 
-    // Sem abas de proximos/historico no Painel; so o dia de hoje e pedido ao banco
+    // Sem abas de proximos/historico no Painel. Proximos: so a lista curta dos
+    // confirmados a partir de amanha (Davi; Fabio esta cancelado), sem acoes
     expect(screen.queryByRole("tab")).toBeNull();
-    expect(screen.queryByText("Davi")).toBeNull();
+    const proximos = screen.getByLabelText("Próximos atendimentos");
+    expect(await within(proximos).findByText("Davi")).toBeInTheDocument();
+    expect(within(proximos).queryByText("Fábio")).toBeNull();
+    expect(within(proximos).queryByRole("button")).toBeNull();
+    expect(within(proximos).getByRole("link", { name: /Ver todos na Agenda/ })).toHaveAttribute("href", "/barbeiro/agenda");
     expect(screen.queryByText("Eva")).toBeNull();
     const daLista = banco.consultas.find((c) => c.tabela === "agendamentos" && c.filtros.some(([t]) => t === "gte"));
     expect(daLista).toBeDefined();
@@ -113,6 +118,7 @@ describe("Painel do Barbeiro - ações nos atendimentos de hoje", () => {
     expect(popup).toHaveTextContent(/Cancelar agendamento\?|Registrar falta do cliente\?/);
     expect(banco.updates).toHaveLength(0);
     const antes = chamadas("meu_financeiro").length;
+    const antesDesempenho = chamadas("meu_desempenho").length;
     await act(async () => { fireEvent.click(within(popup).getByRole("button", { name: /^Confirmar/ })); });
 
     // Mesma operacao da Agenda, com protecao contra cancelar de novo
@@ -123,8 +129,9 @@ describe("Painel do Barbeiro - ações nos atendimentos de hoje", () => {
     expect(await screen.findByLabelText("Cancelados: 2")).toBeInTheDocument();
     expect(screen.getByLabelText("A atender: 0")).toBeInTheDocument();
     expect(within(cartao("Ana")).getByText("CANCELADO")).toBeInTheDocument();
+    // So o periodo atual e recarregado (o anterior, usado na comparacao, nao muda)
     expect(chamadas("meu_financeiro").length).toBe(antes + 1);
-    expect(chamadas("meu_desempenho").length).toBe(antes + 1);
+    expect(chamadas("meu_desempenho").length).toBe(antesDesempenho + 1);
   });
 
   it("cliente faltou (atendimento já concluído): texto próprio e o financeiro é recarregado (estorno)", async () => {
@@ -258,5 +265,88 @@ describe("Painel do Barbeiro - B, C e D (financeiro)", () => {
     expect(await screen.findByText(/Sua conta ainda não está vinculada a um barbeiro/)).toBeInTheDocument();
     expect(chamadas("meu_financeiro")).toHaveLength(0);
     expect(chamadas("meu_desempenho")).toHaveLength(0);
+  });
+});
+
+// Dia local (AAAA-MM-DD) relativo a hoje, como a competencia dos lancamentos
+const diaRelativo = (n: number) => dataIso(new Date(em(n, 12)));
+const lanc = (id: number, dia: number, valor_pago: number, comissao: number, tipo = "servico") =>
+  ({ id, tipo, competencia: diaRelativo(dia), servico: "Corte", valor_pago, percentual: 60, comissao });
+
+describe("Painel do Barbeiro - indicadores, comparação, gráficos e listas", () => {
+  it("indicadores do período comparados ao trecho equivalente do período anterior", async () => {
+    const atual = intervaloDoPeriodo("30dias");
+    const anterior = periodoAnterior(atual);
+    // Periodo atual: R$ 90 em 2 servicos; anterior: R$ 60 em 2 servicos
+    banco.rpc.mockImplementation(async (fn: string, a?: { p_inicio: string }) => {
+      if (fn === "meu_financeiro") {
+        return { data: a?.p_inicio === anterior.inicio
+          ? { ...MEU, faturamento: 60, servicos: 2, lancamentos: [] }
+          : { ...MEU, lancamentos: [lanc(1, -1, 50, 30), lanc(2, 0, 40, 24)] }, error: null };
+      }
+      return { data: fn === "meu_desempenho" ? DES : null, error: null };
+    });
+    banco.avaliacoes = [
+      { id: "r1", nota: 5, comentario: "Ótimo corte", created_at: em(0, 8), cliente_id: "c6" },
+      { id: "r2", nota: 3, comentario: null, created_at: em(-40, 8), cliente_id: "c5" },
+    ];
+    await abrirPainel();
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Últimos 30 dias" })); });
+
+    // O periodo anterior e pedido so ao meu_financeiro; o desempenho, so o atual
+    expect(chamadas("meu_financeiro")).toContainEqual({ p_inicio: anterior.inicio, p_fim: anterior.fim });
+    expect(chamadas("meu_desempenho")).not.toContainEqual({ p_inicio: anterior.inicio, p_fim: anterior.fim });
+
+    await screen.findAllByText("+50% vs. anterior");
+    expect(indicador("Faturamento gerado")).toHaveTextContent("+50% vs. anterior");
+    // Ticket medio: faturamento / servicos pagos (90 / 2), contra 60 / 2
+    expect(texto(indicador("Ticket médio").textContent)).toContain("R$ 45,00");
+    expect(indicador("Ticket médio")).toHaveTextContent("+50% vs. anterior");
+    // Atendimentos concluidos: o total de meu_desempenho
+    expect(indicador("Atendimentos concluídos")).toHaveTextContent("11");
+    // Cancelamentos (com as faltas): Caio, hoje; nenhum no periodo anterior
+    expect(await within(indicador("Cancelamentos e faltas")).findByText("1")).toBeInTheDocument();
+    expect(indicador("Cancelamentos e faltas")).toHaveTextContent("anterior: 0");
+    expect(indicador("Cancelamentos e faltas")).toHaveTextContent("Inclui as faltas registradas");
+    // Avaliacao media do periodo (5) contra a do anterior (3)
+    expect(indicador("Avaliação média")).toHaveTextContent("5,0 ★");
+    expect(indicador("Avaliação média")).toHaveTextContent("+2,0 vs. anterior");
+    expect(indicador("Avaliação média")).toHaveTextContent("1 avaliação no período");
+
+    // Servicos mais realizados: concluidos do periodo (Bruno hoje e Eva ontem)
+    const servicos = screen.getByLabelText("Serviços mais realizados");
+    expect(within(servicos).getByLabelText("Corte: 2 (100%)")).toBeInTheDocument();
+    // Evolucao: faturamento por dia, e a comissao ao trocar
+    expect(screen.getByLabelText("Faturamento por dia")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Comissão" }));
+    expect(screen.getByLabelText("Comissão por dia")).toBeInTheDocument();
+
+    // Avaliacoes recentes, com o nome do cliente e o comentario
+    const recentes = screen.getByLabelText("Avaliações recentes");
+    expect(within(recentes).getByText("Fábio")).toBeInTheDocument();
+    expect(within(recentes).getByText("“Ótimo corte”")).toBeInTheDocument();
+    expect(within(recentes).getByRole("img", { name: "Nota 5 de 5" })).toBeInTheDocument();
+  });
+
+  it("lançamentos e pagamentos: os cinco mais recentes e o botão para ver todos", async () => {
+    const lancamentos = Array.from({ length: 7 }, (_, i) => lanc(i + 1, -i, 40, 24));
+    const pagamentos = Array.from({ length: 6 }, (_, i) => ({ ...MEU.pagamentos[0], id: `p${i}` }));
+    respostas({ meu_financeiro: { ...MEU, lancamentos, pagamentos } });
+    await abrirPainel();
+    expect(screen.getAllByRole("row")).toHaveLength(1 + 5);
+    fireEvent.click(screen.getByRole("button", { name: "Ver todos: Serviços que geraram comissão" }));
+    expect(screen.getAllByRole("row")).toHaveLength(1 + 7);
+    expect(screen.getAllByText(/Semana de 02\/11\/2026/)).toHaveLength(5);
+    fireEvent.click(screen.getByRole("button", { name: "Ver todos: Pagamentos recebidos" }));
+    expect(screen.getAllByText(/Semana de 02\/11\/2026/)).toHaveLength(6);
+  });
+
+  it("sem avaliações e sem próximos: avisos próprios, sem números inventados", async () => {
+    banco.agendamentos = banco.agendamentos.filter((a) => a.id !== "a4");
+    await abrirPainel();
+    expect(await screen.findByText("Nenhum atendimento marcado para os próximos dias.")).toBeInTheDocument();
+    expect(screen.getByText("Você ainda não recebeu avaliações.")).toBeInTheDocument();
+    expect(indicador("Avaliação média")).toHaveTextContent("—");
+    expect(indicador("Avaliação média")).toHaveTextContent("Nenhuma avaliação recebida ainda");
   });
 });
