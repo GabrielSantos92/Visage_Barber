@@ -1,36 +1,14 @@
 const express = require('express');
 const { criarRecuperacaoSenha, RecuperacaoErro } = require('../services/recuperacaoSenha');
-const { telefoneParaSalvar } = require('../services/telefone');
 // Cliente unico, protegido pela conferencia do ambiente
 const { supabase: supabaseAdmin } = require('../services/supabaseServico');
 
 const router = express.Router();
 
-// POST /api/auth/register
-// Cria o usuário já confirmado usando a chave admin (bypassa confirmação de email)
-router.post('/register', async (req, res) => {
-  const { email, password, nome, telefone } = req.body;
-
-  if (!email || !password || !nome) {
-    return res.status(400).json({ error: 'email, password e nome são obrigatórios.' });
-  }
-
-  const { data, error } = await supabaseAdmin.auth.admin.createUser({
-    email,
-    password,
-    email_confirm: true,
-    user_metadata: { nome, telefone: telefoneParaSalvar(telefone) },
-  });
-
-  if (error) {
-    if (error.message.includes('already been registered')) {
-      return res.status(409).json({ error: 'Este email já está cadastrado.' });
-    }
-    return res.status(400).json({ error: error.message });
-  }
-
-  return res.status(201).json({ user_id: data.user.id });
-});
+// Cadastro de clientes: o site e o app chamam o Supabase Auth direto (signUp),
+// com a confirmacao de e-mail configurada no projeto. A antiga POST /register
+// foi retirada: era publica, sem limite, e criava contas ja confirmadas com a
+// chave de servico (pulando a confirmacao de e-mail). Nenhuma tela a usava.
 
 // ---------------------------------------------------------------------------
 // Esqueceu a senha? (rotas publicas, sem token de sessao)

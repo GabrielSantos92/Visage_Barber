@@ -1,6 +1,8 @@
 node_modules/
 .env
 .env.*
+# Exemplos sem valores (só os nomes das variáveis) entram no repositório
+!.env.example
 .expo/
 dist/
 web-build/

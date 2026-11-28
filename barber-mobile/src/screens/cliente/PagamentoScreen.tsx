@@ -12,8 +12,9 @@ import { supabase } from '../../lib/supabase';
 import { useTheme } from '../../contexts/ThemeContext';
 import { F, Theme } from '../../lib/theme';
 import {
-  MetodoPagamento, Pagamento, TipoMensagem, buscarPagamentos, criarPagamento, formatarReais,
-  mensagemDoPagamento, pagamentoAtual, pago, pixVencido, sincronizarPagamento,
+  FormasPagamento, MetodoPagamento, Pagamento, SO_PRESENCIAL, TipoMensagem, buscarFormasPagamento, buscarPagamentos,
+  criarPagamento, formaAlternativa, formatarReais, mensagemDoPagamento, pagamentoAtual, pago, pixVencido,
+  sincronizarPagamento,
 } from '../../lib/pagamentos';
 
 type Route = RouteProp<ClienteStackParamList, 'Pagamento'>;
@@ -57,7 +58,9 @@ export default function PagamentoScreen() {
   const [agendamento, setAgendamento] = useState<Agendamento | null>(null);
   const [pagamento, setPagamento]     = useState<Pagamento | null>(null);
   const [carregando, setCarregando]   = useState(true);
-  const [escolha, setEscolha]         = useState<MetodoPagamento>('pix');
+  const [escolha, setEscolha]         = useState<MetodoPagamento>('presencial');
+  // PIX e cartao so quando o backend libera (Mercado Pago em producao)
+  const [formas, setFormas]           = useState<FormasPagamento>(SO_PRESENCIAL);
   // O cliente quer trocar a forma de uma cobranca ainda em aberto
   const [trocando, setTrocando]       = useState(false);
   const [enviando, setEnviando]       = useState(false);
@@ -73,12 +76,17 @@ export default function PagamentoScreen() {
   useEffect(() => {
     let ativo = true;
     (async () => {
-      const { data } = await supabase
-        .from('agendamentos')
-        .select('id, data_hora, status, preco, servicos(nome, preco), barbeiros(nome)')
-        .eq('id', agendamentoId)
-        .maybeSingle();
+      const [{ data }, liberadas] = await Promise.all([
+        supabase
+          .from('agendamentos')
+          .select('id, data_hora, status, preco, servicos(nome, preco), barbeiros(nome)')
+          .eq('id', agendamentoId)
+          .maybeSingle(),
+        buscarFormasPagamento(),
+      ]);
       if (!ativo) return;
+      setFormas(liberadas);
+      setEscolha(liberadas.metodos[0]);
       setAgendamento((data as unknown as Agendamento) ?? null);
       try { await carregarPagamento(); } catch { /* sem pagamento ainda */ }
       if (ativo) setCarregando(false);
@@ -156,6 +164,9 @@ export default function PagamentoScreen() {
   const mostrarOpcoes = !cancelado && !pago(pagamento) && pagamento?.status !== 'refunded' && (!emAberto || trocando);
   const msg = pagamento && !(trocando && emAberto) ? mensagemDoPagamento(pagamento, agora) : null;
   const corMsg: Record<TipoMensagem, string> = { sucesso: C.success, aviso: C.warning, erro: C.destructive, info: C.fg };
+  const opcoes = OPCOES.filter((o) => formas.metodos.includes(o.metodo));
+  // Para onde trocar uma cobranca em aberto (null: nao ha outra forma liberada)
+  const alternativa = pagamento ? formaAlternativa(pagamento.metodo, formas) : null;
 
   return (
     <ScrollView style={s.screen} contentContainerStyle={{ padding: 24, paddingBottom: 48 }}>
@@ -224,7 +235,7 @@ export default function PagamentoScreen() {
         </TouchableOpacity>
       )}
 
-      {emAberto && !trocando && (
+      {emAberto && !trocando && (pagamento!.metodo !== 'presencial' || !!alternativa) && (
         <View style={{ gap: 10, marginBottom: 16 }}>
           {pagamento!.metodo !== 'presencial' && (
             <TouchableOpacity style={s.btnSecundario} onPress={() => sincronizar(false)} disabled={verificando}>
@@ -232,12 +243,14 @@ export default function PagamentoScreen() {
               <Text style={s.btnSecundarioText}>{verificando ? 'VERIFICANDO...' : 'JÁ PAGUEI'}</Text>
             </TouchableOpacity>
           )}
-          <TouchableOpacity
-            style={s.btnSecundario}
-            onPress={() => { setTrocando(true); setErro(null); setEscolha(pagamento!.metodo === 'pix' ? 'cartao' : 'pix'); }}
-          >
-            <Text style={s.btnSecundarioText}>{pagamento!.metodo === 'presencial' ? 'PREFIRO PAGAR AGORA' : 'TROCAR FORMA DE PAGAMENTO'}</Text>
-          </TouchableOpacity>
+          {!!alternativa && (
+            <TouchableOpacity
+              style={s.btnSecundario}
+              onPress={() => { setTrocando(true); setErro(null); setEscolha(alternativa); }}
+            >
+              <Text style={s.btnSecundarioText}>{pagamento!.metodo === 'presencial' ? 'PREFIRO PAGAR AGORA' : 'TROCAR FORMA DE PAGAMENTO'}</Text>
+            </TouchableOpacity>
+          )}
         </View>
       )}
 
@@ -245,7 +258,7 @@ export default function PagamentoScreen() {
       {mostrarOpcoes && (
         <View accessibilityRole="radiogroup" accessibilityLabel="Como você quer pagar?">
           <Text style={[s.rotulo, { marginBottom: 10 }]}>COMO VOCÊ QUER PAGAR?</Text>
-          {OPCOES.map((o) => {
+          {opcoes.map((o) => {
             const marcada = escolha === o.metodo;
             return (
               <TouchableOpacity

@@ -184,8 +184,8 @@ export default function VisagismoResultadoScreen() {
     } catch (e) {
       // Cancelada porque o usuario saiu da tela: nada a mostrar.
       if (controller.signal.aborted && !estourouTempo) return;
-      // Sem login ou com a autorizacao do uso da foto revogada: mostra o motivo
-      if (e instanceof ApiError && (e.status === 401 || e.status === 403)) {
+      // Sem login, autorizacao revogada ou limite de uso atingido: mostra o motivo
+      if (e instanceof ApiError && (e.status === 401 || e.status === 403 || e.status === 429)) {
         setErroMsg(e.message);
         setStatus('erro');
         return;

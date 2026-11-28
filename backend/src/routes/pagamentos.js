@@ -6,13 +6,14 @@
 //   POST /api/pagamentos/cobrancas-abertas/cancelar  { agendamento_id? }  cancela no
 //        Mercado Pago as cobrancas que deixaram de valer aqui (admin)
 //   POST /api/pagamentos/webhook             notificacao do Mercado Pago (publica, assinada)
+//   GET  /api/pagamentos/config              formas que as telas podem oferecer (publica)
 //
 // O cliente e sempre o do token: nao ha parametro de usuario. Valores enviados
 // pelo app sao ignorados; o preco vem do agendamento no banco.
 
 const express = require('express');
 const { criarMercadoPago } = require('../services/mercadoPago');
-const { criarServicoPagamentos, PagamentoErro } = require('../services/pagamentos');
+const { criarServicoPagamentos, PagamentoErro, pagamentoOnlineAtivo } = require('../services/pagamentos');
 
 function criarRotasPagamentos({ servico, verificarToken, ehAdmin }) {
   const router = express.Router();
@@ -56,6 +57,9 @@ function criarRotasPagamentos({ servico, verificarToken, ehAdmin }) {
     headers: req.headers, query: req.query, body: req.body,
   })));
 
+  // Sem dados de ninguem: so diz se PIX e cartao estao liberados
+  router.get('/config', (_req, res) => res.json(servico.formas()));
+
   router.post('/', autenticar, responder((req) => servico.criar({
     usuario: req.usuario, agendamentoId: req.body?.agendamento_id, metodo: req.body?.metodo,
   }), 201));
@@ -94,9 +98,15 @@ const servico = criarServicoPagamentos({
       ? (process.env.MERCADOPAGO_EMAIL_PAGADOR_TESTE || '').trim() || undefined
       : undefined,
     minutosPix: Number(process.env.PAGAMENTO_PIX_MINUTOS) || 30,
+    // Criar cobranca PIX ou cartao; sincronizar, reembolsar e o webhook seguem
+    // funcionando para as cobrancas que ja existem
+    online: pagamentoOnlineAtivo(process.env),
   },
 });
 if (!accessToken) console.warn('[pagamentos] MERCADOPAGO_ACCESS_TOKEN ausente: só o pagamento presencial está disponível.');
+else if (!pagamentoOnlineAtivo(process.env)) {
+  console.warn('[pagamentos] Mercado Pago fora de produção (MERCADOPAGO_AMBIENTE): PIX e cartão desligados para os clientes; só o pagamento presencial está disponível.');
+}
 
 const router = criarRotasPagamentos({ servico, verificarToken, ehAdmin });
 

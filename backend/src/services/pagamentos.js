@@ -72,7 +72,24 @@ const PAGAS = ['approved', 'refunded', 'charged_back'];
 const tentativasPagas = (lista) => lista.filter((t) => PAGAS.includes(t.status))
   .sort((a, b) => String(a.date_approved ?? a.date_created ?? '').localeCompare(String(b.date_approved ?? b.date_created ?? '')));
 
+// Pagamento online (PIX e cartao) liberado para os clientes? So com o Mercado
+// Pago configurado e em producao. Com as credenciais de teste o QR Code e o
+// cartao nao cobram de verdade: o cliente pensaria que pagou. Para testar o
+// sandbox de proposito (ex.: backend local), PAGAMENTO_ONLINE_TESTE=true.
+// Sem MERCADOPAGO_AMBIENTE (ou com outro valor), fica desligado.
+function pagamentoOnlineAtivo(env = process.env) {
+  if (!String(env.MERCADOPAGO_ACCESS_TOKEN ?? '').trim()) return false;
+  const ambiente = String(env.MERCADOPAGO_AMBIENTE ?? '').trim();
+  if (ambiente === 'producao') return true;
+  return ambiente === 'teste' && String(env.PAGAMENTO_ONLINE_TESTE ?? '').trim() === 'true';
+}
+
+// Formas de pagamento que as telas podem oferecer
+const formasDisponiveis = (online) => ({ online, metodos: online ? [...METODOS] : ['presencial'] });
+
 function criarServicoPagamentos({ chamar, mp, config = {}, agora = () => new Date() }) {
+  // Sem `online: false` (so a instancia real decide), vale o que estiver configurado
+  const online = config.online !== false && !!mp;
   // O Mercado Pago so aceita de 30 minutos a 30 dias
   const minutosPix = Math.min(Math.max(Math.round(config.minutosPix ?? 30), 30), 43200);
   const minutosCartao = config.minutosCartao ?? 60;
@@ -137,7 +154,7 @@ function criarServicoPagamentos({ chamar, mp, config = {}, agora = () => new Dat
   async function criar({ usuario, agendamentoId, metodo }) {
     if (!METODOS.includes(metodo)) throw new PagamentoErro(400, 'METODO_INVALIDO', 'Forma de pagamento inválida.');
     if (!UUID_RX.test(String(agendamentoId ?? ''))) throw new PagamentoErro(404, 'AGENDAMENTO_NAO_ENCONTRADO', 'Agendamento não encontrado.');
-    if (metodo !== 'presencial' && !mp) {
+    if (metodo !== 'presencial' && !online) {
       throw new PagamentoErro(503, 'PAGAMENTO_ONLINE_INDISPONIVEL',
         'O pagamento online ainda não está disponível. Escolha pagar na barbearia.');
     }
@@ -315,7 +332,7 @@ function criarServicoPagamentos({ chamar, mp, config = {}, agora = () => new Dat
     }
   }
 
-  return { criar, sincronizar, reembolsar, cancelarAbertas, processarNotificacao };
+  return { criar, sincronizar, reembolsar, cancelarAbertas, processarNotificacao, formas: () => formasDisponiveis(online) };
 }
 
-module.exports = { criarServicoPagamentos, PagamentoErro, publico, melhorTentativa };
+module.exports = { criarServicoPagamentos, PagamentoErro, publico, melhorTentativa, pagamentoOnlineAtivo, formasDisponiveis };

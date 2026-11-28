@@ -16,6 +16,7 @@ const { router: privacidadeRoutes } = require('./routes/privacidade');
 const { router: pagamentosRoutes } = require('./routes/pagamentos');
 const { router: notificacoesRoutes, iniciarNotificacoes } = require('./routes/notificacoes');
 const { router: whatsappRoutes } = require('./routes/whatsapp');
+const { opcoesCors } = require('./services/cors');
 
 const app = express();
 
@@ -23,7 +24,8 @@ const app = express();
 // para que req.ip seja o IP real do cliente nos limites de requisicao
 if (process.env.TRUST_PROXY) app.set('trust proxy', Number(process.env.TRUST_PROXY));
 
-app.use(cors());
+// Sem CORS_ORIGENS, qualquer origem (como antes); ver services/cors.js
+app.use(cors(opcoesCors(process.env)));
 // O webhook do WhatsApp confere a assinatura sobre o corpo exato recebido:
 // guarda os bytes so para essa rota
 app.use(express.json({

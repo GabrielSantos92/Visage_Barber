@@ -2,7 +2,7 @@
 // Quem cria a cobranca e confirma o pagamento e o backend; o app so mostra o
 // estado gravado no banco e pede uma nova consulta ao provedor quando preciso.
 import { supabase } from "@/integrations/supabase/client";
-import { apiPost } from "@/lib/api";
+import { apiGet, apiPost } from "@/lib/api";
 
 export type MetodoPagamento = "pix" | "cartao" | "presencial";
 export type StatusPagamento =
@@ -120,3 +120,29 @@ export const reembolsarOnline = (id: string, valor?: number, motivo?: string) =>
 // de um agendamento ou todas
 export const cancelarCobrancasAbertas = (agendamentoId?: string) =>
   apiPost<{ canceladas: number; falharam: number }>("/api/pagamentos/cobrancas-abertas/cancelar", agendamentoId ? { agendamento_id: agendamentoId } : {});
+
+// Formas de pagamento liberadas pelo backend (GET /api/pagamentos/config). PIX e
+// cartao so aparecem com o Mercado Pago em producao; sem resposta do backend, fica
+// so o pagamento na barbearia, que nao cobra nada pela internet.
+export interface FormasPagamento { online: boolean; metodos: MetodoPagamento[] }
+export const SO_PRESENCIAL: FormasPagamento = { online: false, metodos: ["presencial"] };
+const METODOS_VALIDOS: MetodoPagamento[] = ["pix", "cartao", "presencial"];
+
+export async function buscarFormasPagamento(): Promise<FormasPagamento> {
+  try {
+    const r = await apiGet<Partial<FormasPagamento>>("/api/pagamentos/config");
+    const metodos = METODOS_VALIDOS.filter((m) => r?.metodos?.includes(m));
+    if (!metodos.includes("presencial")) return SO_PRESENCIAL;
+    return { online: r?.online === true && metodos.length > 1, metodos };
+  } catch {
+    return SO_PRESENCIAL;
+  }
+}
+
+// Forma sugerida ao trocar a de uma cobranca em aberto (PIX <-> cartao; da
+// barbearia para o PIX), entre as liberadas; null quando nao ha outra
+export function formaAlternativa(atual: MetodoPagamento, formas: FormasPagamento): MetodoPagamento | null {
+  const outras = formas.metodos.filter((m) => m !== atual);
+  const preferida: MetodoPagamento = atual === "pix" ? "cartao" : "pix";
+  return outras.includes(preferida) ? preferida : outras[0] ?? null;
+}

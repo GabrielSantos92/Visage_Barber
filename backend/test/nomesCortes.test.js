@@ -125,13 +125,17 @@ test('rota /analisar devolve os nomes em pt-BR (IA simulada)', async () => {
   const gemini = require.resolve('../src/services/gemini');
   const privacidade = require.resolve('../src/routes/privacidade');
   const rota = require.resolve('../src/routes/visagismo');
-  const anteriores = [gemini, privacidade, rota].map((k) => require.cache[k]);
+  const cota = require.resolve('../src/services/cotaVisagismo');
+  const anteriores = [gemini, privacidade, rota, cota].map((k) => require.cache[k]);
   require.cache[gemini] = { id: gemini, filename: gemini, loaded: true, exports: {
     ...require('../src/services/gemini'),
     analisarVisagismo: async () => respostaDaIA, montarPromptEdicao: () => '', editarCabeloBarba: async () => Buffer.alloc(0),
   } };
   require.cache[privacidade] = { id: privacidade, filename: privacidade, loaded: true, exports: {
     protegerVisagismo: (_req, _res, next) => next(),
+  } };
+  require.cache[cota] = { id: cota, filename: cota, loaded: true, exports: {
+    cotaVisagismo: { consumir: async () => ({ ok: true }) },
   } };
   delete require.cache[rota];
 
@@ -154,7 +158,7 @@ test('rota /analisar devolve os nomes em pt-BR (IA simulada)', async () => {
     assert.equal(r.recommendations.hair[0].style, 'Degradê médio');
   } finally {
     s.close();
-    [gemini, privacidade, rota].forEach((k, i) => { if (anteriores[i]) require.cache[k] = anteriores[i]; else delete require.cache[k]; });
+    [gemini, privacidade, rota, cota].forEach((k, i) => { if (anteriores[i]) require.cache[k] = anteriores[i]; else delete require.cache[k]; });
   }
 });
 

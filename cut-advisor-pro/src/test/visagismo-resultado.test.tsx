@@ -191,6 +191,15 @@ describe("VisagismoResultado", () => {
     expect(vi.getTimerCount()).toBe(0);
   });
 
+  it("limite de uso atingido: mostra a mensagem do backend em vez do erro generico", async () => {
+    await renderTela();
+    const msg = "Você atingiu o limite de 6 simulações de corte por dia. Tente novamente amanhã, a partir das 09:05.";
+    await act(async () => {
+      pendentes[0].resolve(new Response(JSON.stringify({ error: msg, code: "COTA_VISAGISMO_USUARIO" }), { status: 429 }));
+    });
+    expect(screen.getByRole("alert")).toHaveTextContent(msg);
+  });
+
   it("nao pede a imagem quando a analise diz que o visagismo nao se aplica a foto", async () => {
     await renderTela({ ...resultado, aplicavel: false });
     expect(fetchMock).not.toHaveBeenCalled();

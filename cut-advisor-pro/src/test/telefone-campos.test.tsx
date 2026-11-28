@@ -135,8 +135,9 @@ describe("Cadastro de cliente", () => {
 
   it("envia o telefone so com digitos", async () => {
     await preencher("(11) 98765-4321");
+    // O link de confirmação volta para o mesmo site do cadastro
     expect(sb.signUp).toHaveBeenCalledWith(expect.objectContaining({
-      options: { data: { nome: "Ana", telefone: "11987654321" } },
+      options: { emailRedirectTo: `${window.location.origin}/`, data: { nome: "Ana", telefone: "11987654321" } },
     }));
   });
 

@@ -178,7 +178,7 @@ test('código: só services/supabaseServico.js cria cliente Supabase ou lê as c
 // 4. O app real, em processo separado, com o banco errado e com o certo
 // ---------------------------------------------------------------
 const ROTAS = [
-  ['clientes: cadastro', 'POST', '/api/auth/register', { email: 'cliente@exemplo.invalid', password: 'senha-ficticia', nome: 'Cliente' }],
+  ['pagamentos: formas disponíveis', 'GET', '/api/pagamentos/config'],
   ['clientes: recuperar senha', 'POST', '/api/auth/recuperar-senha/email', { email: 'cliente@exemplo.invalid' }],
   ['administração: métricas', 'GET', '/api/admin/metrics'],
   ['barbeiros: criar', 'POST', '/api/admin/create-barbeiro', { email: 'b@exemplo.invalid', password: 'senha-ficticia', nome: 'B', telefone: '11987654321' }],

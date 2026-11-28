@@ -7,8 +7,9 @@ import { format } from "date-fns";
 import Navbar from "@/components/Navbar";
 import { supabase } from "@/integrations/supabase/client";
 import {
-  MetodoPagamento, Pagamento as PagamentoCliente, TipoMensagem, buscarPagamentos, criarPagamento, formatarReais,
-  mensagemDoPagamento, pagamentoAtual, pago, pixVencido, sincronizarPagamento,
+  FormasPagamento, MetodoPagamento, Pagamento as PagamentoCliente, SO_PRESENCIAL, TipoMensagem, buscarFormasPagamento,
+  buscarPagamentos, criarPagamento, formaAlternativa, formatarReais, mensagemDoPagamento, pagamentoAtual, pago, pixVencido,
+  sincronizarPagamento,
 } from "@/lib/pagamentos";
 import { AVISO_PAGAMENTO_RESUMO } from "@/lib/privacidade";
 
@@ -51,7 +52,9 @@ export default function Pagamento() {
   const [agendamento, setAgendamento] = useState<Agendamento | null>(null);
   const [pagamento, setPagamento] = useState<PagamentoCliente | null>(null);
   const [carregando, setCarregando] = useState(true);
-  const [escolha, setEscolha] = useState<MetodoPagamento>("pix");
+  const [escolha, setEscolha] = useState<MetodoPagamento>("presencial");
+  // PIX e cartao so quando o backend libera (Mercado Pago em producao)
+  const [formas, setFormas] = useState<FormasPagamento>(SO_PRESENCIAL);
   // O cliente quer trocar a forma de uma cobranca ainda em aberto
   const [trocando, setTrocando] = useState(false);
   const [enviando, setEnviando] = useState(false);
@@ -67,12 +70,17 @@ export default function Pagamento() {
   useEffect(() => {
     let ativo = true;
     (async () => {
-      const { data } = await supabase
-        .from("agendamentos")
-        .select("id, data_hora, status, preco, servicos(nome, preco), barbeiros(nome)")
-        .eq("id", agendamentoId)
-        .maybeSingle();
+      const [{ data }, liberadas] = await Promise.all([
+        supabase
+          .from("agendamentos")
+          .select("id, data_hora, status, preco, servicos(nome, preco), barbeiros(nome)")
+          .eq("id", agendamentoId)
+          .maybeSingle(),
+        buscarFormasPagamento(),
+      ]);
       if (!ativo) return;
+      setFormas(liberadas);
+      setEscolha(liberadas.metodos[0]);
       setAgendamento((data as unknown as Agendamento) ?? null);
       try { await carregarPagamento(); } catch { /* sem pagamento ainda */ }
       if (ativo) setCarregando(false);
@@ -165,6 +173,9 @@ export default function Pagamento() {
   const cancelado = agendamento.status === "cancelado";
   const mostrarOpcoes = !cancelado && !pago(pagamento) && pagamento?.status !== "refunded" && (!emAberto || trocando);
   const msg = pagamento && !(trocando && emAberto) ? mensagemDoPagamento(pagamento, agora) : null;
+  const opcoes = OPCOES.filter((o) => formas.metodos.includes(o.metodo));
+  // Para onde trocar uma cobranca em aberto (null: nao ha outra forma liberada)
+  const alternativa = pagamento ? formaAlternativa(pagamento.metodo, formas) : null;
 
   return (
     <div className="min-h-screen bg-background">
@@ -258,7 +269,7 @@ export default function Pagamento() {
           </a>
         )}
 
-        {emAberto && !trocando && (
+        {emAberto && !trocando && (pagamento!.metodo !== "presencial" || alternativa) && (
           <div className="flex flex-col sm:flex-row gap-3 mb-6">
             {pagamento!.metodo !== "presencial" && (
               <button
@@ -268,12 +279,14 @@ export default function Pagamento() {
                 <RefreshCw className={`size-3 ${verificando ? "animate-spin" : ""}`} /> {verificando ? "Verificando..." : "Já paguei"}
               </button>
             )}
-            <button
-              onClick={() => { setTrocando(true); setErro(null); setEscolha(pagamento!.metodo === "pix" ? "cartao" : "pix"); }}
-              className="flex-1 border border-border py-3 font-mono text-[10px] uppercase tracking-widest text-foreground hover:border-primary"
-            >
-              {pagamento!.metodo === "presencial" ? "Prefiro pagar agora" : "Trocar forma de pagamento"}
-            </button>
+            {alternativa && (
+              <button
+                onClick={() => { setTrocando(true); setErro(null); setEscolha(alternativa); }}
+                className="flex-1 border border-border py-3 font-mono text-[10px] uppercase tracking-widest text-foreground hover:border-primary"
+              >
+                {pagamento!.metodo === "presencial" ? "Prefiro pagar agora" : "Trocar forma de pagamento"}
+              </button>
+            )}
           </div>
         )}
 
@@ -282,7 +295,7 @@ export default function Pagamento() {
           <fieldset className="mb-6">
             <legend className="font-mono text-[10px] uppercase tracking-widest text-foreground mb-3">Como você quer pagar?</legend>
             <div className="space-y-2">
-              {OPCOES.map(({ metodo, titulo, texto, Icone }) => (
+              {opcoes.map(({ metodo, titulo, texto, Icone }) => (
                 <label
                   key={metodo}
                   className={`flex items-start gap-3 border p-4 cursor-pointer transition-colors has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-accent ${

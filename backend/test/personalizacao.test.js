@@ -158,11 +158,12 @@ test('opcoes: todo estilo, barba e cor tem texto para a analise', () => {
 // Rotas, com IA, segmentacao e consentimento simulados
 // ---------------------------------------------------------------
 
-async function comRota({ gemini = {}, imagem = {} }, fn) {
+async function comRota({ gemini = {}, imagem = {}, cota = async () => ({ ok: true }) }, fn) {
   const k = {
     gemini: require.resolve('../src/services/gemini'),
     imagem: require.resolve('../src/services/imagem'),
     privacidade: require.resolve('../src/routes/privacidade'),
+    cota: require.resolve('../src/services/cotaVisagismo'),
     rota: require.resolve('../src/routes/visagismo'),
   };
   const anteriores = Object.fromEntries(Object.entries(k).map(([n, c]) => [n, require.cache[c]]));
@@ -170,7 +171,8 @@ async function comRota({ gemini = {}, imagem = {} }, fn) {
   const falso = (c, exports) => { require.cache[c] = { id: c, filename: c, loaded: true, exports }; };
   falso(k.gemini, { ...reais.gemini, ...gemini });
   falso(k.imagem, { ...reais.imagem, ...imagem });
-  falso(k.privacidade, { protegerVisagismo: (_req, _res, next) => next() });
+  falso(k.privacidade, { protegerVisagismo: (req, _res, next) => { req.usuario = { id: 'usuario-teste' }; next(); } });
+  falso(k.cota, { cotaVisagismo: { consumir: cota } });
   delete require.cache[k.rota];
 
   const app = express();
@@ -382,4 +384,61 @@ test('rota /analisar: tracos com o rotulo de cada parte do rosto, uma por linha'
     assert.equal(r.corpo.tracos, 'Proporções: Rosto alongado.\nTesta: Média a alta.\nMandíbula: Estreita.');
     assert.deepEqual(r.corpo.face_analysis, rosto);
   });
+});
+
+// ---------------------------------------------------------------
+// Limite de uso (services/cotaVisagismo.js): conferido depois das validacoes
+// e antes de qualquer chamada paga
+// ---------------------------------------------------------------
+
+const COTA_ESGOTADA = {
+  ok: false, status: 429, code: 'COTA_VISAGISMO_USUARIO',
+  error: 'Você atingiu o limite de 10 análises por foto por dia. Tente novamente amanhã, a partir das 09:00.',
+};
+
+test('rota /analisar: com a cota esgotada responde 429 e nao chama a IA', async () => {
+  let chamou = false;
+  const pedidos = [];
+  const cota = async (userId, tipo) => { pedidos.push([userId, tipo]); return COTA_ESGOTADA; };
+  await comRota({ cota, gemini: { analisarVisagismo: async () => { chamou = true; return respostaDaIA(); } } }, async (post) => {
+    const r = await post('/analisar', { imagem_base64: 'abc' });
+    assert.equal(r.status, 429);
+    assert.deepEqual(r.corpo, { error: COTA_ESGOTADA.error, code: 'COTA_VISAGISMO_USUARIO' });
+  });
+  assert.equal(chamou, false);
+  assert.deepEqual(pedidos, [['usuario-teste', 'analise']]);
+});
+
+test('rota /analisar: pedido invalido nao gasta a cota', async () => {
+  const pedidos = [];
+  const cota = async (...a) => { pedidos.push(a); return { ok: true }; };
+  await comRota({ cota, gemini: { analisarVisagismo: async () => respostaDaIA() } }, async (post) => {
+    assert.equal((await post('/analisar', {})).status, 400);
+    assert.equal((await post('/analisar', { imagem_base64: 'abc', preferencias: { cor_cabelo: 'verde' } })).status, 400);
+  });
+  assert.deepEqual(pedidos, []);
+});
+
+test('rota /imagem-referencia: com a cota esgotada nao segmenta nem gera; nao aplicavel nao gasta a cota', async () => {
+  const { registro, gemini, imagem } = pipelineFalso();
+  const pedidos = [];
+  const cota = async (userId, tipo) => { pedidos.push([userId, tipo]); return { ...COTA_ESGOTADA, code: 'COTA_VISAGISMO_TOTAL' }; };
+  await comRota({ cota, gemini, imagem }, async (post) => {
+    const nao = await post('/imagem-referencia', { imagem_base64: 'abc', analise: { ...ANALISE, aplicavel: false } });
+    assert.equal(nao.status, 422);
+    const r = await post('/imagem-referencia', { imagem_base64: 'abc', analise: { ...ANALISE, aplicavel: true } });
+    assert.equal(r.status, 429);
+    assert.equal(r.corpo.code, 'COTA_VISAGISMO_TOTAL');
+  });
+  assert.deepEqual(pedidos, [['usuario-teste', 'imagem']]);
+  assert.deepEqual([registro.prompts, registro.partes, registro.montou], [[], [], []]);
+});
+
+test('rota /imagem-referencia: dentro da cota gera normalmente', async () => {
+  const { registro, gemini, imagem } = pipelineFalso();
+  await comRota({ gemini, imagem }, async (post) => {
+    const r = await post('/imagem-referencia', { imagem_base64: 'abc', analise: { ...ANALISE, aplicavel: true } });
+    assert.equal(r.status, 200);
+  });
+  assert.equal(registro.prompts.length, 1);
 });

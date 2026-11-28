@@ -1,0 +1,45 @@
+# Site (cut-advisor-pro) como Static Site no Render.
+#
+# Este arquivo só é usado se alguém criar um Blueprint a partir dele no painel
+# do Render (New > Blueprint). Ele NÃO altera o backend que já existe
+# (visage-backend-vnfg), que não está declarado aqui.
+#
+# Alternativa sem Blueprint: New > Static Site, com os mesmos valores abaixo e,
+# em Redirects/Rewrites, a regra /* -> /index.html (Rewrite).
+services:
+  - type: web
+    runtime: static
+    name: visage-barber-site
+    rootDir: cut-advisor-pro
+    buildCommand: npm ci && npm run build
+    staticPublishPath: dist
+    pullRequestPreviewsEnabled: false
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      - key: VITE_API_URL
+        value: https://visage-backend-vnfg.onrender.com
+      # Preenchidas no painel na criação (sync: false = não ficam no repositório)
+      - key: VITE_SUPABASE_URL
+        sync: false
+      - key: VITE_SUPABASE_PUBLISHABLE_KEY
+        sync: false
+    # Rotas do React Router (/login, /auth/callback, /reset-password, /dashboard...):
+    # arquivos que existem são servidos direto; o resto vai para o index.html
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html
+    headers:
+      - path: /*
+        name: X-Content-Type-Options
+        value: nosniff
+      - path: /*
+        name: Referrer-Policy
+        value: strict-origin-when-cross-origin
+      - path: /*
+        name: X-Frame-Options
+        value: DENY
+      - path: /assets/*
+        name: Cache-Control
+        value: public, max-age=31536000, immutable

@@ -14,7 +14,8 @@ const base = {
 };
 
 const estado = vi.hoisted(() => ({ pagamentos: [] as unknown[] }));
-const api = vi.hoisted(() => ({ apiPost: vi.fn() }));
+const api = vi.hoisted(() => ({ apiPost: vi.fn(), apiGet: vi.fn() }));
+const TODAS = { online: true, metodos: ["pix", "cartao", "presencial"] };
 
 function consulta(tabela: string) {
   const b: Record<string, unknown> = {};
@@ -30,7 +31,7 @@ function consulta(tabela: string) {
 }
 
 vi.mock("@/integrations/supabase/client", () => ({ supabase: { from: (t: string) => consulta(t) } }));
-vi.mock("@/lib/api", async (orig) => ({ ...(await orig<typeof import("@/lib/api")>()), apiPost: api.apiPost }));
+vi.mock("@/lib/api", async (orig) => ({ ...(await orig<typeof import("@/lib/api")>()), apiPost: api.apiPost, apiGet: api.apiGet }));
 vi.mock("@/components/Navbar", () => ({ default: () => null }));
 
 import Pagamento from "@/pages/Pagamento";
@@ -50,6 +51,9 @@ async function abrir(url = `/pagamento/${AG}`) {
 beforeEach(() => {
   estado.pagamentos = [];
   api.apiPost.mockReset();
+  // Mercado Pago em producao (as formas que o backend libera); os testes do
+  // pagamento so na barbearia trocam esta resposta
+  api.apiGet.mockReset().mockResolvedValue(TODAS);
 });
 afterEach(() => vi.unstubAllGlobals());
 
@@ -134,5 +138,45 @@ describe("Pagamento do cliente (web)", () => {
     await abrir();
     await act(async () => { fireEvent.click(screen.getByRole("button", { name: /gerar pix/i })); });
     expect(screen.getByRole("alert")).toHaveTextContent("O pagamento online ainda não está disponível");
+  });
+});
+
+describe("Pagamento do cliente (web) com o online desligado", () => {
+  it("só oferece pagar na barbearia, já escolhido, e consulta as formas no backend", async () => {
+    api.apiGet.mockResolvedValue({ online: false, metodos: ["presencial"] });
+    api.apiPost.mockResolvedValue({ ...base, metodo: "presencial", status: "pending" });
+    await abrir();
+    expect(api.apiGet).toHaveBeenCalledWith("/api/pagamentos/config");
+    expect(screen.getAllByRole("radio")).toHaveLength(1);
+    expect(screen.getByRole("radio", { name: /na barbearia/i })).toBeChecked();
+    expect(screen.queryByRole("button", { name: /gerar pix/i })).not.toBeInTheDocument();
+
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: /confirmar pagamento na barbearia/i })); });
+    expect(api.apiPost).toHaveBeenCalledWith("/api/pagamentos", { agendamento_id: AG, metodo: "presencial" });
+    expect(screen.getByRole("status")).toHaveTextContent("Pagamento na barbearia");
+    // Sem PIX nem cartão liberados, não há para onde trocar
+    expect(screen.queryByRole("button", { name: /prefiro pagar agora/i })).not.toBeInTheDocument();
+  });
+
+  it("sem resposta do backend, fica só o pagamento na barbearia", async () => {
+    api.apiGet.mockRejectedValue(new Error("Sem conexão com a internet."));
+    await abrir();
+    expect(screen.getAllByRole("radio")).toHaveLength(1);
+    expect(screen.getByRole("radio", { name: /na barbearia/i })).toBeInTheDocument();
+  });
+
+  it("resposta incompleta ou sem a barbearia também cai para o presencial", async () => {
+    api.apiGet.mockResolvedValue({ online: true, metodos: ["pix"] });
+    await abrir();
+    expect(screen.getAllByRole("radio")).toHaveLength(1);
+  });
+
+  it("cobrança de teste ainda aberta (PIX): pode trocar, mas só para a barbearia", async () => {
+    api.apiGet.mockResolvedValue({ online: false, metodos: ["presencial"] });
+    estado.pagamentos = [{ ...base, metodo: "pix", status: "pending", pix_copia_cola: "000201", expira_em: new Date(agora + 1800e3).toISOString() }];
+    await abrir();
+    fireEvent.click(screen.getByRole("button", { name: /trocar forma de pagamento/i }));
+    expect(screen.getAllByRole("radio")).toHaveLength(1);
+    expect(screen.getByRole("radio", { name: /na barbearia/i })).toBeChecked();
   });
 });

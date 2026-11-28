@@ -24,10 +24,21 @@ const { alinharFoto, mascaraCabeloBarba, montarMascara, compor } = require('../s
 const { protegerVisagismo } = require('./privacidade');
 const { analiseEmPtBR } = require('../services/nomesCortes');
 const { normalizarPreferencias, partesEditaveis } = require('../services/personalizacao');
+const { cotaVisagismo } = require('../services/cotaVisagismo');
 
 // LGPD: nenhuma foto chega aos servicos de IA sem login e consentimento vigente
 // do titular para esta finalidade (ver services/consentimento.js).
 router.use(protegerVisagismo);
+
+// Custo: cada chamada as IAs conta no limite do usuario e no total do dia
+// (services/cotaVisagismo.js). Conferido depois das validacoes, para pedido
+// invalido nao gastar a cota, e antes de qualquer chamada paga.
+async function dentroDaCota(req, res, tipo) {
+  const cota = await cotaVisagismo.consumir(req.usuario?.id, tipo);
+  if (cota.ok) return true;
+  res.status(cota.status).json({ error: cota.error, code: cota.code });
+  return false;
+}
 
 // Cada parte do rosto com o seu rotulo, uma por linha. Sem rotulo, os textos da
 // IA ("Média a alta, com linha capilar...") nao diziam de que parte falavam. O
@@ -103,6 +114,7 @@ router.post('/analisar', async (req, res) => {
     }
     // Personalizacao opcional; opcao invalida vira 400 antes de chamar a IA
     const preferencias = normalizarPreferencias(req.body.preferencias);
+    if (!(await dentroDaCota(req, res, 'analise'))) return;
 
     // Nomes de corte e barba em pt-BR mesmo se o modelo responder em ingles
     // (os campos "_en", usados na geracao da imagem, nao sao tocados)
@@ -134,6 +146,8 @@ router.post('/imagem-referencia', async (req, res) => {
     const prompt = montarPromptEdicao(analise, preferencias);
     const original = await alinharFoto(Buffer.from(imagem_base64, 'base64'));
     const { largura, altura } = original;
+    // A segmentacao e a geracao abaixo sao pagas; alinhar a foto nao e
+    if (!(await dentroDaCota(req, res, 'imagem'))) return;
 
     // A mascara e o que impede a IA de refazer o rosto. Se a segmentacao falhar
     // ainda entregamos a imagem, mas avisamos na resposta que a garantia caiu.

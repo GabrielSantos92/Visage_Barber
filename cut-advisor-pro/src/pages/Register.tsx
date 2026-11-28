@@ -56,6 +56,9 @@ const Register = () => {
       email: form.email,
       password: form.password,
       options: {
+        // O link de confirmacao volta para o site em que a pessoa se cadastrou
+        // (precisa estar nas Redirect URLs do Supabase; senao vale a Site URL)
+        emailRedirectTo: `${window.location.origin}/`,
         data: {
           nome: form.nome,
           telefone: telefoneParaSalvar(form.telefone),

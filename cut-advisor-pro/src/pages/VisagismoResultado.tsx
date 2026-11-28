@@ -63,9 +63,12 @@ export default function VisagismoResultado() {
         }),
         signal: controller.signal,
       });
-      if (res.status === 401 || res.status === 403) {
+      // Sem login, autorizacao revogada ou limite de uso atingido: mostra o motivo
+      if (res.status === 401 || res.status === 403 || res.status === 429) {
         const corpo = await res.json().catch(() => ({}));
-        setErroMsg(corpo.error ?? "Sua autorização para o uso da foto não está ativa.");
+        setErroMsg(corpo.error ?? (res.status === 429
+          ? "O limite de simulações foi atingido. Tente novamente mais tarde."
+          : "Sua autorização para o uso da foto não está ativa."));
         setStatus("erro");
         return;
       }

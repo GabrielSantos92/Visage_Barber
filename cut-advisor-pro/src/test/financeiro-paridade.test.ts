@@ -22,7 +22,7 @@ const raiz = resolve(__dirname, "../../..");
 const normalizar = (arquivo: string) =>
   readFileSync(resolve(raiz, arquivo), "utf8").replace(/\r\n/g, "\n").replace(/"/g, "'")
     .split("\n").filter((l) => !l.startsWith("import ")).join("\n")
-    .replace(/apiPost</g, "api.post<");
+    .replace(/apiPost</g, "api.post<").replace(/apiGet</g, "api.get<");
 
 describe("financeiro: site e app iguais", () => {
   it("mesmo código nas duas plataformas", () => {
